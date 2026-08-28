@@ -14,3 +14,16 @@ Browser-based Organizer for Rclone Exploration, Audit & Lookup
 
 ## Overview
 
+
+
+## Build Dependencies
+
+BOREAL is written in Rust and builds as a standalone binary for Linux, Windows, and macOS.
+
+### Linux Build Environment
+
+```
+./tools/setup-build-linux.sh
+```
+
+
