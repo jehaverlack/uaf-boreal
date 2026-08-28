@@ -2,29 +2,23 @@
 set -euo pipefail
 
 TARGETS=(
-    "x86_64-unknown-linux-gnu"
-    "aarch64-unknown-linux-gnu"
-    "armv7-unknown-linux-gnueabihf"
-    "x86_64-pc-windows-gnu"
     "x86_64-apple-darwin"
     "aarch64-apple-darwin"
 )
 
-echo "==> BOREAL Linux build environment setup"
+echo "==> BOREAL macOS build environment setup"
 
 #
 # This script configures a non-root user's BOREAL build
-# environment.
+# environment on macOS.
 #
-# System packages are installed using sudo.
-#
-# Rust itself is installed and managed per-user under:
+# Rust is installed and managed per-user under:
 #
 #     ~/.cargo
 #     ~/.rustup
 #
-# Any existing system-wide Rust installation such as
-# /opt/cargo or /opt/rustup is left unchanged.
+# Any existing system-wide Rust installation is left
+# unchanged.
 #
 
 if [[ "${EUID}" -eq 0 ]]; then
@@ -32,20 +26,32 @@ if [[ "${EUID}" -eq 0 ]]; then
     echo
     echo "Run it as the user who will build BOREAL:"
     echo
-    echo "    ./tools/setup-build-linux.sh"
+    echo "    ./tools/setup-build-macos.sh"
     echo
     exit 1
 fi
 
-if [[ "$(uname -s)" != "Linux" ]]; then
-    echo "ERROR: This script is intended for Linux."
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "ERROR: This script is intended for macOS."
     exit 1
 fi
 
-if ! command -v apt >/dev/null 2>&1; then
-    echo "ERROR: This setup script currently supports Debian/Ubuntu systems using apt."
-    exit 1
-fi
+#
+# Determine the user's shell configuration file.
+#
+# Modern macOS defaults to zsh, but support bash as well.
+#
+case "${SHELL:-}" in
+    */zsh)
+        SHELL_RC="${HOME}/.zshrc"
+        ;;
+    */bash)
+        SHELL_RC="${HOME}/.bashrc"
+        ;;
+    *)
+        SHELL_RC="${HOME}/.zshrc"
+        ;;
+esac
 
 #
 # BOREAL uses a per-user Rust environment.
@@ -57,8 +63,8 @@ export CARGO_HOME="${HOME}/.cargo"
 export RUSTUP_HOME="${HOME}/.rustup"
 export PATH="${CARGO_HOME}/bin:${PATH}"
 
-configure_bashrc() {
-    local bashrc="${HOME}/.bashrc"
+configure_shell_rc() {
+    local shell_rc="${SHELL_RC}"
 
     local marker_begin="# >>> BOREAL user Rust environment >>>"
     local marker_end="# <<< BOREAL user Rust environment <<<"
@@ -69,12 +75,9 @@ configure_bashrc() {
     echo "    CARGO_HOME=${HOME}/.cargo"
     echo "    RUSTUP_HOME=${HOME}/.rustup"
     echo
-    echo "Your current shell may be configured to use a"
-    echo "system-wide Rust installation instead."
-    echo
     echo "BOREAL can add the following configuration to:"
     echo
-    echo "    ${bashrc}"
+    echo "    ${shell_rc}"
     echo
     echo "------------------------------------------------------------"
     echo "${marker_begin}"
@@ -85,43 +88,40 @@ configure_bashrc() {
     echo "------------------------------------------------------------"
     echo
 
-    read -r -p "Update ${bashrc} to use the per-user Rust environment? [y/N] " answer
+    read -r -p "Update ${shell_rc} to use the per-user Rust environment? [y/N] " answer
 
     case "${answer}" in
         y|Y|yes|YES|Yes)
             ;;
         *)
-            echo "==> Leaving ${bashrc} unchanged"
+            echo "==> Leaving ${shell_rc} unchanged"
             echo
             echo "The current setup script will still use:"
             echo
             echo "    ${CARGO_HOME}"
             echo "    ${RUSTUP_HOME}"
             echo
-            echo "Future shells may continue using the system-wide Rust installation."
+            echo "Future shells may continue using another Rust installation."
             return
             ;;
     esac
 
-    touch "${bashrc}"
+    touch "${shell_rc}"
 
     #
     # Remove any previous BOREAL-managed block.
     #
-    # This keeps the operation idempotent if the setup script
-    # is run more than once.
-    #
-    if grep -Fq "${marker_begin}" "${bashrc}"; then
+    if grep -Fq "${marker_begin}" "${shell_rc}"; then
         echo "==> Replacing existing BOREAL Rust configuration"
 
-        sed -i \
+        sed -i '' \
             "\|${marker_begin}|,\|${marker_end}|d" \
-            "${bashrc}"
+            "${shell_rc}"
     else
         echo "==> Adding BOREAL Rust configuration"
     fi
 
-    cat >> "${bashrc}" <<'EOF'
+    cat >> "${shell_rc}" <<'EOF'
 
 # >>> BOREAL user Rust environment >>>
 export CARGO_HOME="${HOME}/.cargo"
@@ -130,11 +130,11 @@ export PATH="${CARGO_HOME}/bin:${PATH}"
 # <<< BOREAL user Rust environment <<<
 EOF
 
-    echo "==> Updated ${bashrc}"
+    echo "==> Updated ${shell_rc}"
     echo
     echo "Open a new terminal or run:"
     echo
-    echo "    source ~/.bashrc"
+    echo "    source ${shell_rc}"
 }
 
 echo
@@ -142,30 +142,71 @@ echo "==> Rust environment for this setup"
 echo "    CARGO_HOME:  ${CARGO_HOME}"
 echo "    RUSTUP_HOME: ${RUSTUP_HOME}"
 
+#
+# Xcode Command Line Tools are required for compiling and
+# linking native macOS binaries.
+#
+echo
+echo "==> Checking Xcode Command Line Tools"
+
+if xcode-select -p >/dev/null 2>&1; then
+    echo "==> Xcode Command Line Tools already installed"
+    echo "    $(xcode-select -p)"
+else
+    echo "==> Xcode Command Line Tools are not installed"
+    echo
+    echo "Starting Apple's Command Line Tools installer..."
+    xcode-select --install
+
+    echo
+    echo "Complete the Command Line Tools installation, then"
+    echo "run this script again."
+    exit 0
+fi
+
+#
+# Homebrew provides project build utilities such as jq and
+# pkg-config.
+#
+echo
+echo "==> Checking Homebrew"
+
+if ! command -v brew >/dev/null 2>&1; then
+    echo "ERROR: Homebrew is not installed."
+    echo
+    echo "Install Homebrew from:"
+    echo
+    echo "    https://brew.sh/"
+    echo
+    echo "Then run this script again."
+    exit 1
+fi
+
+#
+# Ensure Homebrew itself is available in this process even
+# on systems where the shell environment has not yet been
+# initialized correctly.
+#
+if [[ -x "/opt/homebrew/bin/brew" ]]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [[ -x "/usr/local/bin/brew" ]]; then
+    eval "$(/usr/local/bin/brew shellenv)"
+fi
+
 echo
 echo "==> Installing system build dependencies"
 
-sudo apt update
-
-sudo apt install -y \
-    build-essential \
+brew install \
     pkg-config \
-    curl \
-    jq \
-    gcc-mingw-w64-x86-64 \
-    gcc-aarch64-linux-gnu \
-    gcc-arm-linux-gnueabihf
+    jq
 
 echo
 echo "==> Checking user Rust installation"
 
 #
-# Check the explicit per-user rustup path rather than using:
-#
-#     command -v rustup
-#
-# because that could discover a system-wide installation
-# such as /opt/cargo/bin/rustup.
+# Check the explicit per-user rustup path instead of
+# command -v rustup so a system-wide installation does not
+# satisfy this test.
 #
 if [[ ! -x "${CARGO_HOME}/bin/rustup" ]]; then
     echo "==> Installing Rust using rustup"
@@ -187,16 +228,13 @@ fi
 #
 # rustup creates ~/.cargo/env.
 #
-# Source it for this script when available.
-#
 if [[ -f "${CARGO_HOME}/env" ]]; then
     # shellcheck disable=SC1090
     source "${CARGO_HOME}/env"
 fi
 
 #
-# Reassert the BOREAL per-user Rust environment after
-# sourcing rustup's environment file.
+# Reassert the BOREAL per-user Rust environment.
 #
 export CARGO_HOME="${HOME}/.cargo"
 export RUSTUP_HOME="${HOME}/.rustup"
@@ -223,10 +261,6 @@ fi
 #
 # Ensure a default Rust toolchain exists.
 #
-# This handles the case where ~/.cargo and ~/.rustup
-# already exist but do not contain a usable compiler
-# toolchain.
-#
 if ! rustup show active-toolchain >/dev/null 2>&1; then
     echo
     echo "==> Installing stable Rust toolchain"
@@ -249,13 +283,18 @@ for target in "${TARGETS[@]}"; do
 done
 
 #
-# Ask whether this per-user Rust environment should also
-# become the user's default in future Bash sessions.
+# Ask whether the user wants the per-user Rust environment
+# enabled automatically in future shell sessions.
 #
-configure_bashrc
+configure_shell_rc
 
 echo
 echo "==> Build environment ready"
+echo
+
+echo "Host:"
+echo "  Architecture: $(uname -m)"
+echo "  macOS:        $(sw_vers -productVersion)"
 echo
 
 echo "Rust environment:"
