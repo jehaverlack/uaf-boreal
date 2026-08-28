@@ -16,16 +16,6 @@
     "git_repo": "https://github.com/jehaverlack/uaf-boreal.git"
   },
   "META_MAPS": {
-    "package.json": {
-      "description": "description",
-      "version": "version",
-      "version_date": "version_date",
-      "author": "author",
-      "copyright": "copyright",
-      "license": "license",
-      "license_url": "license_url",
-      "homepage": "homepage"
-    },
     "*.md": {
       "**Name**": "name",
       "**Project**": "project",

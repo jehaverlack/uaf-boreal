@@ -1,0 +1,11 @@
+{
+    "BOREAL": {
+        "SCHEMA_VERSION": "1",
+        "DIRS": {
+            "home": "",
+            "conf": "HOME/conf",
+            "data": "HOME/data",
+            "logs": "HOME/logs"
+        }
+    }
+}

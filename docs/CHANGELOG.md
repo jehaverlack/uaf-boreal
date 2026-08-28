@@ -1,4 +1,4 @@
-# Browser-based Organizer for Rclone Exploration, Audit & Lookup (BOREAL)
+# Browser-based Organizer for Rclone Exploration, Audit and Lookup (BOREAL)
 
 | Attribute | Value |
 | --- | --- |
@@ -13,6 +13,7 @@
 **Summary**
 Project Initialization
 
+- fixing Metadata Tools
 - Start v0.0.1
 - Project Initialization
 - Initial commit
