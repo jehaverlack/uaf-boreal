@@ -17,6 +17,11 @@ echo "==> BOREAL macOS build environment setup"
 #     ~/.cargo
 #     ~/.rustup
 #
+# User-local utilities installed by this script are placed
+# under:
+#
+#     ~/.local/bin
+#
 # Any existing system-wide Rust installation is left
 # unchanged.
 #
@@ -61,19 +66,23 @@ esac
 #
 export CARGO_HOME="${HOME}/.cargo"
 export RUSTUP_HOME="${HOME}/.rustup"
-export PATH="${CARGO_HOME}/bin:${PATH}"
+
+LOCAL_BIN="${HOME}/.local/bin"
+
+export PATH="${CARGO_HOME}/bin:${LOCAL_BIN}:${PATH}"
 
 configure_shell_rc() {
     local shell_rc="${SHELL_RC}"
 
-    local marker_begin="# >>> BOREAL user Rust environment >>>"
-    local marker_end="# <<< BOREAL user Rust environment <<<"
+    local marker_begin="# >>> BOREAL build environment >>>"
+    local marker_end="# <<< BOREAL build environment <<<"
 
     echo
-    echo "BOREAL uses a per-user Rust installation:"
+    echo "BOREAL uses a per-user build environment:"
     echo
     echo "    CARGO_HOME=${HOME}/.cargo"
     echo "    RUSTUP_HOME=${HOME}/.rustup"
+    echo "    LOCAL_BIN=${HOME}/.local/bin"
     echo
     echo "BOREAL can add the following configuration to:"
     echo
@@ -83,12 +92,12 @@ configure_shell_rc() {
     echo "${marker_begin}"
     echo 'export CARGO_HOME="${HOME}/.cargo"'
     echo 'export RUSTUP_HOME="${HOME}/.rustup"'
-    echo 'export PATH="${CARGO_HOME}/bin:${PATH}"'
+    echo 'export PATH="${CARGO_HOME}/bin:${HOME}/.local/bin:${PATH}"'
     echo "${marker_end}"
     echo "------------------------------------------------------------"
     echo
 
-    read -r -p "Update ${shell_rc} to use the per-user Rust environment? [y/N] " answer
+    read -r -p "Update ${shell_rc} to use the BOREAL user build environment? [y/N] " answer
 
     case "${answer}" in
         y|Y|yes|YES|Yes)
@@ -100,8 +109,9 @@ configure_shell_rc() {
             echo
             echo "    ${CARGO_HOME}"
             echo "    ${RUSTUP_HOME}"
+            echo "    ${LOCAL_BIN}"
             echo
-            echo "Future shells may continue using another Rust installation."
+            echo "Future shells may not automatically use this environment."
             return
             ;;
     esac
@@ -111,23 +121,37 @@ configure_shell_rc() {
     #
     # Remove any previous BOREAL-managed block.
     #
+    # Also recognize the older Rust-only marker so upgrading
+    # an existing BOREAL setup does not leave duplicate blocks.
+    #
+    local old_marker_begin="# >>> BOREAL user Rust environment >>>"
+    local old_marker_end="# <<< BOREAL user Rust environment <<<"
+
+    if grep -Fq "${old_marker_begin}" "${shell_rc}"; then
+        echo "==> Removing previous BOREAL Rust configuration"
+
+        sed -i '' \
+            "\|${old_marker_begin}|,\|${old_marker_end}|d" \
+            "${shell_rc}"
+    fi
+
     if grep -Fq "${marker_begin}" "${shell_rc}"; then
-        echo "==> Replacing existing BOREAL Rust configuration"
+        echo "==> Replacing existing BOREAL build configuration"
 
         sed -i '' \
             "\|${marker_begin}|,\|${marker_end}|d" \
             "${shell_rc}"
     else
-        echo "==> Adding BOREAL Rust configuration"
+        echo "==> Adding BOREAL build configuration"
     fi
 
     cat >> "${shell_rc}" <<'EOF'
 
-# >>> BOREAL user Rust environment >>>
+# >>> BOREAL build environment >>>
 export CARGO_HOME="${HOME}/.cargo"
 export RUSTUP_HOME="${HOME}/.rustup"
-export PATH="${CARGO_HOME}/bin:${PATH}"
-# <<< BOREAL user Rust environment <<<
+export PATH="${CARGO_HOME}/bin:${HOME}/.local/bin:${PATH}"
+# <<< BOREAL build environment <<<
 EOF
 
     echo "==> Updated ${shell_rc}"
@@ -137,10 +161,85 @@ EOF
     echo "    source ${shell_rc}"
 }
 
+install_jq() {
+    echo
+    echo "==> Checking jq"
+
+    #
+    # If jq is already available anywhere in PATH, use it.
+    #
+    if command -v jq >/dev/null 2>&1; then
+        echo "==> jq already installed"
+        echo "    $(command -v jq)"
+        jq --version
+        return
+    fi
+
+    echo "==> jq not found"
+    echo "==> Installing jq as a per-user utility"
+
+    mkdir -p "${LOCAL_BIN}"
+
+    local jq_url
+
+    case "$(uname -m)" in
+        arm64)
+            jq_url="https://github.com/jqlang/jq/releases/latest/download/jq-macos-arm64"
+            ;;
+
+        x86_64)
+            jq_url="https://github.com/jqlang/jq/releases/latest/download/jq-macos-amd64"
+            ;;
+
+        *)
+            echo "ERROR: Unsupported macOS architecture for jq:"
+            echo "       $(uname -m)"
+            exit 1
+            ;;
+    esac
+
+    local jq_path="${LOCAL_BIN}/jq"
+    local jq_tmp="${jq_path}.tmp"
+
+    echo "    Downloading jq"
+    echo "    Destination: ${jq_path}"
+
+    rm -f "${jq_tmp}"
+
+    curl \
+        --fail \
+        --location \
+        --proto '=https' \
+        --tlsv1.2 \
+        --silent \
+        --show-error \
+        --output "${jq_tmp}" \
+        "${jq_url}"
+
+    chmod 0755 "${jq_tmp}"
+
+    mv "${jq_tmp}" "${jq_path}"
+
+    #
+    # Verify that the downloaded executable works before
+    # continuing.
+    #
+    if ! "${jq_path}" --version >/dev/null 2>&1; then
+        echo "ERROR: jq installation failed."
+        rm -f "${jq_path}"
+        exit 1
+    fi
+
+    echo "==> jq installed"
+    echo "    ${jq_path}"
+    "${jq_path}" --version
+}
+
 echo
-echo "==> Rust environment for this setup"
+echo "==> Build environment for this setup"
 echo "    CARGO_HOME:  ${CARGO_HOME}"
 echo "    RUSTUP_HOME: ${RUSTUP_HOME}"
+echo "    LOCAL_BIN:   ${LOCAL_BIN}"
 
 #
 # Xcode Command Line Tools provide:
@@ -188,8 +287,8 @@ fi
 echo "    clang: $(command -v clang)"
 
 #
-# curl is included with macOS and is required to install
-# rustup when no per-user Rust environment exists.
+# curl is included with macOS and is required for both
+# rustup and the standalone jq installation.
 #
 echo
 echo "==> Checking curl"
@@ -200,6 +299,14 @@ if ! command -v curl >/dev/null 2>&1; then
 fi
 
 echo "    curl: $(command -v curl)"
+
+#
+# jq is required by the BOREAL release/version tooling.
+#
+# Install it into ~/.local/bin if the host does not already
+# provide it.
+#
+install_jq
 
 echo
 echo "==> Checking user Rust installation"
@@ -235,11 +342,12 @@ if [[ -f "${CARGO_HOME}/env" ]]; then
 fi
 
 #
-# Reassert the BOREAL per-user Rust environment.
+# Reassert the BOREAL per-user environment after sourcing
+# rustup's environment file.
 #
 export CARGO_HOME="${HOME}/.cargo"
 export RUSTUP_HOME="${HOME}/.rustup"
-export PATH="${CARGO_HOME}/bin:${PATH}"
+export PATH="${CARGO_HOME}/bin:${LOCAL_BIN}:${PATH}"
 
 #
 # Verify the user installation exists.
@@ -284,7 +392,7 @@ for target in "${TARGETS[@]}"; do
 done
 
 #
-# Ask whether this user Rust environment should become
+# Ask whether this user build environment should become
 # the default for future shell sessions.
 #
 configure_shell_rc
@@ -303,6 +411,11 @@ echo "  clang:        $(command -v clang)"
 echo "  SDK path:     $(xcrun --show-sdk-path)"
 echo
 
+echo "Build utilities:"
+echo "  curl:         $(command -v curl)"
+echo "  jq:           $(command -v jq)"
+echo
+
 echo "Rust environment:"
 echo "  CARGO_HOME:  ${CARGO_HOME}"
 echo "  RUSTUP_HOME: ${RUSTUP_HOME}"
@@ -317,6 +430,7 @@ echo
 rustc --version
 cargo --version
 rustup --version
+jq --version
 
 echo
 echo "Installed Rust targets:"
