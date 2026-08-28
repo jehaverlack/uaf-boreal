@@ -39,7 +39,7 @@ fi
 #
 # Determine the user's shell configuration file.
 #
-# Modern macOS defaults to zsh, but support bash as well.
+# Modern macOS normally uses zsh.
 #
 case "${SHELL:-}" in
     */zsh)
@@ -56,8 +56,8 @@ esac
 #
 # BOREAL uses a per-user Rust environment.
 #
-# These intentionally override any system-wide values that
-# may already exist in the current shell.
+# These intentionally override any system-wide Rust
+# configuration inherited from the shell.
 #
 export CARGO_HOME="${HOME}/.cargo"
 export RUSTUP_HOME="${HOME}/.rustup"
@@ -143,8 +143,14 @@ echo "    CARGO_HOME:  ${CARGO_HOME}"
 echo "    RUSTUP_HOME: ${RUSTUP_HOME}"
 
 #
-# Xcode Command Line Tools are required for compiling and
-# linking native macOS binaries.
+# Xcode Command Line Tools provide:
+#
+#     clang
+#     ld
+#     make
+#     SDK headers/libraries
+#
+# These are required for native macOS builds.
 #
 echo
 echo "==> Checking Xcode Command Line Tools"
@@ -156,55 +162,50 @@ else
     echo "==> Xcode Command Line Tools are not installed"
     echo
     echo "Starting Apple's Command Line Tools installer..."
+    echo
+
     xcode-select --install
 
     echo
-    echo "Complete the Command Line Tools installation, then"
-    echo "run this script again."
+    echo "Complete the Apple Command Line Tools installation,"
+    echo "then run this script again."
     exit 0
 fi
 
 #
-# Homebrew provides project build utilities such as jq and
-# pkg-config.
+# Verify the compiler is available.
 #
 echo
-echo "==> Checking Homebrew"
+echo "==> Checking Apple compiler"
 
-if ! command -v brew >/dev/null 2>&1; then
-    echo "ERROR: Homebrew is not installed."
+if ! command -v clang >/dev/null 2>&1; then
+    echo "ERROR: clang was not found."
     echo
-    echo "Install Homebrew from:"
-    echo
-    echo "    https://brew.sh/"
-    echo
-    echo "Then run this script again."
+    echo "The Xcode Command Line Tools installation may be incomplete."
     exit 1
 fi
 
+echo "    clang: $(command -v clang)"
+
 #
-# Ensure Homebrew itself is available in this process even
-# on systems where the shell environment has not yet been
-# initialized correctly.
+# curl is included with macOS and is required to install
+# rustup when no per-user Rust environment exists.
 #
-if [[ -x "/opt/homebrew/bin/brew" ]]; then
-    eval "$(/opt/homebrew/bin/brew shellenv)"
-elif [[ -x "/usr/local/bin/brew" ]]; then
-    eval "$(/usr/local/bin/brew shellenv)"
+echo
+echo "==> Checking curl"
+
+if ! command -v curl >/dev/null 2>&1; then
+    echo "ERROR: curl is required but was not found."
+    exit 1
 fi
 
-echo
-echo "==> Installing system build dependencies"
-
-brew install \
-    pkg-config \
-    jq
+echo "    curl: $(command -v curl)"
 
 echo
 echo "==> Checking user Rust installation"
 
 #
-# Check the explicit per-user rustup path instead of
+# Check the explicit per-user rustup path rather than
 # command -v rustup so a system-wide installation does not
 # satisfy this test.
 #
@@ -283,8 +284,8 @@ for target in "${TARGETS[@]}"; do
 done
 
 #
-# Ask whether the user wants the per-user Rust environment
-# enabled automatically in future shell sessions.
+# Ask whether this user Rust environment should become
+# the default for future shell sessions.
 #
 configure_shell_rc
 
@@ -295,6 +296,11 @@ echo
 echo "Host:"
 echo "  Architecture: $(uname -m)"
 echo "  macOS:        $(sw_vers -productVersion)"
+echo
+
+echo "Apple build tools:"
+echo "  clang:        $(command -v clang)"
+echo "  SDK path:     $(xcrun --show-sdk-path)"
 echo
 
 echo "Rust environment:"
