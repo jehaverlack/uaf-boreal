@@ -587,6 +587,24 @@ fn is_pseudo_name(
 ///
 /// Windows:
 ///     uses the ACL inherited from %LOCALAPPDATA%.
+// fn protect_secrets(
+//     path: &Path,
+// ) -> Result<(), Box<dyn Error>> {
+//     #[cfg(unix)]
+//     {
+//         use std::os::unix::fs::PermissionsExt;
+
+//         let permissions =
+//             fs::Permissions::from_mode(0o600);
+
+//         fs::set_permissions(
+//             path,
+//             permissions,
+//         )?;
+//     }
+
+//     Ok(())
+// }
 fn protect_secrets(
     path: &Path,
 ) -> Result<(), Box<dyn Error>> {
@@ -601,6 +619,11 @@ fn protect_secrets(
             path,
             permissions,
         )?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = path;
     }
 
     Ok(())
