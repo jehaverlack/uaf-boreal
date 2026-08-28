@@ -3,7 +3,7 @@ Browser-based Organizer for Rclone Exploration, Audit & Lookup
 
 | Attribute | Value |
 | --- | --- |
-| **Project** | BorReaL |
+| **Project** | Boreal |
 | **Description** | Browser-based Organizer for Rclone Exploration, Audit and Lookup | 
 | **Author** | John Haverlack |
 | **Copyright** | 2026 University of Alaska Faribanks |
