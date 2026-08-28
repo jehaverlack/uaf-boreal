@@ -10,6 +10,13 @@ use std::path::{
     PathBuf,
 };
 
+/// Runtime configuration for the BOREAL WebUI.
+pub struct WebAppConfig {
+    pub listen: String,
+    pub port: u16,
+    pub open_browser: bool,
+}
+
 /// Load a JSON file.
 pub fn load_json(
     path: &Path,
@@ -37,6 +44,53 @@ pub fn save_json(
     )?;
 
     Ok(())
+}
+
+/// Read BOREAL.WEBAPP configuration.
+pub fn get_webapp_config(
+    boreal: &Value,
+) -> Result<WebAppConfig, Box<dyn Error>> {
+    let webapp = boreal
+        .get("BOREAL")
+        .and_then(|value| value.get("WEBAPP"))
+        .ok_or(
+            "Missing BOREAL.WEBAPP in boreal.json",
+        )?;
+
+    let listen = webapp
+        .get("listen")
+        .and_then(Value::as_str)
+        .ok_or(
+            "Missing or invalid BOREAL.WEBAPP.listen",
+        )?
+        .to_string();
+
+    let port = webapp
+        .get("port")
+        .and_then(Value::as_u64)
+        .ok_or(
+            "Missing or invalid BOREAL.WEBAPP.port",
+        )?;
+
+    if port > u16::MAX as u64 {
+        return Err(
+            format!(
+                "Invalid BOREAL.WEBAPP.port: {port}"
+            )
+            .into(),
+        );
+    }
+
+    let open_browser = webapp
+        .get("open_browser")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+
+    Ok(WebAppConfig {
+        listen,
+        port: port as u16,
+        open_browser,
+    })
 }
 
 /// Set BOREAL.DIRS.home to the platform-resolved
@@ -180,11 +234,6 @@ pub fn resolve_all_directories(
      * been resolved.
      *
      * This makes configuration order irrelevant.
-     *
-     * For example:
-     *
-     * data   = HOME/data
-     * sqlite = DATA/sqlite
      */
     while !unresolved.is_empty() {
         let mut progress = false;
@@ -231,10 +280,8 @@ pub fn resolve_all_directories(
         }
 
         /*
-         * If nothing could be resolved during this
-         * pass, the configuration contains either
-         * a circular dependency or an unresolved
-         * reference.
+         * No progress means a circular dependency
+         * or unresolved pseudo-variable exists.
          */
         if !progress {
             let unresolved_list =
@@ -324,11 +371,8 @@ fn resolve_directory_value(
                 base.clone();
 
             /*
-             * Accept either slash convention in the
-             * JSON configuration.
-             *
-             * PathBuf creates the platform-native
-             * path.
+             * Accept either slash convention in
+             * boreal.json.
              */
             for component in remainder
                 .split(['/', '\\'])
@@ -360,9 +404,8 @@ fn resolve_directory_value(
     }
 
     /*
-     * No pseudo-variable was detected.
-     *
-     * Treat this as a literal filesystem path.
+     * No pseudo-variable detected.
+     * Treat as a literal filesystem path.
      */
     Ok(
         Some(
@@ -379,9 +422,7 @@ fn resolve_directory_value(
 ///
 /// ("DATA", "sqlite")
 ///
-/// Windows-style separators are also accepted:
-///
-/// DATA\sqlite
+/// Windows-style separators are also accepted.
 fn split_pseudo_path(
     value: &str,
 ) -> Option<(&str, &str)> {
@@ -422,13 +463,6 @@ fn split_pseudo_path(
 
 /// Determine whether a string looks like one of
 /// BOREAL's uppercase pseudo-variable names.
-///
-/// Examples:
-///
-/// HOME
-/// DATA
-/// SQLITE
-/// RCLONE_CACHE
 fn is_pseudo_name(
     value: &str,
 ) -> bool {
@@ -440,43 +474,4 @@ fn is_pseudo_name(
                     || c == '_'
             },
         )
-}
-
-pub struct WebAppConfig {
-    pub listen: String,
-    pub port: u16,
-}
-
-pub fn get_webapp_config(
-    boreal: &Value,
-) -> Result<WebAppConfig, Box<dyn Error>> {
-    let webapp = boreal
-        .get("BOREAL")
-        .and_then(|value| value.get("WEBAPP"))
-        .ok_or("Missing BOREAL.WEBAPP in boreal.json")?;
-
-    let listen = webapp
-        .get("listen")
-        .and_then(Value::as_str)
-        .ok_or("Missing or invalid BOREAL.WEBAPP.listen")?
-        .to_string();
-
-    let port = webapp
-        .get("port")
-        .and_then(Value::as_u64)
-        .ok_or("Missing or invalid BOREAL.WEBAPP.port")?;
-
-    if port > u16::MAX as u64 {
-        return Err(
-            format!(
-                "Invalid BOREAL.WEBAPP.port: {port}"
-            )
-            .into(),
-        );
-    }
-
-    Ok(WebAppConfig {
-        listen,
-        port: port as u16,
-    })
 }

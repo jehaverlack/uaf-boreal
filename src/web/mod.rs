@@ -1,6 +1,7 @@
 pub mod routes;
 
 use crate::config;
+
 use axum::Router;
 use serde_json::Value;
 use std::error::Error;
@@ -11,18 +12,11 @@ pub async fn run(
     let web_config =
         config::get_webapp_config(boreal)?;
 
-    let address = format!(
-        "{}:{}",
-        web_config.listen,
-        web_config.port
-    );
-
     /*
-     * BOREAL is intentionally a local desktop application.
+     * BOREAL is a local desktop application.
      *
-     * For now, refuse to bind to anything except localhost.
-     * We can revisit this policy later if remote access is
-     * ever intentionally supported.
+     * Do not permit accidental exposure of the WebUI
+     * on external interfaces.
      */
     if web_config.listen != "127.0.0.1"
         && web_config.listen != "localhost"
@@ -38,22 +32,74 @@ pub async fn run(
         );
     }
 
-    let app = Router::new()
-        .merge(routes::router());
-
-    let listener =
-        tokio::net::TcpListener::bind(&address)
-            .await?;
-
-    println!();
-    println!(
-        "BOREAL WebUI: http://{}:{}",
+    let address = format!(
+        "{}:{}",
         web_config.listen,
         web_config.port
     );
 
-    println!("Press Ctrl-C to stop BOREAL.");
+    let url = format!(
+        "http://{}:{}",
+        web_config.listen,
+        web_config.port
+    );
 
+    /*
+     * Build the application router.
+     */
+    let app = Router::new()
+        .merge(
+            routes::router()
+        );
+
+    /*
+     * Bind first.
+     *
+     * If the configured address or port cannot be
+     * used, fail before opening a browser.
+     */
+    let listener =
+        tokio::net::TcpListener::bind(
+            &address
+        )
+        .await?;
+
+    println!();
+    println!(
+        "BOREAL WebUI: {url}"
+    );
+
+    /*
+     * Open the user's default browser when enabled.
+     *
+     * Browser launch failure is not fatal. The
+     * application can still be reached manually.
+     */
+    if web_config.open_browser {
+        println!(
+            "Opening default browser..."
+        );
+
+        if let Err(error) =
+            webbrowser::open(&url)
+        {
+            eprintln!(
+                "Unable to open default browser: {error}"
+            );
+
+            eprintln!(
+                "Open BOREAL manually at: {url}"
+            );
+        }
+    }
+
+    println!(
+        "Press Ctrl-C to stop BOREAL."
+    );
+
+    /*
+     * Start the Axum HTTP server.
+     */
     axum::serve(
         listener,
         app,

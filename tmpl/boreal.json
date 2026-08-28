@@ -10,7 +10,8 @@
         },
         "WEBAPP": {
             "port": 8765,
-            "listen": "127.0.0.1"
+            "listen": "127.0.0.1",
+            "open_browser": true
         }
     }
 }
