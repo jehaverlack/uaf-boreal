@@ -32,7 +32,6 @@
 
 <body class="d-flex flex-column min-vh-100">
 
-    <!-- Main application navigation -->
     <nav
         class="navbar navbar-expand-lg bg-body-tertiary border-bottom"
     >
@@ -64,9 +63,7 @@
                 id="borealNavbar"
             >
 
-                <ul
-                    class="navbar-nav me-auto mb-2 mb-lg-0"
-                >
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
 
                     <li class="nav-item">
 
@@ -169,6 +166,23 @@
 
                             </li>
 
+                            <li>
+                                <hr class="dropdown-divider">
+                            </li>
+
+                            <li>
+
+                                <button
+                                    class="dropdown-item"
+                                    type="button"
+                                    id="boreal-quit"
+                                >
+                                    <i class="bi bi-power me-2"></i>
+                                    Quit BOREAL
+                                </button>
+
+                            </li>
+
                         </ul>
 
                     </li>
@@ -181,10 +195,8 @@
 
     </nav>
 
-    <!-- Global application alerts -->
     {% include "partials/alerts.html" %}
 
-    <!-- Page content -->
     <main class="container-fluid py-4 flex-grow-1">
 
         {% block content %}
@@ -192,8 +204,49 @@
 
     </main>
 
-    <!-- Global application status -->
     {% include "partials/status.html" %}
+
+    <!-- BOREAL stopped modal -->
+    <div
+        class="modal fade"
+        id="borealStoppedModal"
+        tabindex="-1"
+        data-bs-backdrop="static"
+        data-bs-keyboard="false"
+        aria-labelledby="borealStoppedModalLabel"
+        aria-hidden="true"
+    >
+
+        <div class="modal-dialog modal-dialog-centered">
+
+            <div class="modal-content">
+
+                <div class="modal-header">
+
+                    <h1
+                        class="modal-title fs-5"
+                        id="borealStoppedModalLabel"
+                    >
+                        <i class="bi bi-power me-2"></i>
+                        BOREAL has stopped
+                    </h1>
+
+                </div>
+
+                <div class="modal-body">
+
+                    <p class="mb-0">
+                        The BOREAL application is no longer running.
+                        You may close this browser tab.
+                    </p>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
 
     <!-- HTMX -->
     <script
@@ -204,6 +257,102 @@
     <script
         src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
     ></script>
+
+    <script>
+        (() => {
+            const quitButton =
+                document.getElementById("boreal-quit");
+
+            const stoppedModalElement =
+                document.getElementById("borealStoppedModal");
+
+            const stoppedModal =
+                new bootstrap.Modal(stoppedModalElement);
+
+            let heartbeatFailures = 0;
+            let stopped = false;
+
+            function showStopped() {
+                if (stopped) {
+                    return;
+                }
+
+                stopped = true;
+                stoppedModal.show();
+            }
+
+            async function checkBoreal() {
+                if (stopped) {
+                    return;
+                }
+
+                try {
+                    const response = await fetch(
+                        "/status",
+                        {
+                            method: "GET",
+                            cache: "no-store",
+                        },
+                    );
+
+                    if (!response.ok) {
+                        heartbeatFailures++;
+                    } else {
+                        heartbeatFailures = 0;
+                    }
+                } catch (_error) {
+                    heartbeatFailures++;
+                }
+
+                /*
+                 * Require two consecutive failures so a single transient
+                 * request failure does not report BOREAL as stopped.
+                 */
+                if (heartbeatFailures >= 2) {
+                    showStopped();
+                }
+            }
+
+            if (quitButton) {
+                quitButton.addEventListener(
+                    "click",
+                    async () => {
+                        quitButton.disabled = true;
+
+                        try {
+                            await fetch(
+                                "/app/quit",
+                                {
+                                    method: "POST",
+                                    cache: "no-store",
+                                },
+                            );
+                        } catch (_error) {
+                            /*
+                             * The server may disappear while the shutdown
+                             * response is still being processed. That is
+                             * acceptable for a Quit request.
+                             */
+                        }
+
+                        /*
+                         * Do not wait for two heartbeat failures when the
+                         * user explicitly requested shutdown.
+                         */
+                        window.setTimeout(
+                            showStopped,
+                            500,
+                        );
+                    },
+                );
+            }
+
+            window.setInterval(
+                checkBoreal,
+                2000,
+            );
+        })();
+    </script>
 
 </body>
 

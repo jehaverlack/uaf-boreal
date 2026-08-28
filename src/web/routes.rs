@@ -6,7 +6,10 @@ use axum::{
     extract::State,
     http::StatusCode,
     response::Html,
-    routing::get,
+    routing::{
+        get,
+        post,
+    },
     Router,
 };
 
@@ -101,6 +104,10 @@ pub fn router() -> Router<Arc<AppState>> {
             "/ui/status",
             get(ui_status),
         )
+        .route(
+            "/app/quit",
+            post(quit),
+        )
 }
 
 async fn index(
@@ -163,14 +170,27 @@ async fn about(
     )
 }
 
-/// Lightweight application health endpoint.
-async fn status() -> &'static str {
-    "BOREAL is running"
+/// Lightweight heartbeat endpoint.
+///
+/// The browser periodically checks this endpoint so it can detect when
+/// the BOREAL process has stopped.
+async fn status() -> StatusCode {
+    StatusCode::NO_CONTENT
 }
 
-/// Return only the Alerts bar.
-///
-/// HTMX polls this endpoint while Rclone is initializing.
+/// Request graceful application shutdown from the WebUI.
+async fn quit(
+    State(state): State<Arc<AppState>>,
+) -> StatusCode {
+    println!(
+        "Quit requested from WebUI."
+    );
+
+    state.request_shutdown();
+
+    StatusCode::ACCEPTED
+}
+
 async fn ui_alerts(
     State(state): State<Arc<AppState>>,
 ) -> Result<Html<String>, StatusCode> {
@@ -191,9 +211,6 @@ async fn ui_alerts(
     )
 }
 
-/// Return only the Status bar.
-///
-/// HTMX polls this endpoint while Rclone is initializing.
 async fn ui_status(
     State(state): State<Arc<AppState>>,
 ) -> Result<Html<String>, StatusCode> {
@@ -214,7 +231,6 @@ async fn ui_status(
     )
 }
 
-/// Poll only while Rclone initialization is in progress.
 fn should_poll_rclone(
     rclone_state: &RcloneState,
 ) -> bool {
@@ -224,9 +240,6 @@ fn should_poll_rclone(
     )
 }
 
-/// Build global application alerts.
-///
-/// Normal/healthy states do not generate alerts.
 fn build_alerts(
     rclone_state: &RcloneState,
 ) -> Vec<AlertItem> {
@@ -247,13 +260,7 @@ fn build_alerts(
 
         RcloneState::Ready(
             _,
-        ) => {
-            /*
-             * Rclone is ready.
-             *
-             * No alert is necessary.
-             */
-        }
+        ) => {}
 
         RcloneState::Error(
             error,
@@ -273,7 +280,6 @@ fn build_alerts(
     alerts
 }
 
-/// Build the global Status bar.
 fn build_status_items(
     rclone_state: &RcloneState,
 ) -> Vec<StatusItem> {

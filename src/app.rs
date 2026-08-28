@@ -5,6 +5,8 @@ use std::{
     },
 };
 
+use tokio::sync::watch;
+
 use crate::{
     bootstrap::Runtime,
     rclone::{
@@ -18,10 +20,10 @@ pub struct AppState {
     pub runtime: Runtime,
 
     /// Current state of the BOREAL-managed Rclone installation.
-    ///
-    /// Rclone initialization happens in the background so that the
-    /// WebUI can start immediately and report initialization progress.
     pub rclone: RwLock<RcloneState>,
+
+    /// Signals that BOREAL should shut down.
+    shutdown_tx: watch::Sender<bool>,
 }
 
 /// Current state of the BOREAL-managed Rclone installation.
@@ -38,26 +40,29 @@ pub enum RcloneState {
 }
 
 impl AppState {
-    /// Create the initial application state.
-    ///
-    /// Rclone starts in the Initializing state. The actual initialization
-    /// process is started separately so that the WebUI does not have to wait.
+    /// Create the shared application state.
     pub fn new(
         runtime: Runtime,
     ) -> Self {
+        let (
+            shutdown_tx,
+            _shutdown_rx,
+        ) = watch::channel(
+            false,
+        );
+
         Self {
             runtime,
 
             rclone: RwLock::new(
                 RcloneState::Initializing,
             ),
+
+            shutdown_tx,
         }
     }
 
     /// Start Rclone initialization in the background.
-    ///
-    /// Rclone installation uses blocking filesystem/process operations, so
-    /// the work is moved to Tokio's blocking thread pool.
     pub fn initialize_rclone(
         state: Arc<Self>,
     ) {
@@ -154,9 +159,6 @@ impl AppState {
     }
 
     /// Return a snapshot of the current Rclone state.
-    ///
-    /// This keeps the WebUI from holding the application-state lock while
-    /// rendering templates.
     pub fn rclone_state(
         &self,
     ) -> RcloneState {
@@ -175,5 +177,24 @@ impl AppState {
                 )
             }
         }
+    }
+
+    /// Request a graceful BOREAL shutdown.
+    ///
+    /// This is used by both the WebUI Quit action and other application
+    /// components that may need to request shutdown.
+    pub fn request_shutdown(
+        &self,
+    ) {
+        let _ = self.shutdown_tx.send(
+            true,
+        );
+    }
+
+    /// Subscribe to application shutdown requests.
+    pub fn shutdown_receiver(
+        &self,
+    ) -> watch::Receiver<bool> {
+        self.shutdown_tx.subscribe()
     }
 }

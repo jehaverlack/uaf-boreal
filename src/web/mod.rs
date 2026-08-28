@@ -6,6 +6,7 @@ use std::{
 };
 
 use axum::Router;
+use tokio::sync::watch;
 
 use crate::{
     app::AppState,
@@ -46,9 +47,6 @@ pub async fn run(
 
     /*
      * Bind before opening the browser.
-     *
-     * This ensures that the browser is not opened unless the WebUI
-     * successfully acquires its configured listening port.
      */
     let listener = tokio::net::TcpListener::bind(
         &bind_address,
@@ -57,7 +55,9 @@ pub async fn run(
 
     let app: Router = routes::router()
         .with_state(
-            state,
+            Arc::clone(
+                &state,
+            ),
         );
 
     let browser_host = match webapp.listen.as_str() {
@@ -93,11 +93,78 @@ pub async fn run(
         "Press Ctrl-C to stop BOREAL."
     );
 
+    let shutdown_rx = state.shutdown_receiver();
+
     axum::serve(
         listener,
         app,
     )
+    .with_graceful_shutdown(
+        shutdown_signal(
+            Arc::clone(
+                &state,
+            ),
+            shutdown_rx,
+        ),
+    )
     .await?;
 
+    println!(
+        "BOREAL stopped."
+    );
+
     Ok(())
+}
+
+/// Wait for either:
+///
+/// - Ctrl-C at the terminal
+/// - a shutdown request from the WebUI
+async fn shutdown_signal(
+    state: Arc<AppState>,
+    mut shutdown_rx: watch::Receiver<bool>,
+) {
+    tokio::select! {
+        result = tokio::signal::ctrl_c() => {
+            match result {
+                Ok(()) => {
+                    println!();
+                    println!(
+                        "Ctrl-C received. Stopping BOREAL..."
+                    );
+
+                    state.request_shutdown();
+                }
+
+                Err(error) => {
+                    eprintln!(
+                        "Unable to listen for Ctrl-C: {error}"
+                    );
+                }
+            }
+        }
+
+        _ = wait_for_shutdown_request(
+            &mut shutdown_rx,
+        ) => {
+            println!(
+                "Shutdown requested from WebUI."
+            );
+        }
+    }
+}
+
+/// Wait until AppState indicates that shutdown has been requested.
+async fn wait_for_shutdown_request(
+    shutdown_rx: &mut watch::Receiver<bool>,
+) {
+    loop {
+        if *shutdown_rx.borrow() {
+            return;
+        }
+
+        if shutdown_rx.changed().await.is_err() {
+            return;
+        }
+    }
 }
