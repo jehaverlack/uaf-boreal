@@ -1,9 +1,8 @@
-use std::{
-    error::Error,
-    path::PathBuf,
-};
+use std::path::PathBuf;
 
 use crate::bootstrap::Runtime;
+
+use super::RcloneError;
 
 /// Return the path to BOREAL's private Rclone configuration file.
 ///
@@ -14,18 +13,15 @@ use crate::bootstrap::Runtime;
 /// Windows:
 ///
 ///     %LOCALAPPDATA%\boreal\conf\rclone.conf
-///
-/// BOREAL will always invoke Rclone with this configuration explicitly rather
-/// than relying on Rclone's normal per-user configuration location.
 #[allow(dead_code)]
 pub fn path(
     runtime: &Runtime,
-) -> Result<PathBuf, Box<dyn Error>> {
+) -> Result<PathBuf, RcloneError> {
     let conf_dir = runtime
         .directories
-        .get("conf")
+        .get("CONF")
         .ok_or(
-            "BOREAL conf directory is not configured",
+            "BOREAL CONF directory is not configured",
         )?;
 
     Ok(

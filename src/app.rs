@@ -1,3 +1,10 @@
+use std::{
+    sync::{
+        Arc,
+        RwLock,
+    },
+};
+
 use crate::{
     bootstrap::Runtime,
     rclone::{
@@ -7,17 +14,22 @@ use crate::{
 };
 
 /// Shared runtime state for the BOREAL application.
-///
-/// Initialization failures for optional/supporting components such as
-/// Rclone are stored here instead of terminating BOREAL.
 pub struct AppState {
     pub runtime: Runtime,
-    pub rclone: RcloneState,
+
+    /// Current state of the BOREAL-managed Rclone installation.
+    ///
+    /// Rclone initialization happens in the background so that the
+    /// WebUI can start immediately and report initialization progress.
+    pub rclone: RwLock<RcloneState>,
 }
 
 /// Current state of the BOREAL-managed Rclone installation.
 #[derive(Debug, Clone)]
 pub enum RcloneState {
+    /// BOREAL is checking, downloading, installing, or verifying Rclone.
+    Initializing,
+
     /// Rclone is installed and has been successfully verified.
     Ready(RcloneStatus),
 
@@ -26,55 +38,142 @@ pub enum RcloneState {
 }
 
 impl AppState {
-    /// Initialize application state.
+    /// Create the initial application state.
     ///
-    /// Rclone installation is attempted automatically. A failure does not
-    /// prevent BOREAL from starting; instead, the error is recorded so the
-    /// WebUI can report it to the user.
-    pub fn initialize(
+    /// Rclone starts in the Initializing state. The actual initialization
+    /// process is started separately so that the WebUI does not have to wait.
+    pub fn new(
         runtime: Runtime,
     ) -> Self {
-        println!("Checking BOREAL-managed Rclone...");
-
-        let rclone = match rclone::ensure_installed(
-            &runtime,
-        ) {
-            Ok(status) => {
-                println!(
-                    "Rclone ready: {}",
-                    status.version
-                );
-
-                println!(
-                    "Rclone path: {}",
-                    status.path.display()
-                );
-
-                RcloneState::Ready(
-                    status,
-                )
-            }
-
-            Err(error) => {
-                let message = error.to_string();
-
-                eprintln!(
-                    "Rclone initialization failed: {message}"
-                );
-
-                eprintln!(
-                    "BOREAL will continue running."
-                );
-
-                RcloneState::Error(
-                    message,
-                )
-            }
-        };
-
         Self {
             runtime,
-            rclone,
+
+            rclone: RwLock::new(
+                RcloneState::Initializing,
+            ),
+        }
+    }
+
+    /// Start Rclone initialization in the background.
+    ///
+    /// Rclone installation uses blocking filesystem/process operations, so
+    /// the work is moved to Tokio's blocking thread pool.
+    pub fn initialize_rclone(
+        state: Arc<Self>,
+    ) {
+        tokio::spawn(
+            async move {
+                println!(
+                    "Checking BOREAL-managed Rclone..."
+                );
+
+                let worker_state = Arc::clone(
+                    &state,
+                );
+
+                let result = tokio::task::spawn_blocking(
+                    move || {
+                        rclone::ensure_installed(
+                            &worker_state.runtime,
+                        )
+                    },
+                )
+                .await;
+
+                let new_state = match result {
+                    Ok(
+                        Ok(
+                            status,
+                        ),
+                    ) => {
+                        println!(
+                            "Rclone ready: {}",
+                            status.version
+                        );
+
+                        println!(
+                            "Rclone path: {}",
+                            status.path.display()
+                        );
+
+                        RcloneState::Ready(
+                            status,
+                        )
+                    }
+
+                    Ok(
+                        Err(
+                            error,
+                        ),
+                    ) => {
+                        let message = error.to_string();
+
+                        eprintln!(
+                            "Rclone initialization failed: {message}"
+                        );
+
+                        RcloneState::Error(
+                            message,
+                        )
+                    }
+
+                    Err(
+                        error,
+                    ) => {
+                        let message = format!(
+                            "Rclone initialization task failed: {error}"
+                        );
+
+                        eprintln!(
+                            "{message}"
+                        );
+
+                        RcloneState::Error(
+                            message,
+                        )
+                    }
+                };
+
+                match state.rclone.write() {
+                    Ok(
+                        mut rclone,
+                    ) => {
+                        *rclone = new_state;
+                    }
+
+                    Err(
+                        error,
+                    ) => {
+                        eprintln!(
+                            "Unable to update Rclone application state: {error}"
+                        );
+                    }
+                }
+            },
+        );
+    }
+
+    /// Return a snapshot of the current Rclone state.
+    ///
+    /// This keeps the WebUI from holding the application-state lock while
+    /// rendering templates.
+    pub fn rclone_state(
+        &self,
+    ) -> RcloneState {
+        match self.rclone.read() {
+            Ok(
+                state,
+            ) => state.clone(),
+
+            Err(
+                error,
+            ) => {
+                RcloneState::Error(
+                    format!(
+                        "Unable to read Rclone application state: {error}"
+                    ),
+                )
+            }
         }
     }
 }

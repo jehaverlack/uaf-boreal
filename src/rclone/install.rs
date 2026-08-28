@@ -1,6 +1,5 @@
 use std::{
     env,
-    error::Error,
     ffi::OsStr,
     fs::{
         self,
@@ -28,30 +27,22 @@ use crate::bootstrap::Runtime;
 use super::{
     command,
     executable_path,
+    RcloneError,
 };
 
-/// Install the current Rclone release into BOREAL's private bin directory.
+/// Install the current Rclone release into BOREAL's
+/// private user-local bin directory.
+///
+/// No administrator/root permissions are required.
 ///
 /// BOREAL does not:
 ///
-/// - require administrator/root privileges
-/// - install through a system package manager
+/// - use a system package manager
 /// - modify PATH
 /// - modify a system Rclone installation
-///
-/// Installation location:
-///
-/// Linux/macOS:
-///
-///     ~/.boreal/bin/rclone
-///
-/// Windows:
-///
-///     %LOCALAPPDATA%\boreal\bin\rclone.exe
-///
 pub fn install(
     runtime: &Runtime,
-) -> Result<PathBuf, Box<dyn Error>> {
+) -> Result<PathBuf, RcloneError> {
     let destination = executable_path(
         runtime,
     )?;
@@ -94,9 +85,6 @@ pub fn install(
         "==> Downloading: {download_url}"
     );
 
-    /*
-     * Remove remnants from a previous interrupted installation.
-     */
     remove_if_exists(
         &archive_path,
     )?;
@@ -105,9 +93,6 @@ pub fn install(
         &extracted_path,
     )?;
 
-    /*
-     * Download the official current Rclone archive.
-     */
     if let Err(error) = download(
         &download_url,
         &archive_path,
@@ -129,9 +114,6 @@ pub fn install(
         "==> Extracting Rclone"
     );
 
-    /*
-     * Extract only the Rclone executable from the ZIP archive.
-     */
     if let Err(error) = extract_rclone(
         &archive_path,
         &extracted_path,
@@ -149,10 +131,6 @@ pub fn install(
         );
     }
 
-    /*
-     * ZIP extraction does not necessarily preserve Unix executable
-     * permissions.
-     */
     set_executable_permissions(
         &extracted_path,
     )?;
@@ -161,10 +139,6 @@ pub fn install(
         "==> Verifying downloaded Rclone"
     );
 
-    /*
-     * Verify the temporary executable before replacing the managed
-     * Rclone binary.
-     */
     let version = command::version(
         &extracted_path,
     )?;
@@ -173,10 +147,6 @@ pub fn install(
         "==> Downloaded {version}"
     );
 
-    /*
-     * Replace any existing BOREAL-managed executable only after the
-     * downloaded binary has successfully executed.
-     */
     remove_if_exists(
         &destination,
     )?;
@@ -194,9 +164,6 @@ pub fn install(
         },
     )?;
 
-    /*
-     * Clean up the downloaded archive.
-     */
     remove_if_exists(
         &archive_path,
     )?;
@@ -215,24 +182,8 @@ pub fn install(
     )
 }
 
-/// Determine the appropriate Rclone release platform identifier.
-///
-/// Supported BOREAL targets:
-///
-/// Linux:
-///     x86_64  -> linux-amd64
-///     aarch64 -> linux-arm64
-///     arm     -> linux-arm-v7
-///
-/// macOS:
-///     x86_64  -> osx-amd64
-///     aarch64 -> osx-arm64
-///
-/// Windows:
-///     x86_64  -> windows-amd64
-///
 fn rclone_platform(
-) -> Result<&'static str, Box<dyn Error>> {
+) -> Result<&'static str, RcloneError> {
     let os = env::consts::OS;
     let arch = env::consts::ARCH;
 
@@ -292,11 +243,10 @@ fn rclone_platform(
     }
 }
 
-/// Download the Rclone archive using a native platform downloader.
 fn download(
     url: &str,
     destination: &Path,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), RcloneError> {
     #[cfg(target_os = "windows")]
     {
         return download_windows(
@@ -332,10 +282,7 @@ fn download(
 fn download_linux(
     url: &str,
     destination: &Path,
-) -> Result<(), Box<dyn Error>> {
-    /*
-     * Prefer curl when available.
-     */
+) -> Result<(), RcloneError> {
     if command_exists(
         "curl",
     ) {
@@ -383,9 +330,6 @@ fn download_linux(
         );
     }
 
-    /*
-     * Fall back to wget.
-     */
     if command_exists(
         "wget",
     ) {
@@ -436,12 +380,7 @@ fn download_linux(
 fn download_macos(
     url: &str,
     destination: &Path,
-) -> Result<(), Box<dyn Error>> {
-    /*
-     * macOS provides /usr/bin/curl as part of the operating system.
-     *
-     * No Homebrew installation is required.
-     */
+) -> Result<(), RcloneError> {
     let curl = Path::new(
         "/usr/bin/curl",
     );
@@ -502,14 +441,7 @@ fn download_macos(
 fn download_windows(
     url: &str,
     destination: &Path,
-) -> Result<(), Box<dyn Error>> {
-    /*
-     * Pass the URL and destination through environment variables rather
-     * than interpolating them directly into PowerShell source.
-     *
-     * This avoids quoting problems with spaces and special characters in
-     * Windows filesystem paths.
-     */
+) -> Result<(), RcloneError> {
     let script = concat!(
         "$ErrorActionPreference = 'Stop'; ",
         "$ProgressPreference = 'SilentlyContinue'; ",
@@ -571,11 +503,10 @@ fn download_windows(
     )
 }
 
-/// Extract only rclone/rclone.exe from the downloaded ZIP archive.
 fn extract_rclone(
     archive_path: &Path,
     destination: &Path,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), RcloneError> {
     let archive_file = File::open(
         archive_path,
     )
@@ -623,13 +554,6 @@ fn extract_rclone(
                 },
             )?;
 
-        /*
-         * Rclone archives contain a versioned directory such as:
-         *
-         *     rclone-v1.75.0-linux-amd64/rclone
-         *
-         * We only need the executable itself.
-         */
         let Some(entry_path) = entry.enclosed_name() else {
             continue;
         };
@@ -683,7 +607,7 @@ fn extract_rclone(
 #[cfg(unix)]
 fn set_executable_permissions(
     path: &Path,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), RcloneError> {
     use std::os::unix::fs::PermissionsExt;
 
     let mut permissions = fs::metadata(
@@ -708,19 +632,12 @@ fn set_executable_permissions(
 #[cfg(windows)]
 fn set_executable_permissions(
     _path: &Path,
-) -> Result<(), Box<dyn Error>> {
-    /*
-     * Windows does not use Unix executable permission bits.
-     */
+) -> Result<(), RcloneError> {
     Ok(
         (),
     )
 }
 
-/// Test whether a command can be launched.
-///
-/// This is used only to select the Linux downloader. It is not used to
-/// discover Rclone.
 #[cfg(target_os = "linux")]
 fn command_exists(
     command: &str,
@@ -741,9 +658,7 @@ fn command_exists(
     .is_ok()
 }
 
-/// Generate a unique temporary ZIP archive path.
-fn temporary_archive_path(
-) -> PathBuf {
+fn temporary_archive_path() -> PathBuf {
     let timestamp = SystemTime::now()
         .duration_since(
             UNIX_EPOCH,
@@ -759,10 +674,6 @@ fn temporary_archive_path(
     )
 }
 
-/// Generate a temporary executable path inside BOREAL's bin directory.
-///
-/// Keeping this file on the same filesystem as the final executable allows
-/// the final rename to remain a simple local filesystem operation.
 fn temporary_executable_path(
     bin_dir: &Path,
 ) -> PathBuf {
@@ -788,10 +699,9 @@ fn temporary_executable_path(
     )
 }
 
-/// Remove a file if it exists.
 fn remove_if_exists(
     path: &Path,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), RcloneError> {
     match fs::remove_file(
         path,
     ) {

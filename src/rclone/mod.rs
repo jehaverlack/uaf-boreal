@@ -9,6 +9,9 @@ use std::{
 
 use crate::bootstrap::Runtime;
 
+pub type RcloneError =
+    Box<dyn Error + Send + Sync>;
+
 /// Current state of the BOREAL-managed Rclone executable.
 #[derive(Debug, Clone)]
 pub struct RcloneStatus {
@@ -16,27 +19,13 @@ pub struct RcloneStatus {
     pub path: PathBuf,
 
     /// Version string reported by `rclone version`.
-    ///
-    /// Example:
-    ///
-    ///     rclone v1.75.0
-    ///
     pub version: String,
 }
 
 /// Return the expected BOREAL-managed Rclone executable path.
-///
-/// Linux/macOS:
-///
-///     ~/.boreal/bin/rclone
-///
-/// Windows:
-///
-///     %LOCALAPPDATA%\boreal\bin\rclone.exe
-///
 pub fn executable_path(
     runtime: &Runtime,
-) -> Result<PathBuf, Box<dyn Error>> {
+) -> Result<PathBuf, RcloneError> {
     let bin_dir = runtime
         .directories
         .get("BIN")
@@ -59,14 +48,11 @@ pub fn executable_path(
 
 /// Detect the BOREAL-managed Rclone installation.
 ///
-/// This function does not search PATH because BOREAL intentionally manages
-/// and uses its own private Rclone executable.
-///
-/// If the executable exists but cannot be successfully executed, this
-/// function returns an error rather than reporting it as installed.
+/// This does not search PATH because BOREAL intentionally
+/// manages and uses its own private Rclone executable.
 pub fn detect(
     runtime: &Runtime,
-) -> Result<Option<RcloneStatus>, Box<dyn Error>> {
+) -> Result<Option<RcloneStatus>, RcloneError> {
     let path = executable_path(
         runtime,
     )?;
@@ -93,15 +79,14 @@ pub fn detect(
 
 /// Ensure that BOREAL has a working Rclone executable.
 ///
-/// If Rclone is already installed and working, it is returned immediately.
+/// If Rclone is missing, BOREAL automatically installs
+/// a private user-local copy.
 ///
-/// If Rclone is missing, BOREAL downloads and installs a user-local copy.
-///
-/// If an existing BOREAL-managed executable is present but cannot be
-/// executed, BOREAL attempts to replace it with a fresh copy.
+/// If an existing managed executable is unusable,
+/// BOREAL attempts to replace it.
 pub fn ensure_installed(
     runtime: &Runtime,
-) -> Result<RcloneStatus, Box<dyn Error>> {
+) -> Result<RcloneStatus, RcloneError> {
     match detect(
         runtime,
     ) {

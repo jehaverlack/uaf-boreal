@@ -1,5 +1,4 @@
 use std::{
-    error::Error,
     ffi::OsStr,
     path::Path,
     process::{
@@ -8,16 +7,16 @@ use std::{
     },
 };
 
+use super::RcloneError;
+
 /// Execute the BOREAL-managed Rclone executable.
 ///
-/// This is the central command execution function for the Rclone subsystem.
-///
-/// Keeping Rclone process execution here means the rest of BOREAL does not
-/// need to construct `std::process::Command` instances directly.
+/// This is the central process execution function for the
+/// Rclone subsystem.
 pub fn run<I, S>(
     executable: &Path,
     args: I,
-) -> Result<Output, Box<dyn Error>>
+) -> Result<Output, RcloneError>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
@@ -32,22 +31,32 @@ where
         );
     }
 
-    let output = Command::new(executable)
-        .args(args)
-        .output()
-        .map_err(|error| {
+    let output = Command::new(
+        executable,
+    )
+    .args(
+        args,
+    )
+    .output()
+    .map_err(
+        |error| {
             format!(
                 "Unable to execute Rclone at {}: {error}",
                 executable.display()
             )
-        })?;
+        },
+    )?;
 
-    Ok(output)
+    Ok(
+        output,
+    )
 }
 
 /// Query the Rclone version.
 ///
-/// The first output line from Rclone is returned.
+/// Returns the first line produced by:
+///
+///     rclone version
 ///
 /// Example:
 ///
@@ -55,10 +64,12 @@ where
 ///
 pub fn version(
     executable: &Path,
-) -> Result<String, Box<dyn Error>> {
+) -> Result<String, RcloneError> {
     let output = run(
         executable,
-        ["version"],
+        [
+            "version",
+        ],
     )?;
 
     if !output.status.success() {
@@ -83,14 +94,22 @@ pub fn version(
     let version = stdout
         .lines()
         .next()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .ok_or_else(|| {
-            format!(
-                "Rclone returned no version information: {}",
-                executable.display()
-            )
-        })?;
+        .map(
+            str::trim,
+        )
+        .filter(
+            |line| !line.is_empty(),
+        )
+        .ok_or_else(
+            || {
+                format!(
+                    "Rclone returned no version information: {}",
+                    executable.display()
+                )
+            },
+        )?;
 
-    Ok(version.to_string())
+    Ok(
+        version.to_string(),
+    )
 }

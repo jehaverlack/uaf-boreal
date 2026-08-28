@@ -74,12 +74,14 @@ pub fn router() -> Router<Arc<AppState>> {
 async fn index(
     State(state): State<Arc<AppState>>,
 ) -> Result<Html<String>, StatusCode> {
+    let rclone_state = state.rclone_state();
+
     let alerts = build_alerts(
-        &state,
+        &rclone_state,
     );
 
     let status_items = build_status_items(
-        &state,
+        &rclone_state,
     );
 
     let template = DashboardTemplate {
@@ -97,12 +99,14 @@ async fn index(
 async fn about(
     State(state): State<Arc<AppState>>,
 ) -> Result<Html<String>, StatusCode> {
+    let rclone_state = state.rclone_state();
+
     let alerts = build_alerts(
-        &state,
+        &rclone_state,
     );
 
     let status_items = build_status_items(
-        &state,
+        &rclone_state,
     );
 
     let template = AboutTemplate {
@@ -123,30 +127,45 @@ async fn status() -> &'static str {
 
 /// Build the global BOREAL alerts.
 ///
-/// Only actual detected problems should appear here.
-///
-/// There are intentionally no default or placeholder alerts.
+/// Alerts represent actual application conditions rather than static
+/// placeholders.
 fn build_alerts(
-    state: &AppState,
+    rclone_state: &RcloneState,
 ) -> Vec<AlertItem> {
     let mut alerts = Vec::new();
 
-    match &state.rclone {
-        RcloneState::Ready(_) => {
+    match rclone_state {
+        RcloneState::Initializing => {
+            alerts.push(
+                AlertItem {
+                    level: "warning",
+                    icon: "bi-hourglass-split",
+                    message:
+                        "BOREAL is initializing Rclone..."
+                            .to_string(),
+                },
+            );
+        }
+
+        RcloneState::Ready(
+            _,
+        ) => {
             /*
-             * Rclone is working.
+             * Rclone is ready.
              *
              * No alert is necessary.
              */
         }
 
-        RcloneState::Error(error) => {
+        RcloneState::Error(
+            error,
+        ) => {
             alerts.push(
                 AlertItem {
                     level: "danger",
                     icon: "bi-exclamation-triangle",
                     message: format!(
-                        "Rclone installation failed: {error}"
+                        "Rclone initialization failed: {error}"
                     ),
                 },
             );
@@ -158,53 +177,51 @@ fn build_alerts(
 
 /// Build the global status bar.
 fn build_status_items(
-    state: &AppState,
+    rclone_state: &RcloneState,
 ) -> Vec<StatusItem> {
-    let mut items = Vec::new();
+    let rclone_value = match rclone_state {
+        RcloneState::Initializing => {
+            "Initializing...".to_string()
+        }
 
-    let rclone_value = match &state.rclone {
-        RcloneState::Ready(status) => {
+        RcloneState::Ready(
+            status,
+        ) => {
             status.version.clone()
         }
 
-        RcloneState::Error(_) => {
+        RcloneState::Error(
+            _,
+        ) => {
             "Unavailable".to_string()
         }
     };
 
-    items.push(
+    vec![
         StatusItem {
             icon: "bi-folder-symlink",
             label: "Rclone",
             value: rclone_value,
         },
-    );
 
-    items.push(
         StatusItem {
             icon: "bi-cloud",
             label: "Remote",
             value: "None".to_string(),
         },
-    );
 
-    items.push(
         StatusItem {
             icon: "bi-person",
             label: "User",
             value: "Not configured".to_string(),
         },
-    );
 
-    items.push(
         StatusItem {
             icon: "bi-database",
             label: "Metadata",
             value: "Not synchronized".to_string(),
         },
-    );
 
-    items.push(
         StatusItem {
             icon: "bi-info-circle",
             label: "BOREAL",
@@ -213,9 +230,7 @@ fn build_status_items(
             )
             .to_string(),
         },
-    );
-
-    items
+    ]
 }
 
 fn render_template<T>(
