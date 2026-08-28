@@ -3,6 +3,11 @@
 <div
     id="boreal-alerts"
     class="border-bottom bg-body-secondary"
+    {% if poll_rclone %}
+    hx-get="/ui/alerts"
+    hx-trigger="every 1s"
+    hx-swap="outerHTML"
+    {% endif %}
 >
 
     <div
@@ -30,5 +35,9 @@
     </div>
 
 </div>
+
+{% else %}
+
+<div id="boreal-alerts"></div>
 
 {% endif %}

@@ -1,6 +1,11 @@
 <footer
     id="boreal-status"
     class="border-top bg-body-tertiary"
+    {% if poll_rclone %}
+    hx-get="/ui/status"
+    hx-trigger="every 1s"
+    hx-swap="outerHTML"
+    {% endif %}
 >
 
     <div

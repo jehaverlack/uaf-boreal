@@ -40,6 +40,7 @@ struct DashboardTemplate {
     active_page: &'static str,
     alerts: Vec<AlertItem>,
     status_items: Vec<StatusItem>,
+    poll_rclone: bool,
 }
 
 #[allow(dead_code)]
@@ -53,6 +54,29 @@ struct AboutTemplate {
     active_page: &'static str,
     alerts: Vec<AlertItem>,
     status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+}
+
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(
+    path = "partials/alerts.html",
+    config = "askama.toml"
+)]
+struct AlertsTemplate {
+    alerts: Vec<AlertItem>,
+    poll_rclone: bool,
+}
+
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(
+    path = "partials/status.html",
+    config = "askama.toml"
+)]
+struct StatusTemplate {
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
 }
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -69,6 +93,14 @@ pub fn router() -> Router<Arc<AppState>> {
             "/status",
             get(status),
         )
+        .route(
+            "/ui/alerts",
+            get(ui_alerts),
+        )
+        .route(
+            "/ui/status",
+            get(ui_status),
+        )
 }
 
 async fn index(
@@ -84,11 +116,16 @@ async fn index(
         &rclone_state,
     );
 
+    let poll_rclone = should_poll_rclone(
+        &rclone_state,
+    );
+
     let template = DashboardTemplate {
         title: "BOREAL",
         active_page: "dashboard",
         alerts,
         status_items,
+        poll_rclone,
     };
 
     render_template(
@@ -109,11 +146,16 @@ async fn about(
         &rclone_state,
     );
 
+    let poll_rclone = should_poll_rclone(
+        &rclone_state,
+    );
+
     let template = AboutTemplate {
         title: "About BOREAL",
         active_page: "about",
         alerts,
         status_items,
+        poll_rclone,
     };
 
     render_template(
@@ -121,14 +163,74 @@ async fn about(
     )
 }
 
+/// Lightweight health/status endpoint.
 async fn status() -> &'static str {
     "BOREAL is running"
 }
 
+/// Return only the global Alerts bar.
+///
+/// HTMX uses this endpoint while application initialization
+/// is still in progress.
+async fn ui_alerts(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
+    let rclone_state = state.rclone_state();
+
+    let template = AlertsTemplate {
+        alerts: build_alerts(
+            &rclone_state,
+        ),
+
+        poll_rclone: should_poll_rclone(
+            &rclone_state,
+        ),
+    };
+
+    render_template(
+        &template,
+    )
+}
+
+/// Return only the global Status bar.
+///
+/// HTMX uses this endpoint while application initialization
+/// is still in progress.
+async fn ui_status(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
+    let rclone_state = state.rclone_state();
+
+    let template = StatusTemplate {
+        status_items: build_status_items(
+            &rclone_state,
+        ),
+
+        poll_rclone: should_poll_rclone(
+            &rclone_state,
+        ),
+    };
+
+    render_template(
+        &template,
+    )
+}
+
+/// Determine whether the browser should continue polling
+/// initialization status.
+fn should_poll_rclone(
+    rclone_state: &RcloneState,
+) -> bool {
+    matches!(
+        rclone_state,
+        RcloneState::Initializing
+    )
+}
+
 /// Build the global BOREAL alerts.
 ///
-/// Alerts represent actual application conditions rather than static
-/// placeholders.
+/// Alerts represent actual application conditions rather
+/// than static placeholders.
 fn build_alerts(
     rclone_state: &RcloneState,
 ) -> Vec<AlertItem> {
@@ -175,7 +277,7 @@ fn build_alerts(
     alerts
 }
 
-/// Build the global status bar.
+/// Build the global Status bar.
 fn build_status_items(
     rclone_state: &RcloneState,
 ) -> Vec<StatusItem> {

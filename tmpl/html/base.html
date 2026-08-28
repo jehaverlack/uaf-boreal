@@ -6,6 +6,7 @@
 >
 
 <head>
+
     <meta charset="utf-8">
 
     <meta
@@ -26,13 +27,12 @@
         href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css"
         rel="stylesheet"
     >
+
 </head>
 
 <body class="d-flex flex-column min-vh-100">
 
-    <!--
-        Main application navigation
-    -->
+    <!-- Main application navigation -->
     <nav
         class="navbar navbar-expand-lg bg-body-tertiary border-bottom"
     >
@@ -194,6 +194,11 @@
 
     <!-- Global application status -->
     {% include "partials/status.html" %}
+
+    <!-- HTMX -->
+    <script
+        src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js"
+    ></script>
 
     <!-- Bootstrap -->
     <script
