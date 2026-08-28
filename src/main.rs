@@ -291,6 +291,7 @@ fn set_boreal_home(
 ///   "home": "...",
 ///   "conf": "HOME/conf",
 ///   "data": "HOME/data",
+///   "sqlite": "DATA/sqlite",
 ///   "logs": "HOME/logs",
 ///   "sqlite": "DATA/sqlite"
 /// }

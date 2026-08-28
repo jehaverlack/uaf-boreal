@@ -5,6 +5,7 @@
             "home": "",
             "conf": "HOME/conf",
             "data": "HOME/data",
+            "sqlite": "DATA/sqlite",
             "logs": "HOME/logs"
         }
     }
