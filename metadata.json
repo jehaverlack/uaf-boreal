@@ -2,7 +2,7 @@
   "METADATA": {
     "name": "boreal",
     "project": "BorReaL",
-    "description": "Browser-based Organizer for Rclone Exploration, Audit & Lookup",
+    "description": "Browser-based Organizer for Rclone Exploration, Audit and Lookup",
     "abbr": "BOREAL",
     "icon": "fa-solid fa-cloud-bolt",
     "version": "0.0.1",
@@ -27,6 +27,9 @@
       "homepage": "homepage"
     },
     "*.md": {
+      "**Name**": "name",
+      "**Project**": "project",
+      "**Description**": "description",
       "**Version**": "version",
       "**Date**": "version_date",
       "**Author**": "author",
