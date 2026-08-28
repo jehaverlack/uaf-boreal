@@ -163,15 +163,14 @@ async fn about(
     )
 }
 
-/// Lightweight health/status endpoint.
+/// Lightweight application health endpoint.
 async fn status() -> &'static str {
     "BOREAL is running"
 }
 
-/// Return only the global Alerts bar.
+/// Return only the Alerts bar.
 ///
-/// HTMX uses this endpoint while application initialization
-/// is still in progress.
+/// HTMX polls this endpoint while Rclone is initializing.
 async fn ui_alerts(
     State(state): State<Arc<AppState>>,
 ) -> Result<Html<String>, StatusCode> {
@@ -192,10 +191,9 @@ async fn ui_alerts(
     )
 }
 
-/// Return only the global Status bar.
+/// Return only the Status bar.
 ///
-/// HTMX uses this endpoint while application initialization
-/// is still in progress.
+/// HTMX polls this endpoint while Rclone is initializing.
 async fn ui_status(
     State(state): State<Arc<AppState>>,
 ) -> Result<Html<String>, StatusCode> {
@@ -216,8 +214,7 @@ async fn ui_status(
     )
 }
 
-/// Determine whether the browser should continue polling
-/// initialization status.
+/// Poll only while Rclone initialization is in progress.
 fn should_poll_rclone(
     rclone_state: &RcloneState,
 ) -> bool {
@@ -227,10 +224,9 @@ fn should_poll_rclone(
     )
 }
 
-/// Build the global BOREAL alerts.
+/// Build global application alerts.
 ///
-/// Alerts represent actual application conditions rather
-/// than static placeholders.
+/// Normal/healthy states do not generate alerts.
 fn build_alerts(
     rclone_state: &RcloneState,
 ) -> Vec<AlertItem> {
@@ -289,7 +285,15 @@ fn build_status_items(
         RcloneState::Ready(
             status,
         ) => {
-            status.version.clone()
+            status
+                .version
+                .strip_prefix(
+                    "rclone ",
+                )
+                .unwrap_or(
+                    &status.version,
+                )
+                .to_string()
         }
 
         RcloneState::Error(
