@@ -1,7 +1,7 @@
 {
   "METADATA": {
     "name": "boreal",
-    "project": "BorReaL",
+    "project": "Boreal",
     "description": "Browser-based Organizer for Rclone Exploration, Audit and Lookup",
     "abbr": "BOREAL",
     "icon": "fa-solid fa-cloud-bolt",
