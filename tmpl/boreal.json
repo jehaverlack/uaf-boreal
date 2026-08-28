@@ -7,6 +7,10 @@
             "data": "HOME/data",
             "sqlite": "DATA/sqlite",
             "logs": "HOME/logs"
+        },
+        "WEBAPP": {
+            "port": 8765,
+            "listen": "127.0.0.1"
         }
     }
 }
