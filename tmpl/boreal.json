@@ -3,6 +3,7 @@
         "SCHEMA_VERSION": "1",
         "DIRS": {
             "home": "",
+            "bin": "HOME/bin",
             "conf": "HOME/conf",
             "data": "HOME/data",
             "sqlite": "DATA/sqlite",

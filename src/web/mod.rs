@@ -1,92 +1,90 @@
 pub mod routes;
 
-use crate::config;
+use std::{
+    error::Error,
+    sync::Arc,
+};
 
 use axum::Router;
-use serde_json::Value;
-use std::error::Error;
 
+use crate::{
+    app::AppState,
+    config,
+};
+
+/// Run the local BOREAL WebUI.
 pub async fn run(
-    boreal: &Value,
+    state: Arc<AppState>,
 ) -> Result<(), Box<dyn Error>> {
-    let web_config =
-        config::get_webapp_config(boreal)?;
+    let webapp = config::get_webapp_config(
+        &state.runtime.boreal,
+    )?;
 
     /*
-     * BOREAL is a local desktop application.
-     *
-     * Do not permit accidental exposure of the WebUI
-     * on external interfaces.
+     * BOREAL's WebUI must remain local-only.
      */
-    if web_config.listen != "127.0.0.1"
-        && web_config.listen != "localhost"
-        && web_config.listen != "::1"
-    {
-        return Err(
-            format!(
-                "BOREAL WebUI must listen on localhost; \
-                 configured address is '{}'",
-                web_config.listen
-            )
-            .into(),
-        );
+    match webapp.listen.as_str() {
+        "127.0.0.1"
+        | "localhost"
+        | "::1" => {}
+
+        other => {
+            return Err(
+                format!(
+                    "BOREAL refuses to listen on non-local address: {other}"
+                )
+                .into(),
+            );
+        }
     }
 
-    let address = format!(
+    let bind_address = format!(
         "{}:{}",
-        web_config.listen,
-        web_config.port
+        webapp.listen,
+        webapp.port,
     );
+
+    /*
+     * Bind before opening the browser.
+     *
+     * This ensures that the browser is not opened unless the WebUI
+     * successfully acquires its configured listening port.
+     */
+    let listener = tokio::net::TcpListener::bind(
+        &bind_address,
+    )
+    .await?;
+
+    let app: Router = routes::router()
+        .with_state(
+            state,
+        );
+
+    let browser_host = match webapp.listen.as_str() {
+        "::1" => "[::1]",
+        other => other,
+    };
 
     let url = format!(
         "http://{}:{}",
-        web_config.listen,
-        web_config.port
+        browser_host,
+        webapp.port,
     );
 
-    /*
-     * Build the application router.
-     */
-    let app = Router::new()
-        .merge(routes::router());
-
-    /*
-     * Bind first.
-     *
-     * If the configured address or port cannot be
-     * used, fail before opening a browser.
-     */
-    let listener =
-        tokio::net::TcpListener::bind(
-            &address
-        )
-        .await?;
-
-    println!();
     println!(
         "BOREAL WebUI: {url}"
     );
 
-    /*
-     * Open the user's default browser when enabled.
-     *
-     * Browser launch failure is not fatal. The
-     * application can still be reached manually.
-     */
-    if web_config.open_browser {
-        println!(
-            "Opening default browser..."
-        );
-
-        if let Err(error) =
-            webbrowser::open(&url)
-        {
+    if webapp.open_browser {
+        if let Err(error) = webbrowser::open(
+            &url,
+        ) {
             eprintln!(
                 "Unable to open default browser: {error}"
             );
 
             eprintln!(
-                "Open BOREAL manually at: {url}"
+                "Open this URL manually: {url}"
             );
         }
     }
@@ -95,9 +93,6 @@ pub async fn run(
         "Press Ctrl-C to stop BOREAL."
     );
 
-    /*
-     * Start the Axum HTTP server.
-     */
     axum::serve(
         listener,
         app,
