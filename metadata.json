@@ -1,0 +1,42 @@
+{
+  "METADATA": {
+    "name": "boreal",
+    "project": "BorReaL",
+    "description": "Browser-based Organizer for Rclone Exploration, Audit & Lookup",
+    "abbr": "BOREAL",
+    "icon": "fa-solid fa-cloud-bolt",
+    "version": "0.0.0",
+    "version_date": "2026-08-27",
+    "maturity": "ALPHA",
+    "author": "John Haverlack",
+    "copyright": "2026 University of Alaska Faribanks",
+    "license": "MIT",
+    "license_url": "https://opensource.org/license/MIT",
+    "homepage": "https://github.com/jehaverlack/uaf-boreal",
+    "git_repo": "https://github.com/jehaverlack/uaf-boreal.git"
+  },
+  "META_MAPS": {
+    "package.json": {
+      "description": "description",
+      "version": "version",
+      "version_date": "version_date",
+      "author": "author",
+      "copyright": "copyright",
+      "license": "license",
+      "license_url": "license_url",
+      "homepage": "homepage"
+    },
+    "*.md": {
+      "**Version**": "version",
+      "**Date**": "version_date",
+      "**Author**": "author",
+      "**Copyright**": "copyright",
+      "**License**": "license",
+      "**Homepage**": "homepage"
+    }
+  },
+  "MANIFEST": [
+    "README.md",
+    "docs/DESIGN.md"
+  ]
+}
