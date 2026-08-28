@@ -3,6 +3,15 @@
 version = 4
 
 [[package]]
+name = "boreal"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -174,15 +183,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "uaf-boreal"
-version = "0.1.0"
-dependencies = [
- "dirs",
- "serde",
- "serde_json",
 ]
 
 [[package]]
