@@ -29,6 +29,7 @@
     }
   },
   "MANIFEST": [
+    "Cargo.toml",
     "README.md",
     "docs/DESIGN.md"
   ]

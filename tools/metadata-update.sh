@@ -84,6 +84,22 @@ update_markdown() {
 }
 
 # -----------------------------
+# Update Cargo.toml
+# -----------------------------
+update_cargo_toml() {
+  local file="$1"
+  local version
+
+  version="$(get_meta version)"
+
+  sed -i -E \
+    "s#^(version[[:space:]]*=[[:space:]]*)\"[^\"]+\"#\1\"${version}\"#" \
+    "$file"
+
+  echo "Updated $file"
+}
+
+# -----------------------------
 # Main
 # -----------------------------
 jq -r '.MANIFEST[]' "$META_FILE" | while read -r rel_path; do
@@ -94,7 +110,22 @@ jq -r '.MANIFEST[]' "$META_FILE" | while read -r rel_path; do
     continue
   fi
 
+  # case "$(basename "$file")" in
+  #   package.json)
+  #     update_package_json "$file"
+  #     ;;
+  #   *.md)
+  #     update_markdown "$file"
+  #     ;;
+  #   *)
+  #     echo "WARN: No handler for $rel_path"
+  #     ;;
+  # esac
+
   case "$(basename "$file")" in
+    Cargo.toml)
+      update_cargo_toml "$file"
+      ;;
     package.json)
       update_package_json "$file"
       ;;
@@ -105,6 +136,7 @@ jq -r '.MANIFEST[]' "$META_FILE" | while read -r rel_path; do
       echo "WARN: No handler for $rel_path"
       ;;
   esac
+
 done
 
 echo "Metadata update complete"

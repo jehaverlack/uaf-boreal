@@ -4,6 +4,8 @@ set -euo pipefail
 APP="boreal"
 OUT="dist"
 
+VERSION="$(jq -r '.METADATA.version' metadata.json)"
+
 LINUX_X86_64="x86_64-unknown-linux-gnu"
 LINUX_AARCH64="aarch64-unknown-linux-gnu"
 LINUX_ARMV7="armv7-unknown-linux-gnueabihf"
@@ -32,11 +34,14 @@ check_command() {
 }
 
 echo "==> BOREAL release build"
+echo "==> Version: $VERSION"
 
 if [[ "$(uname -s)" != "Linux" ]]; then
     echo "ERROR: This build script is currently intended for Linux."
     exit 1
 fi
+
+check_command jq "Install with: sudo apt install jq"
 
 echo "==> Checking Rust targets"
 
@@ -70,7 +75,7 @@ cargo build \
 
 cp \
     "target/$LINUX_X86_64/release/$APP" \
-    "$OUT/boreal-linux-x86_64"
+    "$OUT/${APP}-${VERSION}-linux-x86_64"
 
 echo
 echo "==> Building Linux ARM64"
@@ -81,7 +86,7 @@ cargo build \
 
 cp \
     "target/$LINUX_AARCH64/release/$APP" \
-    "$OUT/boreal-linux-aarch64"
+    "$OUT/${APP}-${VERSION}-linux-aarch64"
 
 echo
 echo "==> Building Linux ARMv7"
@@ -92,7 +97,7 @@ cargo build \
 
 cp \
     "target/$LINUX_ARMV7/release/$APP" \
-    "$OUT/boreal-linux-armv7"
+    "$OUT/${APP}-${VERSION}-linux-armv7"
 
 echo
 echo "==> Building Windows x86_64"
@@ -103,15 +108,18 @@ cargo build \
 
 cp \
     "target/$WINDOWS_X86_64/release/$APP.exe" \
-    "$OUT/boreal-windows-x86_64.exe"
+    "$OUT/${APP}-${VERSION}-windows-x86_64.exe"
 
 echo
 echo "==> macOS builds skipped"
 echo "    macOS binaries require an Apple SDK/toolchain."
-echo "    Build these on a macOS host or CI runner:"
+echo "    Targets:"
 echo "      x86_64-apple-darwin"
 echo "      aarch64-apple-darwin"
 
 echo
 echo "==> Build complete"
+echo "==> Version: $VERSION"
+echo
+
 ls -lh "$OUT"
