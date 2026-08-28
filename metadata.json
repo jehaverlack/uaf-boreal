@@ -1,11 +1,11 @@
 {
   "METADATA": {
     "name": "boreal",
-    "project": "BorReaL",
-    "description": "Browser-based Organizer for Rclone Exploration, Audit & Lookup",
+    "project": "Boreal",
+    "description": "Browser-based Organizer for Rclone Exploration, Audit and Lookup",
     "abbr": "BOREAL",
     "icon": "fa-solid fa-cloud-bolt",
-    "version": "0.0.0",
+    "version": "0.0.1",
     "version_date": "2026-08-27",
     "maturity": "ALPHA",
     "author": "John Haverlack",
@@ -16,17 +16,10 @@
     "git_repo": "https://github.com/jehaverlack/uaf-boreal.git"
   },
   "META_MAPS": {
-    "package.json": {
-      "description": "description",
-      "version": "version",
-      "version_date": "version_date",
-      "author": "author",
-      "copyright": "copyright",
-      "license": "license",
-      "license_url": "license_url",
-      "homepage": "homepage"
-    },
     "*.md": {
+      "**Name**": "name",
+      "**Project**": "project",
+      "**Description**": "description",
       "**Version**": "version",
       "**Date**": "version_date",
       "**Author**": "author",
@@ -36,6 +29,7 @@
     }
   },
   "MANIFEST": [
+    "Cargo.toml",
     "README.md",
     "docs/DESIGN.md"
   ]

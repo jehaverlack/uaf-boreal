@@ -1,9 +1,12 @@
 [package]
-name = "uaf-boreal"
-version = "0.1.0"
+name = "boreal"
+version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+axum = "0.8.9"
 dirs = "6.0.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["full"] }
+webbrowser = "1.2.4"

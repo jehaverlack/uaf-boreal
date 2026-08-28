@@ -129,6 +129,4 @@ while IFS='|' read -r version rdate maturity summary notes; do
   echo "" >> "$OUT_FILE"
 done
 
-cp docs/CHANGELOG.md nwa/html/md/changelog.md
-
 echo "Changelog written to ${OUT_FILE}"

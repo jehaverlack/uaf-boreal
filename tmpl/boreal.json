@@ -1,0 +1,17 @@
+{
+    "BOREAL": {
+        "SCHEMA_VERSION": "1",
+        "DIRS": {
+            "home": "",
+            "conf": "HOME/conf",
+            "data": "HOME/data",
+            "sqlite": "DATA/sqlite",
+            "logs": "HOME/logs"
+        },
+        "WEBAPP": {
+            "port": 8765,
+            "listen": "127.0.0.1",
+            "open_browser": true
+        }
+    }
+}
