@@ -441,3 +441,42 @@ fn is_pseudo_name(
             },
         )
 }
+
+pub struct WebAppConfig {
+    pub listen: String,
+    pub port: u16,
+}
+
+pub fn get_webapp_config(
+    boreal: &Value,
+) -> Result<WebAppConfig, Box<dyn Error>> {
+    let webapp = boreal
+        .get("BOREAL")
+        .and_then(|value| value.get("WEBAPP"))
+        .ok_or("Missing BOREAL.WEBAPP in boreal.json")?;
+
+    let listen = webapp
+        .get("listen")
+        .and_then(Value::as_str)
+        .ok_or("Missing or invalid BOREAL.WEBAPP.listen")?
+        .to_string();
+
+    let port = webapp
+        .get("port")
+        .and_then(Value::as_u64)
+        .ok_or("Missing or invalid BOREAL.WEBAPP.port")?;
+
+    if port > u16::MAX as u64 {
+        return Err(
+            format!(
+                "Invalid BOREAL.WEBAPP.port: {port}"
+            )
+            .into(),
+        );
+    }
+
+    Ok(WebAppConfig {
+        listen,
+        port: port as u16,
+    })
+}

@@ -4,7 +4,8 @@ mod web;
 
 use std::error::Error;
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
     let runtime = bootstrap::initialize()?;
 
     println!("BOREAL initialized.");
@@ -14,6 +15,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     for (name, path) in &runtime.directories {
         println!("  {:<12} {}", name, path.display());
     }
+
+    web::run(&runtime.boreal).await?;
 
     Ok(())
 }
