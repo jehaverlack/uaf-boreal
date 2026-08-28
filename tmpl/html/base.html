@@ -28,8 +28,11 @@
     >
 </head>
 
-<body>
+<body class="d-flex flex-column min-vh-100">
 
+    <!--
+        Main application navigation
+    -->
     <nav
         class="navbar navbar-expand-lg bg-body-tertiary border-bottom"
     >
@@ -178,12 +181,19 @@
 
     </nav>
 
-    <main class="container-fluid py-4">
+    <!-- Global application alerts -->
+    {% include "partials/alerts.html" %}
+
+    <!-- Page content -->
+    <main class="container-fluid py-4 flex-grow-1">
 
         {% block content %}
         {% endblock %}
 
     </main>
+
+    <!-- Global application status -->
+    {% include "partials/status.html" %}
 
     <!-- Bootstrap -->
     <script

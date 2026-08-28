@@ -1,0 +1,44 @@
+<footer
+    id="boreal-status"
+    class="border-top bg-body-tertiary"
+>
+
+    <div
+        class="container-fluid py-2 d-flex align-items-center flex-wrap gap-3"
+    >
+
+        <span
+            class="small fw-semibold text-body"
+        >
+            Status
+        </span>
+
+        {% for item in status_items %}
+
+        <span
+            class="small text-body d-inline-flex align-items-center"
+        >
+            <i class="bi {{ item.icon }} me-1"></i>
+
+            <span class="fw-semibold me-1">
+                {{ item.label }}:
+            </span>
+
+            {{ item.value }}
+        </span>
+
+        {% endfor %}
+
+        <a
+            class="small text-body text-decoration-none ms-auto"
+            href="https://github.com/jehaverlack/uaf-boreal"
+            target="_blank"
+            rel="noopener noreferrer"
+        >
+            <i class="bi bi-github me-1"></i>
+            github.com/jehaverlack/uaf-boreal
+        </a>
+
+    </div>
+
+</footer>
