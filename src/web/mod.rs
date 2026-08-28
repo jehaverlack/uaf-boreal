@@ -48,9 +48,7 @@ pub async fn run(
      * Build the application router.
      */
     let app = Router::new()
-        .merge(
-            routes::router()
-        );
+        .merge(routes::router());
 
     /*
      * Bind first.
