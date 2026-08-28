@@ -1,0 +1,217 @@
+<div
+    class="modal fade"
+    id="googleClientSetupModal"
+    tabindex="-1"
+    aria-labelledby="googleClientSetupModalLabel"
+    aria-hidden="true"
+>
+
+    <div
+        class="modal-dialog modal-lg modal-dialog-scrollable"
+    >
+
+        <div class="modal-content">
+
+            <div class="modal-header">
+
+                <h1
+                    class="modal-title fs-5"
+                    id="googleClientSetupModalLabel"
+                >
+                    <i class="bi bi-key me-2"></i>
+                    Setup Google Client ID
+                </h1>
+
+                <button
+                    type="button"
+                    class="btn-close"
+                    data-bs-dismiss="modal"
+                    aria-label="Close"
+                ></button>
+
+            </div>
+
+            <div class="modal-body">
+
+                <p>
+                    BOREAL requires a Google OAuth Desktop
+                    Client ID to access Google Drive through
+                    Rclone.
+                </p>
+
+                <h2 class="h6 mt-4">
+                    1. Open Google Cloud Console
+                </h2>
+
+                <p>
+                    Create a new Google Cloud project or select
+                    the project you want to use for BOREAL.
+                </p>
+
+                <p>
+                    <a
+                        class="btn btn-outline-primary"
+                        href="https://console.cloud.google.com/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        <i class="bi bi-box-arrow-up-right me-1"></i>
+                        Open Google Cloud Console
+                    </a>
+                </p>
+
+                <h2 class="h6 mt-4">
+                    2. Enable the Google Drive API
+                </h2>
+
+                <ol>
+                    <li>
+                        Click <strong>APIs &amp; Services</strong>.
+                    </li>
+
+                    <li>
+                        Click <strong>Library</strong>.
+                    </li>
+
+                    <li>
+                        Search for
+                        <strong>Google Drive API</strong>.
+                    </li>
+
+                    <li>
+                        Open Google Drive API and click
+                        <strong>Enable</strong>.
+                    </li>
+                </ol>
+
+                <h2 class="h6 mt-4">
+                    3. Configure Google Auth Platform
+                </h2>
+
+                <p>
+                    Open Google Auth Platform and complete the
+                    OAuth application configuration if Google
+                    asks you to do so.
+                </p>
+
+                <p>
+                    <a
+                        class="btn btn-outline-primary"
+                        href="https://console.cloud.google.com/auth/clients"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        <i class="bi bi-box-arrow-up-right me-1"></i>
+                        Open Google Auth Platform
+                    </a>
+                </p>
+
+                <h2 class="h6 mt-4">
+                    4. Create the OAuth Client
+                </h2>
+
+                <ol>
+                    <li>
+                        Open <strong>Clients</strong>.
+                    </li>
+
+                    <li>
+                        Create a new OAuth Client.
+                    </li>
+
+                    <li>
+                        Select
+                        <strong>Desktop app</strong>
+                        as the application type.
+                    </li>
+
+                    <li>
+                        Give the client a descriptive name such
+                        as <strong>BOREAL</strong>.
+                    </li>
+
+                    <li>
+                        Create the client.
+                    </li>
+
+                    <li>
+                        Download the generated JSON credentials
+                        file.
+                    </li>
+                </ol>
+
+                <h2 class="h6 mt-4">
+                    5. Import the Client ID into BOREAL
+                </h2>
+
+                <p>
+                    Select the JSON credentials file downloaded
+                    from Google.
+                </p>
+
+                <form
+                    method="post"
+                    action="/setup/google-client/import"
+                    enctype="multipart/form-data"
+                >
+
+                    <div class="mb-3">
+
+                        <label
+                            for="googleClientCredentials"
+                            class="form-label"
+                        >
+                            Google OAuth credentials JSON
+                        </label>
+
+                        <input
+                            class="form-control"
+                            type="file"
+                            id="googleClientCredentials"
+                            name="credentials"
+                            accept=".json,application/json"
+                            required
+                        >
+
+                    </div>
+
+                    <div class="alert alert-secondary">
+
+                        <i class="bi bi-shield-lock me-1"></i>
+
+                        The credentials will be stored locally
+                        in BOREAL's private configuration
+                        directory as
+                        <code>google-client.json</code>.
+
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2">
+
+                        <button
+                            type="button"
+                            class="btn btn-secondary"
+                            data-bs-dismiss="modal"
+                        >
+                            Cancel
+                        </button>
+
+                        <button
+                            type="submit"
+                            class="btn btn-primary"
+                        >
+                            <i class="bi bi-upload me-1"></i>
+                            Import Client ID
+                        </button>
+
+                    </div>
+
+                </form>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>

@@ -1,6 +1,7 @@
 mod app;
 mod bootstrap;
 mod config;
+mod google;
 mod rclone;
 mod web;
 
@@ -15,7 +16,9 @@ use app::AppState;
 async fn main() -> Result<(), Box<dyn Error>> {
     let runtime = bootstrap::initialize()?;
 
-    println!("BOREAL initialized.");
+    println!(
+        "BOREAL initialized."
+    );
 
     println!(
         "BOREAL home: {}",
@@ -34,24 +37,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         );
     }
 
-    /*
-     * Create shared application state.
-     *
-     * Supporting services such as Rclone initialize independently so that
-     * failures do not prevent the BOREAL WebUI from starting.
-     */
     let state = Arc::new(
         AppState::new(
             runtime,
         ),
     );
 
-    /*
-     * Begin Rclone initialization in the background.
-     *
-     * The WebUI starts immediately and can display the Initializing state
-     * while Rclone is being downloaded, installed, and verified.
-     */
     AppState::initialize_rclone(
         Arc::clone(
             &state,

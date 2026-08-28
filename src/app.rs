@@ -9,38 +9,54 @@ use tokio::sync::watch;
 
 use crate::{
     bootstrap::Runtime,
+    google::{
+        self,
+        client::GoogleClientConfig,
+    },
     rclone::{
         self,
         RcloneStatus,
     },
 };
 
-/// Shared runtime state for the BOREAL application.
 pub struct AppState {
     pub runtime: Runtime,
 
-    /// Current state of the BOREAL-managed Rclone installation.
     pub rclone: RwLock<RcloneState>,
 
-    /// Signals that BOREAL should shut down.
+    pub google_client: RwLock<GoogleClientState>,
+
     shutdown_tx: watch::Sender<bool>,
 }
 
-/// Current state of the BOREAL-managed Rclone installation.
 #[derive(Debug, Clone)]
 pub enum RcloneState {
-    /// BOREAL is checking, downloading, installing, or verifying Rclone.
     Initializing,
 
-    /// Rclone is installed and has been successfully verified.
-    Ready(RcloneStatus),
+    Ready(
+        RcloneStatus,
+    ),
 
-    /// BOREAL attempted to install or verify Rclone, but the operation failed.
-    Error(String),
+    Error(
+        String,
+    ),
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub enum GoogleClientState {
+    NotConfigured,
+
+    Ready(
+        GoogleClientConfig,
+    ),
+
+    Error(
+        String,
+    ),
 }
 
 impl AppState {
-    /// Create the shared application state.
     pub fn new(
         runtime: Runtime,
     ) -> Self {
@@ -51,6 +67,48 @@ impl AppState {
             false,
         );
 
+        let google_client = match google::client::detect(
+            &runtime,
+        ) {
+            Ok(
+                Some(
+                    config,
+                ),
+            ) => {
+                println!(
+                    "Google Client ID configured."
+                );
+
+                GoogleClientState::Ready(
+                    config,
+                )
+            }
+
+            Ok(
+                None,
+            ) => {
+                println!(
+                    "Google Client ID is not configured."
+                );
+
+                GoogleClientState::NotConfigured
+            }
+
+            Err(
+                error,
+            ) => {
+                let message = error.to_string();
+
+                eprintln!(
+                    "Google Client ID configuration error: {message}"
+                );
+
+                GoogleClientState::Error(
+                    message,
+                )
+            }
+        };
+
         Self {
             runtime,
 
@@ -58,11 +116,14 @@ impl AppState {
                 RcloneState::Initializing,
             ),
 
+            google_client: RwLock::new(
+                google_client,
+            ),
+
             shutdown_tx,
         }
     }
 
-    /// Start Rclone initialization in the background.
     pub fn initialize_rclone(
         state: Arc<Self>,
     ) {
@@ -158,7 +219,6 @@ impl AppState {
         );
     }
 
-    /// Return a snapshot of the current Rclone state.
     pub fn rclone_state(
         &self,
     ) -> RcloneState {
@@ -179,10 +239,47 @@ impl AppState {
         }
     }
 
-    /// Request a graceful BOREAL shutdown.
-    ///
-    /// This is used by both the WebUI Quit action and other application
-    /// components that may need to request shutdown.
+    pub fn google_client_state(
+        &self,
+    ) -> GoogleClientState {
+        match self.google_client.read() {
+            Ok(
+                state,
+            ) => state.clone(),
+
+            Err(
+                error,
+            ) => {
+                GoogleClientState::Error(
+                    format!(
+                        "Unable to read Google Client ID state: {error}"
+                    ),
+                )
+            }
+        }
+    }
+
+    pub fn set_google_client_state(
+        &self,
+        new_state: GoogleClientState,
+    ) {
+        match self.google_client.write() {
+            Ok(
+                mut state,
+            ) => {
+                *state = new_state;
+            }
+
+            Err(
+                error,
+            ) => {
+                eprintln!(
+                    "Unable to update Google Client ID state: {error}"
+                );
+            }
+        }
+    }
+
     pub fn request_shutdown(
         &self,
     ) {
@@ -191,7 +288,6 @@ impl AppState {
         );
     }
 
-    /// Subscribe to application shutdown requests.
     pub fn shutdown_receiver(
         &self,
     ) -> watch::Receiver<bool> {

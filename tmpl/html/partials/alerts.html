@@ -23,12 +23,28 @@
 
         {% for alert in alerts %}
 
+        {% if alert.modal_target.len() > 0 %}
+
+        <button
+            type="button"
+            class="badge text-bg-{{ alert.level }} border-0 d-inline-flex align-items-center"
+            data-bs-toggle="modal"
+            data-bs-target="#{{ alert.modal_target }}"
+        >
+            <i class="bi {{ alert.icon }} me-1"></i>
+            {{ alert.message }}
+        </button>
+
+        {% else %}
+
         <span
             class="badge text-bg-{{ alert.level }} d-inline-flex align-items-center"
         >
             <i class="bi {{ alert.icon }} me-1"></i>
             {{ alert.message }}
         </span>
+
+        {% endif %}
 
         {% endfor %}
 
