@@ -135,6 +135,10 @@ pub fn router() -> Router<Arc<AppState>> {
             get(status),
         )
         .route(
+            "/rclone-gui",
+            get(open_rclone_gui),
+        )
+        .route(
             "/ui/alerts",
             get(ui_alerts),
         )
@@ -363,6 +367,26 @@ async fn status() -> StatusCode {
     StatusCode::NO_CONTENT
 }
 
+async fn open_rclone_gui(
+    State(state): State<Arc<AppState>>,
+) -> Result<Redirect, StatusCode> {
+    let url = rclone_gui_url(
+        &state.rclone_state(),
+    );
+
+    if url.is_empty() {
+        return Err(
+            StatusCode::SERVICE_UNAVAILABLE,
+        );
+    }
+
+    Ok(
+        Redirect::to(
+            &url,
+        ),
+    )
+}
+
 async fn quit(
     State(state): State<Arc<AppState>>,
 ) -> StatusCode {
@@ -561,6 +585,21 @@ fn should_poll_rclone(
     )
 }
 
+fn rclone_gui_url(
+    rclone_state: &RcloneState,
+) -> String {
+    match rclone_state {
+        RcloneState::Ready(
+            status,
+        ) => status
+            .gui_url
+            .clone()
+            .unwrap_or_default(),
+
+        _ => String::new(),
+    }
+}
+
 fn build_alerts(
     rclone_state: &RcloneState,
     google_client_state: &GoogleClientState,
@@ -719,16 +758,9 @@ fn build_status_items(
             label: "Rclone",
             value: rclone_value,
             value_class: rclone_value_class,
-            value_url: match rclone_state {
-                RcloneState::Ready(
-                    status,
-                ) => status
-                    .gui_url
-                    .clone()
-                    .unwrap_or_default(),
-
-                _ => String::new(),
-            },
+            value_url: rclone_gui_url(
+                rclone_state,
+            ),
         },
 
         StatusItem {
