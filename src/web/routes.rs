@@ -22,10 +22,15 @@ use axum::{
 use crate::{
     app::{
         AppState,
+        GoogleRemotesState,
         GoogleClientState,
         RcloneState,
     },
     google,
+    rclone::remotes::{
+        RemoteKind,
+        RemoteState,
+    },
 };
 
 #[allow(dead_code)]
@@ -54,6 +59,17 @@ pub struct SetupStep {
     pub state_class: &'static str,
     pub complete: bool,
     pub modal_target: &'static str,
+    pub remote_actions: Vec<RemoteAction>,
+}
+
+#[allow(dead_code)]
+pub struct RemoteAction {
+    pub label: &'static str,
+    pub action: &'static str,
+    pub state_label: &'static str,
+    pub state_class: &'static str,
+    pub disabled: bool,
+    pub detail: String,
 }
 
 #[allow(dead_code)]
@@ -155,6 +171,14 @@ pub fn router() -> Router<Arc<AppState>> {
             post(import_google_client),
         )
         .route(
+            "/setup/remotes/my-drive-rw",
+            post(setup_my_drive_rw),
+        )
+        .route(
+            "/setup/remotes/my-drive-ro",
+            post(setup_my_drive_ro),
+        )
+        .route(
             "/app/quit",
             post(quit),
         )
@@ -167,6 +191,8 @@ async fn index(
 
     let google_client_state =
         state.google_client_state();
+    let google_remotes_state =
+        state.google_remotes_state();
 
     let alerts = build_alerts(
         &rclone_state,
@@ -176,6 +202,7 @@ async fn index(
     let status_items = build_status_items(
         &rclone_state,
         &google_client_state,
+        &google_remotes_state,
     );
 
     let (
@@ -184,10 +211,12 @@ async fn index(
     ) = build_setup_progress(
         &rclone_state,
         &google_client_state,
+        &google_remotes_state,
     );
 
-    let poll_rclone = should_poll_rclone(
+    let poll_rclone = should_poll_setup(
         &rclone_state,
+        &google_remotes_state,
     );
 
     let template = DashboardTemplate {
@@ -208,6 +237,7 @@ async fn index(
 fn build_setup_progress(
     rclone_state: &RcloneState,
     google_client_state: &GoogleClientState,
+    google_remotes_state: &GoogleRemotesState,
 ) -> (Vec<SetupStep>, u8) {
     let rclone_step = match rclone_state {
         RcloneState::Initializing => SetupStep {
@@ -219,6 +249,7 @@ fn build_setup_progress(
             state_class: "text-bg-warning",
             complete: false,
             modal_target: "",
+            remote_actions: Vec::new(),
         },
 
         RcloneState::Ready(
@@ -234,6 +265,7 @@ fn build_setup_progress(
             state_class: "text-bg-success",
             complete: true,
             modal_target: "",
+            remote_actions: Vec::new(),
         },
 
         RcloneState::Error(
@@ -248,6 +280,7 @@ fn build_setup_progress(
             state_class: "text-bg-danger",
             complete: false,
             modal_target: "",
+            remote_actions: Vec::new(),
         },
     };
 
@@ -262,6 +295,7 @@ fn build_setup_progress(
             state_class: "text-bg-warning",
             complete: false,
             modal_target: "googleClientSetupModal",
+            remote_actions: Vec::new(),
         },
 
         GoogleClientState::Ready(
@@ -276,6 +310,7 @@ fn build_setup_progress(
             state_class: "text-bg-success",
             complete: true,
             modal_target: "",
+            remote_actions: Vec::new(),
         },
 
         GoogleClientState::Error(
@@ -290,19 +325,43 @@ fn build_setup_progress(
             state_class: "text-bg-danger",
             complete: false,
             modal_target: "googleClientSetupModal",
+            remote_actions: Vec::new(),
         },
     };
 
+    let remote_complete = matches!(google_remotes_state.rw, RemoteState::Ready)
+        && matches!(google_remotes_state.ro, RemoteState::Ready);
+    let remote_busy = matches!(google_remotes_state.rw, RemoteState::Configuring)
+        || matches!(google_remotes_state.ro, RemoteState::Configuring);
+    let prerequisites_ready = matches!(rclone_state, RcloneState::Ready(_))
+        && matches!(google_client_state, GoogleClientState::Ready(_));
+
     let remote_step = SetupStep {
-        icon: "bi-cloud-plus",
-        title: "Configure a Remote",
+        icon: if remote_complete { "bi-check-circle-fill" } else { "bi-cloud-plus" },
+        title: "Configure My Drive Remotes",
         description:
-            "Remote configuration is the next planned setup stage and is not implemented yet."
+            "Authorize separate read/write and read-only Google Drive connections. Google opens a browser tab for each authorization."
                 .to_string(),
-        state_label: "Pending",
-        state_class: "text-bg-secondary",
-        complete: false,
+        state_label: if remote_complete { "Complete" } else { "Set up" },
+        state_class: if remote_complete { "text-bg-success" } else { "text-bg-warning" },
+        complete: remote_complete,
         modal_target: "",
+        remote_actions: vec![
+            build_remote_action(
+                "Setup My Drive RW",
+                "/setup/remotes/my-drive-rw",
+                &google_remotes_state.rw,
+                prerequisites_ready,
+                remote_busy,
+            ),
+            build_remote_action(
+                "Setup My Drive RO",
+                "/setup/remotes/my-drive-ro",
+                &google_remotes_state.ro,
+                prerequisites_ready,
+                remote_busy,
+            ),
+        ],
     };
 
     let steps = vec![
@@ -328,6 +387,40 @@ fn build_setup_progress(
     )
 }
 
+fn build_remote_action(
+    label: &'static str,
+    action: &'static str,
+    state: &RemoteState,
+    prerequisites_ready: bool,
+    remote_busy: bool,
+) -> RemoteAction {
+    let (state_label, state_class) = match state {
+        RemoteState::Ready => ("Complete", "text-bg-success"),
+        RemoteState::Configuring => ("Authorizing…", "text-bg-warning"),
+        RemoteState::Conflict(_) => ("Conflict", "text-bg-danger"),
+        RemoteState::Error(_) => ("Retry", "text-bg-danger"),
+        RemoteState::Waiting => ("Waiting", "text-bg-secondary"),
+        RemoteState::NotConfigured => ("Setup", "text-bg-primary"),
+    };
+
+    RemoteAction {
+        label,
+        action,
+        state_label,
+        state_class,
+        disabled: !prerequisites_ready
+            || remote_busy
+            || matches!(state, RemoteState::Ready | RemoteState::Conflict(_)),
+        detail: match state {
+            RemoteState::Conflict(error) | RemoteState::Error(error) => error.clone(),
+            RemoteState::Configuring =>
+                "Complete the Google authorization in the browser tab opened by Rclone."
+                    .to_string(),
+            _ => String::new(),
+        },
+    }
+}
+
 async fn about(
     State(state): State<Arc<AppState>>,
 ) -> Result<Html<String>, StatusCode> {
@@ -335,6 +428,8 @@ async fn about(
 
     let google_client_state =
         state.google_client_state();
+    let google_remotes_state =
+        state.google_remotes_state();
 
     let alerts = build_alerts(
         &rclone_state,
@@ -344,6 +439,7 @@ async fn about(
     let status_items = build_status_items(
         &rclone_state,
         &google_client_state,
+        &google_remotes_state,
     );
 
     let poll_rclone = should_poll_rclone(
@@ -430,11 +526,14 @@ async fn ui_status(
 
     let google_client_state =
         state.google_client_state();
+    let google_remotes_state =
+        state.google_remotes_state();
 
     let template = StatusTemplate {
         status_items: build_status_items(
             &rclone_state,
             &google_client_state,
+            &google_remotes_state,
         ),
 
         poll_rclone: should_poll_rclone(
@@ -454,6 +553,8 @@ async fn ui_setup_progress(
 
     let google_client_state =
         state.google_client_state();
+    let google_remotes_state =
+        state.google_remotes_state();
 
     let (
         setup_steps,
@@ -461,13 +562,15 @@ async fn ui_setup_progress(
     ) = build_setup_progress(
         &rclone_state,
         &google_client_state,
+        &google_remotes_state,
     );
 
     let template = SetupProgressTemplate {
         setup_steps,
         setup_percent,
-        poll_rclone: should_poll_rclone(
+        poll_rclone: should_poll_setup(
             &rclone_state,
+            &google_remotes_state,
         ),
     };
 
@@ -545,6 +648,8 @@ async fn import_google_client(
                 ),
             );
 
+            state.refresh_google_remotes_if_ready();
+
             Ok(
                 Redirect::to(
                     "/",
@@ -576,6 +681,31 @@ async fn import_google_client(
     }
 }
 
+async fn setup_my_drive_rw(
+    State(state): State<Arc<AppState>>,
+) -> Result<Redirect, StatusCode> {
+    start_remote_setup(state, RemoteKind::MyDriveRw)
+}
+
+async fn setup_my_drive_ro(
+    State(state): State<Arc<AppState>>,
+) -> Result<Redirect, StatusCode> {
+    start_remote_setup(state, RemoteKind::MyDriveRo)
+}
+
+fn start_remote_setup(
+    state: Arc<AppState>,
+    kind: RemoteKind,
+) -> Result<Redirect, StatusCode> {
+    AppState::configure_google_remote(state, kind)
+        .map_err(|error| {
+            eprintln!("Unable to start {} setup: {error}", kind.label());
+            StatusCode::CONFLICT
+        })?;
+
+    Ok(Redirect::to("/"))
+}
+
 fn should_poll_rclone(
     rclone_state: &RcloneState,
 ) -> bool {
@@ -583,6 +713,15 @@ fn should_poll_rclone(
         rclone_state,
         RcloneState::Initializing
     )
+}
+
+fn should_poll_setup(
+    rclone_state: &RcloneState,
+    remotes_state: &GoogleRemotesState,
+) -> bool {
+    should_poll_rclone(rclone_state)
+        || matches!(remotes_state.rw, RemoteState::Configuring)
+        || matches!(remotes_state.ro, RemoteState::Configuring)
 }
 
 fn rclone_gui_url(
@@ -682,6 +821,7 @@ fn build_alerts(
 fn build_status_items(
     rclone_state: &RcloneState,
     google_client_state: &GoogleClientState,
+    google_remotes_state: &GoogleRemotesState,
 ) -> Vec<StatusItem> {
     let (
         rclone_value,
@@ -752,6 +892,19 @@ fn build_status_items(
             }
         };
 
+    let remote_count = [
+        &google_remotes_state.rw,
+        &google_remotes_state.ro,
+    ]
+    .into_iter()
+    .filter(|state| matches!(state, RemoteState::Ready))
+    .count();
+    let remote_class = if remote_count == 2 {
+        "text-success"
+    } else {
+        "text-warning"
+    };
+
     vec![
         StatusItem {
             icon: "bi-folder-symlink",
@@ -774,8 +927,8 @@ fn build_status_items(
         StatusItem {
             icon: "bi-cloud",
             label: "Remotes",
-            value: "None".to_string(),
-            value_class: "text-warning",
+            value: format!("{remote_count} of 2 configured"),
+            value_class: remote_class,
             value_url: String::new(),
         },
 

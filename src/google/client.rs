@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     fs,
     path::{
         Path,
@@ -13,10 +14,25 @@ use crate::bootstrap::Runtime;
 use super::GoogleError;
 
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct GoogleClientConfig {
     pub client_id: String,
+    pub(crate) client_secret: String,
     pub project_id: Option<String>,
+}
+
+impl fmt::Debug for GoogleClientConfig {
+    fn fmt(
+        &self,
+        formatter: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        formatter
+            .debug_struct("GoogleClientConfig")
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"[redacted]")
+            .field("project_id", &self.project_id)
+            .finish()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -169,6 +185,7 @@ pub fn validate(
     Ok(
         GoogleClientConfig {
             client_id: installed.client_id,
+            client_secret: installed.client_secret,
             project_id: installed.project_id,
         },
     )

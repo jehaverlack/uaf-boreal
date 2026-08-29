@@ -18,6 +18,10 @@ use crate::{
     },
     rclone::{
         self,
+        remotes::{
+            RemoteKind,
+            RemoteState,
+        },
         RcloneStatus,
     },
 };
@@ -28,6 +32,10 @@ pub struct AppState {
     pub rclone: RwLock<RcloneState>,
 
     pub google_client: RwLock<GoogleClientState>,
+
+    pub google_remotes: RwLock<GoogleRemotesState>,
+
+    remote_setup_active: Mutex<bool>,
 
     rclone_gui: Mutex<Option<Child>>,
 
@@ -59,6 +67,12 @@ pub enum GoogleClientState {
     Error(
         String,
     ),
+}
+
+#[derive(Debug, Clone)]
+pub struct GoogleRemotesState {
+    pub rw: RemoteState,
+    pub ro: RemoteState,
 }
 
 impl AppState {
@@ -123,6 +137,17 @@ impl AppState {
 
             google_client: RwLock::new(
                 google_client,
+            ),
+
+            google_remotes: RwLock::new(
+                GoogleRemotesState {
+                    rw: RemoteState::Waiting,
+                    ro: RemoteState::Waiting,
+                },
+            ),
+
+            remote_setup_active: Mutex::new(
+                false,
             ),
 
             rclone_gui: Mutex::new(
@@ -197,6 +222,10 @@ impl AppState {
 
                                             *gui = Some(
                                                 child,
+                                            );
+
+                                            state.refresh_google_remotes(
+                                                &status.path,
                                             );
 
                                             RcloneState::Ready(
@@ -340,6 +369,130 @@ impl AppState {
         }
     }
 
+    pub fn google_remotes_state(
+        &self,
+    ) -> GoogleRemotesState {
+        self.google_remotes
+            .read()
+            .map(|state| state.clone())
+            .unwrap_or_else(|error| GoogleRemotesState {
+                rw: RemoteState::Error(format!(
+                    "Unable to read remote state: {error}"
+                )),
+                ro: RemoteState::Error(format!(
+                    "Unable to read remote state: {error}"
+                )),
+            })
+    }
+
+    fn refresh_google_remotes(
+        &self,
+        executable: &std::path::Path,
+    ) {
+        let client = self.google_client_state();
+        let Ok(mut remotes_state) = self.google_remotes.write() else {
+            return;
+        };
+
+        match client {
+            GoogleClientState::Ready(client) => {
+                remotes_state.rw = rclone::remotes::detect(
+                    &self.runtime,
+                    executable,
+                    &client,
+                    RemoteKind::MyDriveRw,
+                );
+                remotes_state.ro = rclone::remotes::detect(
+                    &self.runtime,
+                    executable,
+                    &client,
+                    RemoteKind::MyDriveRo,
+                );
+            }
+            _ => {
+                remotes_state.rw = RemoteState::Waiting;
+                remotes_state.ro = RemoteState::Waiting;
+            }
+        }
+    }
+
+    pub fn refresh_google_remotes_if_ready(
+        &self,
+    ) {
+        if let RcloneState::Ready(status) = self.rclone_state() {
+            self.refresh_google_remotes(&status.path);
+        }
+    }
+
+    pub fn configure_google_remote(
+        state: Arc<Self>,
+        kind: RemoteKind,
+    ) -> Result<(), String> {
+        {
+            let mut active = state.remote_setup_active
+                .lock()
+                .map_err(|error| format!("Unable to start remote setup: {error}"))?;
+            if *active {
+                return Err("Another remote setup is already running".to_string());
+            }
+            *active = true;
+        }
+
+        let executable = match state.rclone_state() {
+            RcloneState::Ready(status) => status.path,
+            _ => {
+                state.finish_remote_setup();
+                return Err("Rclone is not ready".to_string());
+            }
+        };
+        let client = match state.google_client_state() {
+            GoogleClientState::Ready(client) => client,
+            _ => {
+                state.finish_remote_setup();
+                return Err("Google Client ID is not configured".to_string());
+            }
+        };
+
+        if let Ok(mut remotes) = state.google_remotes.write() {
+            *remote_state_mut(&mut remotes, kind) = RemoteState::Configuring;
+        }
+
+        tokio::spawn(async move {
+            let worker_state = Arc::clone(&state);
+            let result = tokio::task::spawn_blocking(move || {
+                rclone::remotes::configure(
+                    &worker_state.runtime,
+                    &executable,
+                    &client,
+                    kind,
+                )
+            }).await;
+
+            let new_remote_state = match result {
+                Ok(Ok(())) => RemoteState::Ready,
+                Ok(Err(error)) => RemoteState::Error(error.to_string()),
+                Err(error) => RemoteState::Error(format!(
+                    "Remote setup task failed: {error}"
+                )),
+            };
+
+            if let Ok(mut remotes) = state.google_remotes.write() {
+                *remote_state_mut(&mut remotes, kind) = new_remote_state;
+            }
+            state.finish_remote_setup();
+        });
+
+        Ok(())
+    }
+
+    fn finish_remote_setup(
+        &self,
+    ) {
+        if let Ok(mut active) = self.remote_setup_active.lock() {
+            *active = false;
+        }
+    }
+
     pub fn request_shutdown(
         &self,
     ) {
@@ -387,5 +540,15 @@ impl AppState {
                 );
             }
         }
+    }
+}
+
+fn remote_state_mut(
+    remotes: &mut GoogleRemotesState,
+    kind: RemoteKind,
+) -> &mut RemoteState {
+    match kind {
+        RemoteKind::MyDriveRw => &mut remotes.rw,
+        RemoteKind::MyDriveRo => &mut remotes.ro,
     }
 }
