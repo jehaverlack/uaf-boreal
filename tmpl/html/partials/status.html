@@ -29,9 +29,26 @@
                 {{ item.label }}:
             </span>
 
+            {% if item.value_url.is_empty() %}
+
             <span class="{{ item.value_class }}">
                 {{ item.value }}
             </span>
+
+            {% else %}
+
+            <a
+                class="{{ item.value_class }}"
+                href="{{ item.value_url }}"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open Rclone WebGUI"
+            >
+                {{ item.value }}
+                <i class="bi bi-box-arrow-up-right ms-1"></i>
+            </a>
+
+            {% endif %}
         </span>
 
         {% endfor %}

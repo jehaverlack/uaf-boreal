@@ -49,10 +49,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ),
     );
 
-    web::run(
-        state,
+    let web_result = web::run(
+        Arc::clone(
+            &state,
+        ),
     )
-    .await?;
+    .await;
+
+    state.request_shutdown();
+
+    state.stop_rclone_gui();
+
+    web_result?;
 
     Ok(())
 }

@@ -1,9 +1,12 @@
 use std::{
     sync::{
         Arc,
+        Mutex,
         RwLock,
     },
 };
+
+use std::process::Child;
 
 use tokio::sync::watch;
 
@@ -25,6 +28,8 @@ pub struct AppState {
     pub rclone: RwLock<RcloneState>,
 
     pub google_client: RwLock<GoogleClientState>,
+
+    rclone_gui: Mutex<Option<Child>>,
 
     shutdown_tx: watch::Sender<bool>,
 }
@@ -120,6 +125,10 @@ impl AppState {
                 google_client,
             ),
 
+            rclone_gui: Mutex::new(
+                None,
+            ),
+
             shutdown_tx,
         }
     }
@@ -149,7 +158,7 @@ impl AppState {
                 let new_state = match result {
                     Ok(
                         Ok(
-                            status,
+                            mut status,
                         ),
                     ) => {
                         println!(
@@ -162,9 +171,60 @@ impl AppState {
                             status.path.display()
                         );
 
-                        RcloneState::Ready(
-                            status,
-                        )
+                        match state.rclone_gui.lock() {
+                            Ok(
+                                mut gui,
+                            ) => {
+                                if *state.shutdown_tx.borrow() {
+                                    RcloneState::Error(
+                                        "Rclone WebGUI startup cancelled during shutdown"
+                                            .to_string(),
+                                    )
+                                } else {
+                                    match rclone::gui::start(
+                                        &state.runtime,
+                                        &status.path,
+                                    ) {
+                                        Ok(
+                                            (
+                                                child,
+                                                gui_url,
+                                            ),
+                                        ) => {
+                                            status.gui_url = Some(
+                                                gui_url,
+                                            );
+
+                                            *gui = Some(
+                                                child,
+                                            );
+
+                                            RcloneState::Ready(
+                                                status,
+                                            )
+                                        }
+
+                                        Err(
+                                            error,
+                                        ) => {
+                                            RcloneState::Error(
+                                                error.to_string(),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Err(
+                                error,
+                            ) => {
+                                RcloneState::Error(
+                                    format!(
+                                        "Unable to access Rclone WebGUI process: {error}"
+                                    ),
+                                )
+                            }
+                        }
                     }
 
                     Ok(
@@ -292,5 +352,40 @@ impl AppState {
         &self,
     ) -> watch::Receiver<bool> {
         self.shutdown_tx.subscribe()
+    }
+
+    pub fn stop_rclone_gui(
+        &self,
+    ) {
+        let child = match self.rclone_gui.lock() {
+            Ok(
+                mut gui,
+            ) => gui.take(),
+
+            Err(
+                error,
+            ) => {
+                eprintln!(
+                    "Unable to access Rclone WebGUI process during shutdown: {error}"
+                );
+
+                return;
+            }
+        };
+
+        if let Some(
+            mut child,
+        ) = child
+        {
+            if let Err(
+                error,
+            ) = rclone::gui::stop(
+                &mut child,
+            ) {
+                eprintln!(
+                    "Unable to stop Rclone WebGUI: {error}"
+                );
+            }
+        }
     }
 }

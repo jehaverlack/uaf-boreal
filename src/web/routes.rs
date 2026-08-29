@@ -42,6 +42,7 @@ pub struct StatusItem {
     pub label: &'static str,
     pub value: String,
     pub value_class: &'static str,
+    pub value_url: String,
 }
 
 #[allow(dead_code)]
@@ -718,6 +719,16 @@ fn build_status_items(
             label: "Rclone",
             value: rclone_value,
             value_class: rclone_value_class,
+            value_url: match rclone_state {
+                RcloneState::Ready(
+                    status,
+                ) => status
+                    .gui_url
+                    .clone()
+                    .unwrap_or_default(),
+
+                _ => String::new(),
+            },
         },
 
         StatusItem {
@@ -725,6 +736,7 @@ fn build_status_items(
             label: "ClientID",
             value: client_id_value,
             value_class: client_id_value_class,
+            value_url: String::new(),
         },
 
         StatusItem {
@@ -732,6 +744,7 @@ fn build_status_items(
             label: "Remotes",
             value: "None".to_string(),
             value_class: "text-warning",
+            value_url: String::new(),
         },
 
         StatusItem {
@@ -739,6 +752,7 @@ fn build_status_items(
             label: "Metadata",
             value: "Not synchronized".to_string(),
             value_class: "text-warning",
+            value_url: String::new(),
         },
 
         StatusItem {
@@ -751,6 +765,7 @@ fn build_status_items(
                 ),
             ),
             value_class: "text-success",
+            value_url: String::new(),
         },
     ]
 }
