@@ -1,0 +1,98 @@
+<div
+    id="boreal-setup-progress"
+    class="row mt-3"
+    {% if poll_rclone %}
+    hx-get="/ui/setup-progress"
+    hx-trigger="every 1s"
+    hx-swap="outerHTML"
+    {% endif %}
+>
+
+    <div class="col-xl-9 col-xxl-8">
+
+        <div class="card">
+
+            <div class="card-body">
+
+                <div class="d-flex justify-content-between align-items-center mb-2">
+
+                    <h2 class="h5 mb-0">Setup progress</h2>
+
+                    <span class="fw-semibold">{{ setup_percent }}%</span>
+
+                </div>
+
+                <div
+                    class="progress mb-4"
+                    role="progressbar"
+                    aria-label="BOREAL setup progress"
+                    aria-valuenow="{{ setup_percent }}"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                >
+                    <div
+                        class="progress-bar"
+                        style="width: {{ setup_percent }}%"
+                    ></div>
+                </div>
+
+                <div class="list-group list-group-flush">
+
+                    {% for step in setup_steps %}
+
+                    <div class="list-group-item px-0 py-3">
+
+                        <div class="d-flex align-items-start gap-3">
+
+                            <i class="bi {{ step.icon }} fs-4{% if step.complete %} text-success{% endif %}"></i>
+
+                            <div class="flex-grow-1">
+
+                                <div class="d-flex justify-content-between align-items-start gap-3">
+
+                                    <h3 class="h6 mb-1">
+                                        {{ loop.index }}. {{ step.title }}
+                                    </h3>
+
+                                    {% if step.modal_target.len() > 0 %}
+
+                                    <button
+                                        type="button"
+                                        class="badge {{ step.state_class }} border-0"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#{{ step.modal_target }}"
+                                    >
+                                        {{ step.state_label }}
+                                    </button>
+
+                                    {% else %}
+
+                                    <span class="badge {{ step.state_class }}">
+                                        {{ step.state_label }}
+                                    </span>
+
+                                    {% endif %}
+
+                                </div>
+
+                                <p class="small text-body-secondary mb-0">
+                                    {{ step.description }}
+                                </p>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                    {% endfor %}
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>

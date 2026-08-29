@@ -44,19 +44,32 @@
                 </h2>
 
                 <p>
-                    Create a new Google Cloud project or select
-                    the project you want to use for BOREAL.
+                    Choose an existing Google Cloud project or
+                    create a new project that you want to use
+                    for BOREAL.
                 </p>
+
+                <div class="alert alert-warning">
+
+                    <i class="bi bi-exclamation-triangle me-1"></i>
+
+                    BOREAL does not select a Google Cloud
+                    project for you. Google may display a
+                    recently used project, so confirm the
+                    project name before enabling APIs or
+                    creating credentials.
+
+                </div>
 
                 <p>
                     <a
                         class="btn btn-outline-primary"
-                        href="https://console.cloud.google.com/"
+                        href="https://console.cloud.google.com/projectselector2/home/dashboard"
                         target="_blank"
                         rel="noopener noreferrer"
                     >
                         <i class="bi bi-box-arrow-up-right me-1"></i>
-                        Open Google Cloud Console
+                        Choose or Create a Project
                     </a>
                 </p>
 
@@ -66,33 +79,78 @@
 
                 <ol>
                     <li>
-                        Click <strong>APIs &amp; Services</strong>.
+                        Click the button below to open the
+                        Google Drive API setup page.
                     </li>
 
                     <li>
-                        Click <strong>Library</strong>.
+                        Confirm that Google shows the project
+                        you selected in step 1.
                     </li>
 
                     <li>
-                        Search for
-                        <strong>Google Drive API</strong>.
-                    </li>
-
-                    <li>
-                        Open Google Drive API and click
-                        <strong>Enable</strong>.
+                        Click <strong>Enable</strong>.
                     </li>
                 </ol>
+
+                <p>
+                    <a
+                        class="btn btn-outline-primary"
+                        href="https://console.cloud.google.com/flows/enableapi?apiid=drive.googleapis.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        <i class="bi bi-box-arrow-up-right me-1"></i>
+                        Open Google Drive API Setup
+                    </a>
+                </p>
 
                 <h2 class="h6 mt-4">
                     3. Configure Google Auth Platform
                 </h2>
 
                 <p>
-                    Open Google Auth Platform and complete the
-                    OAuth application configuration if Google
-                    asks you to do so.
+                    A new project must be registered with
+                    Google Auth Platform before Google allows
+                    you to create an OAuth client. Confirm that
+                    the project shown in the Google Cloud
+                    header is the project you selected in step
+                    1, then:
                 </p>
+
+                <ol>
+                    <li>
+                        Click <strong>Get Started</strong>.
+                    </li>
+
+                    <li>
+                        Under <strong>App Information</strong>,
+                        enter <strong>BOREAL</strong> as the app
+                        name and select your support email.
+                    </li>
+
+                    <li>
+                        Under <strong>Audience</strong>, choose
+                        <strong>Internal</strong> only when the
+                        app will be used exclusively by members
+                        of your Google Workspace organization.
+                        Otherwise, choose
+                        <strong>External</strong>.
+                    </li>
+
+                    <li>
+                        Enter your contact email, accept the
+                        Google API Services User Data Policy,
+                        and finish creating the app.
+                    </li>
+
+                    <li>
+                        If you chose External and the app is in
+                        testing, open <strong>Audience</strong>
+                        and add the Google accounts that will
+                        use BOREAL as test users.
+                    </li>
+                </ol>
 
                 <p>
                     <a
@@ -109,6 +167,12 @@
                 <h2 class="h6 mt-4">
                     4. Create the OAuth Client
                 </h2>
+
+                <p>
+                    After Google Auth Platform setup is
+                    complete, return to
+                    <strong>Clients</strong>.
+                </p>
 
                 <ol>
                     <li>
@@ -135,8 +199,10 @@
                     </li>
 
                     <li>
-                        Download the generated JSON credentials
-                        file.
+                        Click <strong>Download</strong> and save
+                        the generated JSON credentials file in
+                        your <strong>Downloads</strong>
+                        directory.
                     </li>
                 </ol>
 

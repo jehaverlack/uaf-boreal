@@ -11,6 +11,7 @@ Browser-based Organizer for Rclone Exploration, Audit & Lookup
 | **Version** | 0.0.2 |
 | **Date** | 2026-08-27 |
 
+> AI Attestation: Generative AI was used for there development of this code base.  The architecture and design goals for this code are that of the author.
 
 ## Overview
 

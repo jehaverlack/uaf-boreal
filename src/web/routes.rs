@@ -44,6 +44,17 @@ pub struct StatusItem {
 }
 
 #[allow(dead_code)]
+pub struct SetupStep {
+    pub icon: &'static str,
+    pub title: &'static str,
+    pub description: String,
+    pub state_label: &'static str,
+    pub state_class: &'static str,
+    pub complete: bool,
+    pub modal_target: &'static str,
+}
+
+#[allow(dead_code)]
 #[derive(Template)]
 #[template(
     path = "dashboard.html",
@@ -54,6 +65,8 @@ struct DashboardTemplate {
     active_page: &'static str,
     alerts: Vec<AlertItem>,
     status_items: Vec<StatusItem>,
+    setup_steps: Vec<SetupStep>,
+    setup_percent: u8,
     poll_rclone: bool,
 }
 
@@ -93,6 +106,18 @@ struct StatusTemplate {
     poll_rclone: bool,
 }
 
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(
+    path = "partials/setup-progress.html",
+    config = "askama.toml"
+)]
+struct SetupProgressTemplate {
+    setup_steps: Vec<SetupStep>,
+    setup_percent: u8,
+    poll_rclone: bool,
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route(
@@ -114,6 +139,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/ui/status",
             get(ui_status),
+        )
+        .route(
+            "/ui/setup-progress",
+            get(ui_setup_progress),
         )
         .route(
             "/setup/google-client/import",
@@ -143,6 +172,14 @@ async fn index(
         &google_client_state,
     );
 
+    let (
+        setup_steps,
+        setup_percent,
+    ) = build_setup_progress(
+        &rclone_state,
+        &google_client_state,
+    );
+
     let poll_rclone = should_poll_rclone(
         &rclone_state,
     );
@@ -152,11 +189,136 @@ async fn index(
         active_page: "dashboard",
         alerts,
         status_items,
+        setup_steps,
+        setup_percent,
         poll_rclone,
     };
 
     render_template(
         &template,
+    )
+}
+
+fn build_setup_progress(
+    rclone_state: &RcloneState,
+    google_client_state: &GoogleClientState,
+) -> (Vec<SetupStep>, u8) {
+    let rclone_step = match rclone_state {
+        RcloneState::Initializing => SetupStep {
+            icon: "bi-hourglass-split",
+            title: "Install Rclone",
+            description: "BOREAL is installing and verifying its private Rclone binary."
+                .to_string(),
+            state_label: "In progress",
+            state_class: "text-bg-warning",
+            complete: false,
+            modal_target: "",
+        },
+
+        RcloneState::Ready(
+            status,
+        ) => SetupStep {
+            icon: "bi-check-circle-fill",
+            title: "Install Rclone",
+            description: format!(
+                "{} is installed and ready.",
+                status.version
+            ),
+            state_label: "Complete",
+            state_class: "text-bg-success",
+            complete: true,
+            modal_target: "",
+        },
+
+        RcloneState::Error(
+            error,
+        ) => SetupStep {
+            icon: "bi-exclamation-triangle-fill",
+            title: "Install Rclone",
+            description: format!(
+                "Rclone setup failed: {error}"
+            ),
+            state_label: "Needs attention",
+            state_class: "text-bg-danger",
+            complete: false,
+            modal_target: "",
+        },
+    };
+
+    let google_step = match google_client_state {
+        GoogleClientState::NotConfigured => SetupStep {
+            icon: "bi-key",
+            title: "Configure Google Client ID",
+            description:
+                "Enable the Google Drive API, create a Desktop OAuth client, and import its JSON file."
+                    .to_string(),
+            state_label: "Set up",
+            state_class: "text-bg-warning",
+            complete: false,
+            modal_target: "googleClientSetupModal",
+        },
+
+        GoogleClientState::Ready(
+            _,
+        ) => SetupStep {
+            icon: "bi-check-circle-fill",
+            title: "Configure Google Client ID",
+            description:
+                "Google Desktop OAuth credentials are stored in BOREAL's private conf directory."
+                    .to_string(),
+            state_label: "Complete",
+            state_class: "text-bg-success",
+            complete: true,
+            modal_target: "",
+        },
+
+        GoogleClientState::Error(
+            error,
+        ) => SetupStep {
+            icon: "bi-exclamation-triangle-fill",
+            title: "Configure Google Client ID",
+            description: format!(
+                "The saved credentials are invalid: {error}"
+            ),
+            state_label: "Fix setup",
+            state_class: "text-bg-danger",
+            complete: false,
+            modal_target: "googleClientSetupModal",
+        },
+    };
+
+    let remote_step = SetupStep {
+        icon: "bi-cloud-plus",
+        title: "Configure a Remote",
+        description:
+            "Remote configuration is the next planned setup stage and is not implemented yet."
+                .to_string(),
+        state_label: "Pending",
+        state_class: "text-bg-secondary",
+        complete: false,
+        modal_target: "",
+    };
+
+    let steps = vec![
+        rclone_step,
+        google_step,
+        remote_step,
+    ];
+
+    let complete_count = steps
+        .iter()
+        .filter(
+            |step| step.complete,
+        )
+        .count();
+
+    let setup_percent = (
+        complete_count * 100 / steps.len()
+    ) as u8;
+
+    (
+        steps,
+        setup_percent,
     )
 }
 
@@ -249,6 +411,35 @@ async fn ui_status(
             &google_client_state,
         ),
 
+        poll_rclone: should_poll_rclone(
+            &rclone_state,
+        ),
+    };
+
+    render_template(
+        &template,
+    )
+}
+
+async fn ui_setup_progress(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
+    let rclone_state = state.rclone_state();
+
+    let google_client_state =
+        state.google_client_state();
+
+    let (
+        setup_steps,
+        setup_percent,
+    ) = build_setup_progress(
+        &rclone_state,
+        &google_client_state,
+    );
+
+    let template = SetupProgressTemplate {
+        setup_steps,
+        setup_percent,
         poll_rclone: should_poll_rclone(
             &rclone_state,
         ),
