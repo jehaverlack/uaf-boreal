@@ -15,6 +15,14 @@
     "homepage": "https://github.com/jehaverlack/uaf-boreal",
     "git_repo": "https://github.com/jehaverlack/uaf-boreal.git"
   },
+  "BUILD_TARGETS": {
+    "x86_64-unknown-linux-gnu": true,
+    "aarch64-unknown-linux-gnu": false,
+    "armv7-unknown-linux-gnueabihf": false,
+    "x86_64-pc-windows-gnu": false,
+    "x86_64-apple-darwin": false,
+    "aarch64-apple-darwin": false
+  },
   "META_MAPS": {
     "*.md": {
       "**Name**": "name",

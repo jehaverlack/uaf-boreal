@@ -41,6 +41,7 @@ pub struct StatusItem {
     pub icon: &'static str,
     pub label: &'static str,
     pub value: String,
+    pub value_class: &'static str,
 }
 
 #[allow(dead_code)]
@@ -642,48 +643,72 @@ fn build_status_items(
     rclone_state: &RcloneState,
     google_client_state: &GoogleClientState,
 ) -> Vec<StatusItem> {
-    let rclone_value = match rclone_state {
+    let (
+        rclone_value,
+        rclone_value_class,
+    ) = match rclone_state {
         RcloneState::Initializing => {
-            "Initializing...".to_string()
+            (
+                "Initializing...".to_string(),
+                "text-warning",
+            )
         }
 
         RcloneState::Ready(
             status,
         ) => {
-            status
-                .version
-                .strip_prefix(
-                    "rclone ",
-                )
-                .unwrap_or(
-                    &status.version,
-                )
-                .to_string()
+            (
+                status
+                    .version
+                    .strip_prefix(
+                        "rclone ",
+                    )
+                    .unwrap_or(
+                        &status.version,
+                    )
+                    .to_string(),
+                "text-success",
+            )
         }
 
         RcloneState::Error(
             _,
         ) => {
-            "Unavailable".to_string()
+            (
+                "Unavailable".to_string(),
+                "text-danger",
+            )
         }
     };
 
-    let client_id_value =
+    let (
+        client_id_value,
+        client_id_value_class,
+    ) =
         match google_client_state {
             GoogleClientState::NotConfigured => {
-                "Not configured".to_string()
+                (
+                    "Not configured".to_string(),
+                    "text-warning",
+                )
             }
 
             GoogleClientState::Ready(
                 _,
             ) => {
-                "Configured".to_string()
+                (
+                    "Configured".to_string(),
+                    "text-success",
+                )
             }
 
             GoogleClientState::Error(
                 _,
             ) => {
-                "Invalid".to_string()
+                (
+                    "Invalid".to_string(),
+                    "text-danger",
+                )
             }
         };
 
@@ -692,33 +717,40 @@ fn build_status_items(
             icon: "bi-folder-symlink",
             label: "Rclone",
             value: rclone_value,
+            value_class: rclone_value_class,
         },
 
         StatusItem {
             icon: "bi-key",
             label: "ClientID",
             value: client_id_value,
+            value_class: client_id_value_class,
         },
 
         StatusItem {
             icon: "bi-cloud",
             label: "Remotes",
             value: "None".to_string(),
+            value_class: "text-warning",
         },
 
         StatusItem {
             icon: "bi-database",
             label: "Metadata",
             value: "Not synchronized".to_string(),
+            value_class: "text-warning",
         },
 
         StatusItem {
             icon: "bi-info-circle",
             label: "BOREAL",
-            value: env!(
-                "CARGO_PKG_VERSION"
-            )
-            .to_string(),
+            value: format!(
+                "v{}",
+                env!(
+                    "CARGO_PKG_VERSION"
+                ),
+            ),
+            value_class: "text-success",
         },
     ]
 }

@@ -29,7 +29,9 @@
                 {{ item.label }}:
             </span>
 
-            {{ item.value }}
+            <span class="{{ item.value_class }}">
+                {{ item.value }}
+            </span>
         </span>
 
         {% endfor %}

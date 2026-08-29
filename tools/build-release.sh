@@ -58,6 +58,33 @@ check_command() {
     fi
 }
 
+target_enabled() {
+    local target="$1"
+
+    jq -e \
+        --arg target "$target" \
+        '.BUILD_TARGETS[$target] == true' \
+        metadata.json \
+        >/dev/null
+}
+
+validate_target_setting() {
+    local target="$1"
+    local setting
+
+    setting="$(
+        jq -r \
+            --arg target "$target" \
+            '.BUILD_TARGETS[$target] | type' \
+            metadata.json
+    )"
+
+    if [[ "$setting" != "boolean" ]]; then
+        echo "ERROR: BUILD_TARGETS[\"$target\"] must be true or false"
+        exit 1
+    fi
+}
+
 # -------------------------------------------------
 # Prerequisites
 # -------------------------------------------------
@@ -72,6 +99,17 @@ if [[ -z "$VERSION" || "$VERSION" == "null" ]]; then
     echo "ERROR: Unable to read METADATA.version from metadata.json"
     exit 1
 fi
+
+for target in \
+    "$LINUX_X86_64" \
+    "$LINUX_AARCH64" \
+    "$LINUX_ARMV7" \
+    "$WINDOWS_X86_64" \
+    "$DARWIN_X86_64" \
+    "$DARWIN_AARCH64"
+do
+    validate_target_setting "$target"
+done
 
 HOST_OS="$(uname -s)"
 
@@ -89,94 +127,126 @@ if [[ "$HOST_OS" == "Linux" ]]; then
     echo
     echo "==> Checking Linux/Windows Rust targets"
 
-    check_target "$LINUX_X86_64"
-    check_target "$LINUX_AARCH64"
-    check_target "$LINUX_ARMV7"
-    check_target "$WINDOWS_X86_64"
+    if target_enabled "$LINUX_X86_64"; then
+        check_target "$LINUX_X86_64"
+    fi
+
+    if target_enabled "$LINUX_AARCH64"; then
+        check_target "$LINUX_AARCH64"
+    fi
+
+    if target_enabled "$LINUX_ARMV7"; then
+        check_target "$LINUX_ARMV7"
+    fi
+
+    if target_enabled "$WINDOWS_X86_64"; then
+        check_target "$WINDOWS_X86_64"
+    fi
 
     echo "==> Checking cross-compilers"
 
-    check_command \
-        aarch64-linux-gnu-gcc \
-        "Install with: sudo apt install gcc-aarch64-linux-gnu"
+    if target_enabled "$LINUX_AARCH64"; then
+        check_command \
+            aarch64-linux-gnu-gcc \
+            "Install with: sudo apt install gcc-aarch64-linux-gnu"
+    fi
 
-    check_command \
-        arm-linux-gnueabihf-gcc \
-        "Install with: sudo apt install gcc-arm-linux-gnueabihf"
+    if target_enabled "$LINUX_ARMV7"; then
+        check_command \
+            arm-linux-gnueabihf-gcc \
+            "Install with: sudo apt install gcc-arm-linux-gnueabihf"
+    fi
 
-    check_command \
-        x86_64-w64-mingw32-gcc \
-        "Install with: sudo apt install gcc-mingw-w64-x86-64"
+    if target_enabled "$WINDOWS_X86_64"; then
+        check_command \
+            x86_64-w64-mingw32-gcc \
+            "Install with: sudo apt install gcc-mingw-w64-x86-64"
+    fi
 
     # ---------------------------------------------
     # Linux x86_64
     # ---------------------------------------------
 
-    echo
-    echo "==> Building Linux x86_64"
+    if target_enabled "$LINUX_X86_64"; then
+        echo
+        echo "==> Building Linux x86_64"
 
-    cargo build \
-        --release \
-        --target "$LINUX_X86_64"
+        cargo build \
+            --release \
+            --target "$LINUX_X86_64"
 
-    cp \
-        "target/$LINUX_X86_64/release/$APP" \
-        "$OUT/${APP}-v${VERSION}-linux-x86_64"
+        cp \
+            "target/$LINUX_X86_64/release/$APP" \
+            "$OUT/${APP}-v${VERSION}-linux-x86_64"
+    fi
 
     # ---------------------------------------------
     # Linux ARM64
     # ---------------------------------------------
 
-    echo
-    echo "==> Building Linux ARM64"
+    if target_enabled "$LINUX_AARCH64"; then
+        echo
+        echo "==> Building Linux ARM64"
 
-    cargo build \
-        --release \
-        --target "$LINUX_AARCH64"
+        cargo build \
+            --release \
+            --target "$LINUX_AARCH64"
 
-    cp \
-        "target/$LINUX_AARCH64/release/$APP" \
-        "$OUT/${APP}-v${VERSION}-linux-aarch64"
+        cp \
+            "target/$LINUX_AARCH64/release/$APP" \
+            "$OUT/${APP}-v${VERSION}-linux-aarch64"
+    fi
 
     # ---------------------------------------------
     # Linux ARMv7
     # ---------------------------------------------
 
-    echo
-    echo "==> Building Linux ARMv7"
+    if target_enabled "$LINUX_ARMV7"; then
+        echo
+        echo "==> Building Linux ARMv7"
 
-    cargo build \
-        --release \
-        --target "$LINUX_ARMV7"
+        cargo build \
+            --release \
+            --target "$LINUX_ARMV7"
 
-    cp \
-        "target/$LINUX_ARMV7/release/$APP" \
-        "$OUT/${APP}-v${VERSION}-linux-armv7"
+        cp \
+            "target/$LINUX_ARMV7/release/$APP" \
+            "$OUT/${APP}-v${VERSION}-linux-armv7"
+    fi
 
     # ---------------------------------------------
     # Windows x86_64
     # ---------------------------------------------
 
-    echo
-    echo "==> Building Windows x86_64"
+    if target_enabled "$WINDOWS_X86_64"; then
+        echo
+        echo "==> Building Windows x86_64"
 
-    cargo build \
-        --release \
-        --target "$WINDOWS_X86_64"
+        cargo build \
+            --release \
+            --target "$WINDOWS_X86_64"
 
-    cp \
-        "target/$WINDOWS_X86_64/release/$APP.exe" \
-        "$OUT/${APP}-v${VERSION}-windows-x86_64.exe"
+        cp \
+            "target/$WINDOWS_X86_64/release/$APP.exe" \
+            "$OUT/${APP}-v${VERSION}-windows-x86_64.exe"
+    fi
 
     # ---------------------------------------------
     # Darwin notice
     # ---------------------------------------------
 
-    echo
-    echo "==> macOS builds not available from standard Linux toolchain"
-    echo "    Build these targets on a macOS host:"
-    echo "      $DARWIN_X86_64"
-    echo "      $DARWIN_AARCH64"
+    if target_enabled "$DARWIN_X86_64" || target_enabled "$DARWIN_AARCH64"; then
+        echo
+        echo "==> Enabled macOS builds require a macOS host:"
+
+        if target_enabled "$DARWIN_X86_64"; then
+            echo "      $DARWIN_X86_64"
+        fi
+
+        if target_enabled "$DARWIN_AARCH64"; then
+            echo "      $DARWIN_AARCH64"
+        fi
+    fi
 
 # -------------------------------------------------
 # macOS build host
@@ -187,38 +257,47 @@ elif [[ "$HOST_OS" == "Darwin" ]]; then
     echo
     echo "==> Checking macOS Rust targets"
 
-    check_target "$DARWIN_X86_64"
-    check_target "$DARWIN_AARCH64"
+    if target_enabled "$DARWIN_X86_64"; then
+        check_target "$DARWIN_X86_64"
+    fi
+
+    if target_enabled "$DARWIN_AARCH64"; then
+        check_target "$DARWIN_AARCH64"
+    fi
 
     # ---------------------------------------------
     # macOS Intel
     # ---------------------------------------------
 
-    echo
-    echo "==> Building macOS x86_64"
+    if target_enabled "$DARWIN_X86_64"; then
+        echo
+        echo "==> Building macOS x86_64"
 
-    cargo build \
-        --release \
-        --target "$DARWIN_X86_64"
+        cargo build \
+            --release \
+            --target "$DARWIN_X86_64"
 
-    cp \
-        "target/$DARWIN_X86_64/release/$APP" \
-        "$OUT/${APP}-v${VERSION}-macos-x86_64"
+        cp \
+            "target/$DARWIN_X86_64/release/$APP" \
+            "$OUT/${APP}-v${VERSION}-macos-x86_64"
+    fi
 
     # ---------------------------------------------
     # macOS Apple Silicon
     # ---------------------------------------------
 
-    echo
-    echo "==> Building macOS ARM64"
+    if target_enabled "$DARWIN_AARCH64"; then
+        echo
+        echo "==> Building macOS ARM64"
 
-    cargo build \
-        --release \
-        --target "$DARWIN_AARCH64"
+        cargo build \
+            --release \
+            --target "$DARWIN_AARCH64"
 
-    cp \
-        "target/$DARWIN_AARCH64/release/$APP" \
-        "$OUT/${APP}-v${VERSION}-macos-aarch64"
+        cp \
+            "target/$DARWIN_AARCH64/release/$APP" \
+            "$OUT/${APP}-v${VERSION}-macos-aarch64"
+    fi
 
 else
     echo "ERROR: Unsupported build host: $HOST_OS"
