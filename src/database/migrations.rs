@@ -61,6 +61,11 @@ const MIGRATIONS: &[Migration] = &[
             "migrations/0007_identity_lookup_indexes.sql"
         ),
     },
+    Migration {
+        version: 8,
+        name: "principal_tags",
+        sql: include_str!("migrations/0008_principal_tags.sql"),
+    },
 ];
 
 pub fn apply(

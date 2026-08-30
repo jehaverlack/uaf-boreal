@@ -31,6 +31,13 @@ pub struct PrincipalRow {
     pub members: u64,
     pub owned_items: u64,
     pub permitted_items: u64,
+    pub tags: Vec<IdentityTag>,
+}
+
+#[derive(Debug, Clone)]
+pub struct IdentityTag {
+    pub name: String,
+    pub color: String,
 }
 
 #[derive(Debug, Clone)]
@@ -211,10 +218,50 @@ pub fn list_principals_filtered(
                 members: row.get::<_, i64>(7)? as u64,
                 owned_items: row.get::<_, i64>(8)? as u64,
                 permitted_items: row.get::<_, i64>(9)? as u64,
+                tags: Vec::new(),
             })
         },
     )?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    let mut principals = rows.collect::<Result<Vec<_>, _>>()?;
+    drop(statement);
+    for principal in &mut principals {
+        let mut tag_statement = connection.prepare(
+            "SELECT t.name, t.color
+             FROM principal_tags pt JOIN tags t ON t.id = pt.tag_id
+             WHERE pt.principal_id = ?1 ORDER BY t.name COLLATE NOCASE",
+        )?;
+        principal.tags = tag_statement
+            .query_map([principal.id], |row| Ok(IdentityTag {
+                name: row.get(0)?, color: row.get(1)?,
+            }))?
+            .collect::<Result<Vec<_>, _>>()?;
+    }
+    Ok(principals)
+}
+
+pub fn apply_principal_tag(
+    database: &Database,
+    principal_ids: &[i64],
+    tag_slug: &str,
+) -> Result<usize, DatabaseError> {
+    if principal_ids.is_empty() {
+        return Err("Select at least one directory identity".into());
+    }
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    let tag_id: i64 = transaction.query_row(
+        "SELECT id FROM tags WHERE slug = ?1", [tag_slug], |row| row.get(0),
+    ).optional()?.ok_or_else(|| format!("Unknown tag: {tag_slug}"))?;
+    let mut applied = 0;
+    for principal_id in principal_ids {
+        applied += transaction.execute(
+            "INSERT OR IGNORE INTO principal_tags (principal_id, tag_id)
+             SELECT id, ?2 FROM principals WHERE id = ?1",
+            params![principal_id, tag_id],
+        )?;
+    }
+    transaction.commit()?;
+    Ok(applied)
 }
 
 fn parse_date_filter(filter: &str) -> Result<(i64, String), DatabaseError> {

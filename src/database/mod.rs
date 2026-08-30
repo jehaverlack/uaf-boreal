@@ -259,7 +259,7 @@ mod tests {
 
         assert_eq!(
             migration_count,
-            7,
+            8,
         );
 
         fs::remove_dir_all(
@@ -461,7 +461,7 @@ mod tests {
         assert_eq!(first_summary.bytes_discovered, 42);
         assert_eq!(first_summary.permissions_scanned, 1);
         let root_items = inventory::list_my_drive_directory(
-            &database, None, "", "", "", "", "", "", false, "", false, "name", false,
+            &database, None, "", "", "", "", "", "", false, "", "", false, "name", false,
         )
             .expect("explorer root should be readable");
         assert_eq!(root_items.len(), 1);
@@ -478,7 +478,7 @@ mod tests {
         assert_eq!(
             inventory::list_drive_directory(
                 &database, inventory::SHARED_WITH_ME_SCOPE, Some("Reports"), "", "", "",
-                "", "", "", false, "", false, "name", false,
+                "", "", "", false, "", "", false, "name", false,
             ).expect("Shared with me explorer should be readable").len(),
             1,
         );
@@ -491,7 +491,7 @@ mod tests {
         );
         assert_eq!(
             inventory::list_my_drive_directory(
-                &database, None, "report", "", "", "", "", "", false, "", false, "size", true,
+                &database, None, "report", "", "", "", "", "", false, "", "", false, "size", true,
             )
                 .expect("filtered explorer root should be readable")
                 .len(),
@@ -500,19 +500,19 @@ mod tests {
         assert_eq!(
             inventory::list_my_drive_directory(
                 &database, Some("Reports"), "", "", "", ">40B", ">2026-01-01",
-                "", false, "", false, "name", false,
+                "", false, "", "", false, "name", false,
             ).expect("size and modified expressions should be readable").len(),
             1,
         );
         assert!(
             inventory::list_my_drive_directory(
                 &database, Some("Reports"), "", "", "", ">5GB", "",
-                "", false, "", false, "name", false,
+                "", false, "", "", false, "name", false,
             ).expect("large size expressions should be readable").is_empty(),
         );
         assert!(
             inventory::list_my_drive_directory(
-                &database, None, "missing", "", "", "", "", "", false, "", false, "name", false,
+                &database, None, "missing", "", "", "", "", "", false, "", "", false, "name", false,
             )
                 .expect("empty explorer search should be readable")
                 .is_empty(),
@@ -536,17 +536,36 @@ mod tests {
             .expect("custom tag should remain available");
         assert_eq!(custom_tag.name, "Review Soon");
         assert_eq!(custom_tag.color, "#123456");
+        directory::import_csv(
+            &database,
+            "owners.csv",
+            b"email,name,type,status\nowner@example.edu,Owner,person,departing\n",
+        ).expect("owner directory identity should import");
+        let owner = directory::list_principals(&database)
+            .expect("directory should be readable")
+            .into_iter()
+            .find(|principal| principal.primary_email == "owner@example.edu")
+            .expect("owner identity should exist");
+        directory::apply_principal_tag(&database, &[owner.id], "needs-review")
+            .expect("identity tag should apply");
+        assert_eq!(
+            inventory::list_my_drive_directory(
+                &database, Some("Reports"), "", "", "", "", "", "", false, "",
+                "needs-review", false, "name", false,
+            ).expect("identity-tagged owner should be searchable").len(),
+            1,
+        );
         assert_eq!(
             inventory::list_my_drive_directory(
                 &database, Some("Reports"), "", "", "", "", "",
-                "jehaverlack", true, "reader@example.edu", false, "owner", false,
+                "jehaverlack", true, "reader@example.edu", "", false, "owner", false,
             ).expect("combined owner and permission filters should be readable").len(),
             1,
         );
         assert_eq!(
             inventory::list_my_drive_directory(
                 &database, Some("Reports"), "", "to-migrate", "", "",
-                "", "", false, "", false, "name", false,
+                "", "", false, "", "", false, "name", false,
             ).expect("tagged folder contents should be readable").len(),
             1,
         );
@@ -559,7 +578,7 @@ mod tests {
         assert_eq!(summary.bytes_discovered, 0);
         assert!(
             inventory::list_my_drive_directory(
-                &database, Some("Reports"), "", "", "", "", "", "", false, "", false, "name", false,
+                &database, Some("Reports"), "", "", "", "", "", "", false, "", "", false, "name", false,
             )
                 .expect("explorer directory should be readable")
                 .is_empty(),
@@ -568,13 +587,13 @@ mod tests {
         assert_eq!(
             inventory::list_drive_directory(
                 &database, inventory::SHARED_WITH_ME_SCOPE, Some("Reports"), "", "", "",
-                "", "", "", false, "", false, "name", false,
+                "", "", "", false, "", "", false, "name", false,
             ).expect("My Drive deletion must not affect Shared with me").len(),
             1,
         );
         assert_eq!(
             inventory::list_my_drive_directory(
-                &database, None, "", "", "", "", "", "", false, "", true, "name", false,
+                &database, None, "", "", "", "", "", "", false, "", "", true, "name", false,
             ).expect("deleted explorer items should be optionally visible").len(),
             1,
         );

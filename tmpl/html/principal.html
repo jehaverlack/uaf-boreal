@@ -10,10 +10,20 @@
         <div class="text-body-secondary">{{ principal.primary_email }}</div>
     </div>
     <div class="d-flex gap-2">
+        {% for tag in principal.tags %}<span class="badge rounded-pill" style="background-color: {{ tag.color }}; color: #fff">{{ tag.name }}</span>{% endfor %}
         <span class="badge text-bg-secondary">{{ principal.principal_type }}</span>
         <span class="badge {% if principal.status == "former" %}text-bg-danger{% else if principal.status == "departing" %}text-bg-warning{% else if principal.status == "active" %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ principal.status }}</span>
     </div>
 </div>
+
+<form method="post" action="/directory/principals/{{ principal.id }}/tags" class="d-flex align-items-center gap-2 mb-4">
+    <input type="hidden" name="selected_principal_ids" value="{{ principal.id }}">
+    <label class="small fw-semibold" for="principal-apply-tag">Apply identity tag:</label>
+    <select id="principal-apply-tag" class="form-select form-select-sm w-auto" name="tag" required>
+        {% for tag in tags %}<option value="{{ tag.slug }}">{{ tag.name }}</option>{% endfor %}
+    </select>
+    <button class="btn btn-sm btn-outline-primary" type="submit"><i class="bi bi-tag me-1"></i>Apply</button>
+</form>
 
 <div class="row g-3 mb-4">
     <div class="col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-body-secondary">Owned items</div><div class="fs-3 fw-semibold">{{ principal.owned_items }}</div></div></div></div>

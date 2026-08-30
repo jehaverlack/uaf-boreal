@@ -83,10 +83,20 @@
             <a class="btn btn-sm btn-outline-secondary" href="/directory">Clear filters</a>
         </form>
     </div>
+    <form id="directory-tag-form" method="post" action="/directory/tags" class="d-flex align-items-center gap-2 mb-2">
+        <input type="hidden" id="directory-selected-principal-ids" name="selected_principal_ids" value="">
+        <label class="small fw-semibold" for="directory-apply-tag">Apply tag to selected:</label>
+        <select id="directory-apply-tag" class="form-select form-select-sm w-auto" name="tag" required>
+            {% for tag in tags %}<option value="{{ tag.slug }}">{{ tag.name }}</option>{% endfor %}
+        </select>
+        <button id="directory-apply-tag-button" class="btn btn-sm btn-outline-primary" type="submit" disabled><i class="bi bi-tag me-1"></i>Apply</button>
+        <span id="directory-selection-count" class="small text-body-secondary">0 selected</span>
+    </form>
     <div class="card"><div class="table-responsive"><table class="table table-hover align-middle mb-0">
         <thead class="table-light">
-            <tr><th>Name</th><th>Email</th><th>Type</th><th>Status</th><th>Departure</th><th>Organizations</th><th>Members</th><th>Owned items</th><th>Permitted items</th></tr>
+            <tr><th><input class="form-check-input" type="checkbox" id="directory-select-all" aria-label="Select all visible identities"></th><th>Name</th><th>Email</th><th>Type</th><th>Status</th><th>Departure</th><th>Organizations</th><th>Members</th><th>Owned items</th><th>Permitted items</th></tr>
             <tr>
+                <th></th>
                 <th><input class="form-control form-control-sm" form="directory-filter-form" name="name_filter" value="{{ name_filter }}" placeholder="Search name" aria-label="Filter name"></th>
                 <th><input class="form-control form-control-sm" form="directory-filter-form" name="email_filter" value="{{ email_filter }}" placeholder="Email or alias" aria-label="Filter email"></th>
                 <th><input class="form-control form-control-sm" form="directory-filter-form" name="type_filter" value="{{ type_filter }}" placeholder="Type" aria-label="Filter type"></th>
@@ -99,14 +109,15 @@
         <tbody>
             {% for principal in principals %}
             <tr>
-                <td><a href="/directory/principals/{{ principal.id }}" class="text-decoration-none">{{ principal.display_name }}</a></td><td>{{ principal.primary_email }}</td>
+                <td><input class="form-check-input directory-principal-select" type="checkbox" value="{{ principal.id }}" aria-label="Select {{ principal.display_name }}"></td>
+                <td><a href="/directory/principals/{{ principal.id }}" class="text-decoration-none">{{ principal.display_name }}</a>{% for tag in principal.tags %}<span class="badge rounded-pill ms-1" style="background-color: {{ tag.color }}; color: #fff">{{ tag.name }}</span>{% endfor %}</td><td>{{ principal.primary_email }}</td>
                 <td><span class="badge text-bg-secondary">{{ principal.principal_type }}</span></td>
                 <td><span class="badge {% if principal.status == "former" %}text-bg-danger{% else if principal.status == "departing" %}text-bg-warning{% else if principal.status == "active" %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ principal.status }}</span></td>
                 <td>{{ principal.departure_date }}</td><td>{{ principal.organizations }}</td>
                 <td>{{ principal.members }}</td><td>{{ principal.owned_items }}</td><td>{{ principal.permitted_items }}</td>
             </tr>
             {% endfor %}
-            {% if principals.is_empty() %}<tr><td colspan="9" class="text-body-secondary text-center py-4">No directory identities have been imported yet.</td></tr>{% endif %}
+            {% if principals.is_empty() %}<tr><td colspan="10" class="text-body-secondary text-center py-4">No directory identities have been imported yet.</td></tr>{% endif %}
         </tbody>
     </table></div></div>
 </section>
@@ -154,11 +165,31 @@
             });
         }
 
+        const selectAll = document.getElementById("directory-select-all");
+        const identityCheckboxes = Array.from(document.querySelectorAll(".directory-principal-select"));
+        const tagButton = document.getElementById("directory-apply-tag-button");
+        const selectedIds = document.getElementById("directory-selected-principal-ids");
+        const selectionCount = document.getElementById("directory-selection-count");
+        const updateIdentitySelection = () => {
+            const selected = identityCheckboxes.filter((checkbox) => checkbox.checked);
+            selectAll.checked = identityCheckboxes.length > 0 && selected.length === identityCheckboxes.length;
+            selectAll.indeterminate = selected.length > 0 && selected.length < identityCheckboxes.length;
+            tagButton.disabled = selected.length === 0;
+            selectedIds.value = selected.map((checkbox) => checkbox.value).join(",");
+            selectionCount.textContent = `${selected.length} selected`;
+        };
+        if (selectAll) {
+            selectAll.addEventListener("change", () => {
+                identityCheckboxes.forEach((checkbox) => { checkbox.checked = selectAll.checked; });
+                updateIdentitySelection();
+            });
+            identityCheckboxes.forEach((checkbox) => checkbox.addEventListener("change", updateIdentitySelection));
+        }
+
         const form = document.getElementById("directory-import-form");
         const button = document.getElementById("directory-import-button");
         const modalElement = document.getElementById("directoryImportModal");
-        if (!form || !button || !modalElement) return;
-        form.addEventListener("submit", () => {
+        if (form && button && modalElement) form.addEventListener("submit", () => {
             button.disabled = true;
             button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Importing…';
             bootstrap.Modal.getOrCreateInstance(modalElement).show();

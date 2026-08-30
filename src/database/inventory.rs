@@ -61,6 +61,7 @@ pub fn list_my_drive_directory(
     owner_filter: &str,
     exclude_owner: bool,
     permission_filter: &str,
+    identity_tag_filter: &str,
     include_deleted: bool,
     sort: &str,
     descending: bool,
@@ -68,7 +69,7 @@ pub fn list_my_drive_directory(
     list_drive_directory(
         database, MY_DRIVE_SCOPE, parent_path, search, tag_filter, type_filter,
         size_filter, modified_filter, owner_filter, exclude_owner, permission_filter,
-        include_deleted, sort, descending,
+        identity_tag_filter, include_deleted, sort, descending,
     )
 }
 
@@ -84,6 +85,7 @@ pub fn list_drive_directory(
     owner_filter: &str,
     exclude_owner: bool,
     permission_filter: &str,
+    identity_tag_filter: &str,
     include_deleted: bool,
     sort: &str,
     descending: bool,
@@ -159,6 +161,34 @@ pub fn list_drive_directory(
                       COALESCE(permission_filter.permission_type, '')
                   ), lower(?12)) > 0
            ))
+           AND (?14 = '' OR EXISTS (
+                SELECT 1
+                FROM principal_tags identity_pt
+                JOIN tags identity_tag ON identity_tag.id = identity_pt.tag_id
+                JOIN principals identity_principal ON identity_principal.id = identity_pt.principal_id
+                WHERE identity_tag.slug = ?14
+                  AND (
+                    lower(COALESCE(drive_items.owner_email, '')) = lower(COALESCE(identity_principal.primary_email, ''))
+                    OR EXISTS (
+                        SELECT 1 FROM principal_emails identity_alias
+                        WHERE identity_alias.principal_id = identity_principal.id
+                          AND lower(identity_alias.email) = lower(COALESCE(drive_items.owner_email, ''))
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM drive_permissions identity_permission
+                        WHERE identity_permission.remote_name = drive_items.remote_name
+                          AND identity_permission.item_id = drive_items.item_id
+                          AND (
+                            lower(COALESCE(identity_permission.email_address, '')) = lower(COALESCE(identity_principal.primary_email, ''))
+                            OR EXISTS (
+                                SELECT 1 FROM principal_emails permission_alias
+                                WHERE permission_alias.principal_id = identity_principal.id
+                                  AND lower(permission_alias.email) = lower(COALESCE(identity_permission.email_address, ''))
+                            )
+                          )
+                    )
+                  )
+           ))
          ORDER BY {directory_grouping} {sort_expression} {direction}, name COLLATE NOCASE, item_id"
     );
     let mut statement = connection.prepare(&sql)?;
@@ -167,6 +197,7 @@ pub fn list_drive_directory(
             remote, parent_path, search.trim(), tag_filter, type_filter.trim(),
             size_comparison, size_bytes, modified_comparison, modified_value,
             owner_filter.trim(), exclude_owner, permission_filter.trim(), include_deleted,
+            identity_tag_filter,
         ],
         |row| {
             let size: Option<i64> = row.get(5)?;

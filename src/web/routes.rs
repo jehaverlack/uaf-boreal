@@ -237,6 +237,7 @@ struct MyDriveTemplate {
     modified_filter: String,
     owner_filter: String,
     permission_filter: String,
+    identity_tag_filter: String,
     include_deleted: bool,
     heading: &'static str,
     description: &'static str,
@@ -281,6 +282,7 @@ struct DirectoryTemplate {
     status_filter: String,
     departure_filter: String,
     organization_filter: String,
+    tags: Vec<database::inventory::Tag>,
 }
 
 #[allow(dead_code)]
@@ -294,6 +296,7 @@ struct PrincipalTemplate {
     poll_rclone: bool,
     principal: database::directory::PrincipalRow,
     associations: Vec<database::directory::PrincipalAssociationRow>,
+    tags: Vec<database::inventory::Tag>,
 }
 
 #[allow(dead_code)]
@@ -403,6 +406,8 @@ struct DrivePathQuery {
     #[serde(default)]
     permission_filter: String,
     #[serde(default)]
+    identity_tag: String,
+    #[serde(default)]
     include_deleted: bool,
 }
 
@@ -421,8 +426,16 @@ struct ApplyTagForm {
     modified_filter: String,
     owner_filter: String,
     permission_filter: String,
+    identity_tag_filter: String,
     #[serde(default)]
     include_deleted: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct ApplyPrincipalTagForm {
+    #[serde(default)]
+    selected_principal_ids: String,
+    tag: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -463,6 +476,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/tags", get(tags_page))
         .route("/directory", get(directory_page))
         .route("/directory/principals/{principal_id}", get(principal_page))
+        .route("/directory/tags", post(apply_directory_tag))
+        .route("/directory/principals/{principal_id}/tags", post(apply_principal_tag))
         .route("/directory/import/csv", post(import_directory_csv))
         .route("/tags/create", post(create_tag))
         .route("/tags/update", post(update_tag))
@@ -1147,6 +1162,7 @@ fn render_drive_explorer(
         owner_filter,
         exclude_owner,
         &query.permission_filter,
+        &query.identity_tag,
         query.include_deleted,
         sort,
         descending,
@@ -1178,6 +1194,7 @@ fn render_drive_explorer(
                     &query.modified_filter,
                     &query.owner_filter,
                     &query.permission_filter,
+                    &query.identity_tag,
                     sort,
                     if descending { "desc" } else { "asc" },
                     query.include_deleted,
@@ -1271,6 +1288,7 @@ fn render_drive_explorer(
             "",
             "",
             "",
+            "",
             sort,
             if descending { "desc" } else { "asc" },
             false,
@@ -1283,6 +1301,7 @@ fn render_drive_explorer(
         modified_filter: query.modified_filter,
         owner_filter: query.owner_filter,
         permission_filter: query.permission_filter,
+        identity_tag_filter: query.identity_tag,
         include_deleted: query.include_deleted,
         heading,
         description,
@@ -1343,12 +1362,13 @@ fn explorer_url(
     modified_filter: &str,
     owner_filter: &str,
     permission_filter: &str,
+    identity_tag_filter: &str,
     sort: &str,
     direction: &str,
     include_deleted: bool,
 ) -> String {
     format!(
-        "{explorer_path}?path={}&q={}&tag={}&type_filter={}&size_filter={}&modified_filter={}&owner_filter={}&permission_filter={}&sort={}&direction={}&include_deleted={include_deleted}",
+        "{explorer_path}?path={}&q={}&tag={}&type_filter={}&size_filter={}&modified_filter={}&owner_filter={}&permission_filter={}&identity_tag={}&sort={}&direction={}&include_deleted={include_deleted}",
         encode_query_value(path),
         encode_query_value(search),
         encode_query_value(tag),
@@ -1357,6 +1377,7 @@ fn explorer_url(
         encode_query_value(modified_filter),
         encode_query_value(owner_filter),
         encode_query_value(permission_filter),
+        encode_query_value(identity_tag_filter),
         encode_query_value(sort),
         encode_query_value(direction),
     )
@@ -1384,6 +1405,7 @@ fn sort_url(
         &query.modified_filter,
         &query.owner_filter,
         &query.permission_filter,
+        &query.identity_tag,
         requested_sort,
         next_direction,
         query.include_deleted,
@@ -1455,6 +1477,7 @@ fn apply_drive_tag(
         &form.modified_filter,
         &form.owner_filter,
         &form.permission_filter,
+        &form.identity_tag_filter,
         &form.sort,
         &form.direction,
         form.include_deleted,
@@ -1527,6 +1550,8 @@ async fn directory_page(
             log::error!("Unable to load authenticated accounts: {error}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
+    let tags = database::inventory::list_tags(&database)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
@@ -1558,7 +1583,39 @@ async fn directory_page(
         status_filter: query.status_filter,
         departure_filter: query.departure_filter,
         organization_filter: query.organization_filter,
+        tags,
     })
+}
+
+async fn apply_directory_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<ApplyPrincipalTagForm>,
+) -> Result<Redirect, StatusCode> {
+    let principal_ids = form.selected_principal_ids
+        .split(',')
+        .filter_map(|value| value.trim().parse::<i64>().ok())
+        .collect::<Vec<_>>();
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::directory::apply_principal_tag(&database, &principal_ids, &form.tag)
+        .map_err(|error| {
+            log::error!("Unable to apply directory identity tag: {error}");
+            StatusCode::BAD_REQUEST
+        })?;
+    Ok(Redirect::to("/directory"))
+}
+
+async fn apply_principal_tag(
+    State(state): State<Arc<AppState>>,
+    Path(principal_id): Path<i64>,
+    Form(form): Form<ApplyPrincipalTagForm>,
+) -> Result<Redirect, StatusCode> {
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::directory::apply_principal_tag(&database, &[principal_id], &form.tag)
+        .map_err(|error| {
+            log::error!("Unable to apply identity tag: {error}");
+            StatusCode::BAD_REQUEST
+        })?;
+    Ok(Redirect::to(&format!("/directory/principals/{principal_id}")))
 }
 
 async fn import_directory_csv(
@@ -1627,6 +1684,8 @@ async fn principal_page(
             log::error!("Unable to load principal Drive associations: {error}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
+    let tags = database::inventory::list_tags(&database)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
@@ -1646,6 +1705,7 @@ async fn principal_page(
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
         principal,
         associations,
+        tags,
     })
 }
 
