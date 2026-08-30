@@ -49,6 +49,10 @@
         .navbar .nav-link:focus {
             color: #212529;
         }
+
+        .boreal-metadata-age.text-warning {
+            color: #a15c00 !important;
+        }
     </style>
 
 </head>
@@ -117,47 +121,14 @@
                     </li>
 
                     <li class="nav-item">
-
-                        <a
-                            class="nav-link{% if active_page == "drives" %} active{% endif %}"
-                            href="/drives"
+                        <button
+                            class="nav-link"
+                            type="button"
+                            data-bs-toggle="modal"
+                            data-bs-target="#metadataUpdateModal"
                         >
-                            Drives
-                        </a>
-
-                    </li>
-
-                    <li class="nav-item">
-
-                        <a
-                            class="nav-link{% if active_page == "explorer" %} active{% endif %}"
-                            href="/explorer"
-                        >
-                            Explorer
-                        </a>
-
-                    </li>
-
-                    <li class="nav-item">
-
-                        <a
-                            class="nav-link{% if active_page == "sharing" %} active{% endif %}"
-                            href="/sharing"
-                        >
-                            Sharing
-                        </a>
-
-                    </li>
-
-                    <li class="nav-item">
-
-                        <a
-                            class="nav-link{% if active_page == "migration" %} active{% endif %}"
-                            href="/migration"
-                        >
-                            Migration
-                        </a>
-
+                            Update
+                        </button>
                     </li>
 
                 </ul>
@@ -249,6 +220,43 @@
     {% include "partials/status.html" %}
 
     {% include "partials/google-client-modal.html" %}
+
+    <div
+        class="modal fade"
+        id="metadataUpdateModal"
+        tabindex="-1"
+        aria-labelledby="metadataUpdateModalLabel"
+        aria-hidden="true"
+    >
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title fs-5" id="metadataUpdateModalLabel">
+                        <i class="bi bi-database-down me-2"></i>
+                        Update metadata inventory?
+                    </h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>
+                        BOREAL will read My Drive through the read-only remote and update its local inventory.
+                    </p>
+                    <p class="mb-0">
+                        Large Drives can take up to an hour. Keep BOREAL running until the update completes; you may continue using this browser tab.
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <form method="post" action="/metadata/update">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-play-circle me-1"></i>
+                            Start update
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- BOREAL stopped modal -->
     <div
@@ -345,9 +353,50 @@
                 }
             }
 
+            function refreshMetadataStatusAge() {
+                for (const element of document.querySelectorAll(".boreal-metadata-age")) {
+                    const timestamp = element.dataset.synchronizedAt;
+                    const synchronizedAt = Date.parse(
+                        timestamp.replace(" ", "T") + "Z",
+                    );
+
+                    if (Number.isNaN(synchronizedAt)) {
+                        element.textContent = "unknown";
+                        element.classList.remove("text-success", "text-warning");
+                        element.classList.add("text-danger");
+                        continue;
+                    }
+
+                    const totalSeconds = Math.max(
+                        0,
+                        Math.floor((Date.now() - synchronizedAt) / 1000),
+                    );
+                    const hours = Math.floor(totalSeconds / 3600);
+                    const minutes = Math.floor((totalSeconds % 3600) / 60);
+                    const seconds = totalSeconds % 60;
+                    element.textContent = [hours, minutes, seconds]
+                        .map((value) => String(value).padStart(2, "0"))
+                        .join(":");
+
+                    element.classList.remove("text-success", "text-warning", "text-danger");
+                    element.classList.add(
+                        totalSeconds < 86400
+                            ? "text-success"
+                            : totalSeconds < 604800
+                                ? "text-warning"
+                                : "text-danger",
+                    );
+                }
+            }
+
             refreshDataAges();
-            document.body.addEventListener("htmx:afterSwap", refreshDataAges);
+            refreshMetadataStatusAge();
+            document.body.addEventListener("htmx:afterSwap", () => {
+                refreshDataAges();
+                refreshMetadataStatusAge();
+            });
             window.setInterval(refreshDataAges, 60000);
+            window.setInterval(refreshMetadataStatusAge, 1000);
 
             const quitButton =
                 document.getElementById("boreal-quit");

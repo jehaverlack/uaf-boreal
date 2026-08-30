@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use rusqlite::{params, OptionalExtension};
 use serde_json::Value;
 
@@ -25,8 +27,16 @@ pub fn synchronize_my_drive(
     let transaction = connection.transaction()?;
     let remote = RemoteKind::MyDriveRo.name();
     let mut summary = InventorySummary::default();
+    let mut seen_item_ids = HashSet::new();
 
     for item in items {
+        // Rclone may expose the same Drive object through multiple paths,
+        // particularly shortcuts and legacy multi-parent objects. Drive ID is
+        // authoritative, so count and store each object only once per scan.
+        if !seen_item_ids.insert(item.id.as_str()) {
+            continue;
+        }
+
         let size = (item.size >= 0).then_some(item.size);
         let owner = item.metadata.get("owner").map(String::as_str);
         let created = item.metadata.get("btime").map(String::as_str);

@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     sync::{
         Arc,
         Mutex,
@@ -732,11 +733,27 @@ impl AppState {
                         scan_id,
                         permission_scanning,
                     )?;
-                    let files = items.iter().filter(|item| !item.is_dir).count() as u64;
-                    let folders = items.iter().filter(|item| item.is_dir).count() as u64;
-                    let bytes = items.iter().filter_map(|item| (item.size >= 0).then_some(item.size as u64)).sum();
+                    let mut unique_ids = HashSet::new();
+                    let mut files = 0_u64;
+                    let mut folders = 0_u64;
+                    let mut bytes = 0_u64;
+                    for item in &items {
+                        if !unique_ids.insert(item.id.as_str()) {
+                            continue;
+                        }
+                        if item.is_dir {
+                            folders += 1;
+                        } else {
+                            files += 1;
+                            if item.size >= 0 {
+                                bytes = bytes.saturating_add(item.size as u64);
+                            }
+                        }
+                    }
                     println!(
-                        "Metadata fetch completed: scan_id={scan_id}, files={files}, folders={folders}, bytes={bytes}"
+                        "Metadata fetch completed: scan_id={scan_id}, listed_rows={}, unique_items={}, files={files}, folders={folders}, bytes={bytes}",
+                        items.len(),
+                        unique_ids.len(),
                     );
                     worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
                         phase: "Saving My Drive metadata",

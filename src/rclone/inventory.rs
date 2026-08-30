@@ -12,7 +12,7 @@ use crate::bootstrap::Runtime;
 
 use super::{config, remotes::RemoteKind, RcloneError};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct DriveItem {
     #[serde(default)]

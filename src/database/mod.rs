@@ -405,8 +405,15 @@ mod tests {
         };
 
         let first_scan = database.start_scan_run("my-drive").expect("scan should start");
-        inventory::synchronize_my_drive(&database, first_scan, &[item], true)
-            .expect("inventory should synchronize");
+        let first_summary = inventory::synchronize_my_drive(
+            &database,
+            first_scan,
+            &[item.clone(), item],
+            true,
+        ).expect("inventory should synchronize");
+        assert_eq!(first_summary.files_scanned, 1);
+        assert_eq!(first_summary.bytes_discovered, 42);
+        assert_eq!(first_summary.permissions_scanned, 1);
         let second_scan = database.start_scan_run("my-drive").expect("scan should start");
         let summary = inventory::synchronize_my_drive(&database, second_scan, &[], true)
             .expect("empty authoritative inventory should synchronize");

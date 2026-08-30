@@ -39,7 +39,13 @@
 
             {% if item.value_url.is_empty() %}
 
-            <span class="{{ item.value_class }}">
+            <span
+                class="{{ item.value_class }}"
+                {% if item.age_timestamp.len() > 0 %}
+                data-synchronized-at="{{ item.age_timestamp }}"
+                title="Metadata age (green under 24 hours, amber under 7 days, red after 7 days)"
+                {% endif %}
+            >
                 {{ item.value }}
             </span>
 

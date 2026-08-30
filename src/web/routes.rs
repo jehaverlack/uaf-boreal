@@ -57,6 +57,7 @@ pub struct StatusItem {
     pub value_class: &'static str,
     pub value_url: String,
     pub spinner: bool,
+    pub age_timestamp: String,
 }
 
 #[allow(dead_code)]
@@ -1316,8 +1317,8 @@ fn build_status_items(
         MetadataState::Synchronized(
             _,
         ) => (
-            "Synchronized".to_string(),
-            "text-success",
+            "00:00:00".to_string(),
+            "boreal-metadata-age text-success",
             false,
         ),
         MetadataState::Error(
@@ -1339,6 +1340,7 @@ fn build_status_items(
                 rclone_state,
             ),
             spinner: false,
+            age_timestamp: String::new(),
         },
 
         StatusItem {
@@ -1348,6 +1350,7 @@ fn build_status_items(
             value_class: client_id_value_class,
             value_url: String::new(),
             spinner: false,
+            age_timestamp: String::new(),
         },
 
         StatusItem {
@@ -1357,6 +1360,7 @@ fn build_status_items(
             value_class: remote_class,
             value_url: String::new(),
             spinner: false,
+            age_timestamp: String::new(),
         },
 
         StatusItem {
@@ -1366,6 +1370,10 @@ fn build_status_items(
             value_class: metadata_class,
             value_url: String::new(),
             spinner: metadata_spinner,
+            age_timestamp: match metadata_state {
+                MetadataState::Synchronized(summary) => summary.completed_at.clone(),
+                _ => String::new(),
+            },
         },
 
         StatusItem {
@@ -1380,6 +1388,7 @@ fn build_status_items(
             value_class: "text-success",
             value_url: String::new(),
             spinner: false,
+            age_timestamp: String::new(),
         },
     ]
 }
