@@ -477,7 +477,6 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/ui/metadata-update-modal", get(ui_metadata_update_modal))
         .route("/ui/drive-summaries", get(ui_drive_summaries))
         .route("/setup/google-client/import", post(import_google_client))
-        .route("/setup/remotes/my-drive-rw", post(setup_my_drive_rw))
         .route("/setup/remotes/my-drive-ro", post(setup_my_drive_ro))
         .route("/metadata/update", post(start_metadata_update))
         .route("/app/quit", post(quit))
@@ -632,31 +631,22 @@ fn build_setup_progress(
         },
     };
 
-    let remote_complete = matches!(google_remotes_state.rw, RemoteState::Ready)
-        && matches!(google_remotes_state.ro, RemoteState::Ready);
-    let remote_busy = matches!(google_remotes_state.rw, RemoteState::Configuring)
-        || matches!(google_remotes_state.ro, RemoteState::Configuring);
+    let remote_complete = matches!(google_remotes_state.ro, RemoteState::Ready);
+    let remote_busy = matches!(google_remotes_state.ro, RemoteState::Configuring);
     let prerequisites_ready = matches!(rclone_state, RcloneState::Ready(_))
         && matches!(google_client_state, GoogleClientState::Ready(_));
 
     let remote_step = SetupStep {
         icon: if remote_complete { "bi-check-circle-fill" } else { "bi-cloud-plus" },
-        title: "Configure My Drive Remotes",
+        title: "Configure My Drive Read-Only Remote",
         description:
-            "Authorize separate read/write and read-only Google Drive connections. Google opens a browser tab for each authorization."
+            "Authorize a read-only Google Drive connection for inventory and exploration. Google opens a browser tab for authorization."
                 .to_string(),
         state_label: if remote_complete { "Complete" } else { "Set up" },
         state_class: if remote_complete { "text-bg-success" } else { "text-bg-warning" },
         complete: remote_complete,
         modal_target: "",
         remote_actions: vec![
-            build_remote_action(
-                "Setup My Drive RW",
-                "/setup/remotes/my-drive-rw",
-                &google_remotes_state.rw,
-                prerequisites_ready,
-                remote_busy,
-            ),
             build_remote_action(
                 "Setup My Drive RO",
                 "/setup/remotes/my-drive-ro",
@@ -1792,8 +1782,7 @@ async fn ui_metadata_progress(
 ) -> Result<Html<String>, StatusCode> {
     let remotes = state.google_remotes_state();
     let rclone_state = state.rclone_state();
-    let available =
-        matches!(remotes.rw, RemoteState::Ready) && matches!(remotes.ro, RemoteState::Ready);
+    let available = matches!(remotes.ro, RemoteState::Ready);
     let metadata_state = state.metadata_state();
     let shared_summary = latest_shared_summary(&state);
 
@@ -1943,10 +1932,6 @@ async fn import_google_client(
     }
 }
 
-async fn setup_my_drive_rw(State(state): State<Arc<AppState>>) -> Result<Redirect, StatusCode> {
-    start_remote_setup(state, RemoteKind::MyDriveRw)
-}
-
 async fn setup_my_drive_ro(State(state): State<Arc<AppState>>) -> Result<Redirect, StatusCode> {
     start_remote_setup(state, RemoteKind::MyDriveRo)
 }
@@ -1981,7 +1966,6 @@ fn should_poll_rclone(rclone_state: &RcloneState) -> bool {
 
 fn should_poll_setup(rclone_state: &RcloneState, remotes_state: &GoogleRemotesState) -> bool {
     should_poll_rclone(rclone_state)
-        || matches!(remotes_state.rw, RemoteState::Configuring)
         || matches!(remotes_state.ro, RemoteState::Configuring)
 }
 
