@@ -8,6 +8,79 @@
     {% endif %}
 >
 
+    {% if setup_percent == 100 %}
+
+    <div class="col-12">
+
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <h1 class="h4 mb-1">Google Drive</h1>
+                <p class="text-body-secondary mb-0">
+                    Browse and manage the Drive content available to the configured account.
+                </p>
+            </div>
+            <span class="badge text-bg-success">
+                <i class="bi bi-check-circle-fill me-1"></i>
+                Setup complete
+            </span>
+        </div>
+
+        <div class="row g-3">
+
+            <div class="col-md-6 col-xl-4">
+                <section class="card h-100">
+                    <div class="card-body">
+                        <div class="d-flex align-items-start gap-3">
+                            <i class="bi bi-folder2-open fs-3 text-primary"></i>
+                            <div>
+                                <h2 class="h5 card-title">My Drive</h2>
+                                <p class="card-text text-body-secondary">
+                                    Explore files and folders owned by the authenticated account.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <div class="col-md-6 col-xl-4">
+                <section class="card h-100">
+                    <div class="card-body">
+                        <div class="d-flex align-items-start gap-3">
+                            <i class="bi bi-people-fill fs-3 text-primary"></i>
+                            <div>
+                                <h2 class="h5 card-title">Shared Drives</h2>
+                                <p class="card-text text-body-secondary">
+                                    View the Google Shared Drives available to the account.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <div class="col-md-6 col-xl-4">
+                <section class="card h-100">
+                    <div class="card-body">
+                        <div class="d-flex align-items-start gap-3">
+                            <i class="bi bi-share-fill fs-3 text-primary"></i>
+                            <div>
+                                <h2 class="h5 card-title">Shared with me</h2>
+                                <p class="card-text text-body-secondary">
+                                    Review files and folders that other users have shared with the account.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+        </div>
+
+    </div>
+
+    {% else %}
+
     <div class="col-xl-9 col-xxl-8">
 
         <div class="card">
@@ -125,5 +198,7 @@
         </div>
 
     </div>
+
+    {% endif %}
 
 </div>

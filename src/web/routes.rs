@@ -442,8 +442,9 @@ async fn about(
         &google_remotes_state,
     );
 
-    let poll_rclone = should_poll_rclone(
+    let poll_rclone = should_poll_setup(
         &rclone_state,
+        &google_remotes_state,
     );
 
     let template = AboutTemplate {
@@ -536,8 +537,9 @@ async fn ui_status(
             &google_remotes_state,
         ),
 
-        poll_rclone: should_poll_rclone(
+        poll_rclone: should_poll_setup(
             &rclone_state,
+            &google_remotes_state,
         ),
     };
 
@@ -892,17 +894,13 @@ fn build_status_items(
             }
         };
 
-    let remote_count = [
-        &google_remotes_state.rw,
-        &google_remotes_state.ro,
-    ]
-    .into_iter()
-    .filter(|state| matches!(state, RemoteState::Ready))
-    .count();
-    let remote_class = if remote_count == 2 {
-        "text-success"
-    } else {
-        "text-warning"
+    let rw_ready = matches!(google_remotes_state.rw, RemoteState::Ready);
+    let ro_ready = matches!(google_remotes_state.ro, RemoteState::Ready);
+    let (remote_value, remote_class) = match (rw_ready, ro_ready) {
+        (true, true) => ("My Drive RW + RO".to_string(), "text-success"),
+        (true, false) => ("My Drive RW".to_string(), "text-warning"),
+        (false, true) => ("My Drive RO".to_string(), "text-warning"),
+        (false, false) => ("Not configured".to_string(), "text-warning"),
     };
 
     vec![
@@ -927,7 +925,7 @@ fn build_status_items(
         StatusItem {
             icon: "bi-cloud",
             label: "Remotes",
-            value: format!("{remote_count} of 2 configured"),
+            value: remote_value,
             value_class: remote_class,
             value_url: String::new(),
         },
