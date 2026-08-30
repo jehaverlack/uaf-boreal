@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="row">
+
+    <div class="col-lg-8 col-xl-6">
+
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <h1 class="h3 mb-1">Settings</h1>
+                <p class="text-body-secondary mb-0">
+                    Configure metadata inventory behavior.
+                </p>
+            </div>
+        </div>
+
+        {% if saved %}
+        <div class="alert alert-success" role="alert">
+            <i class="bi bi-check-circle-fill me-1"></i>
+            Settings saved.
+        </div>
+        {% endif %}
+
+        {% if error.len() > 0 %}
+        <div class="alert alert-danger" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+            {{ error }}
+        </div>
+        {% endif %}
+
+        <form method="post" action="/settings">
+
+            <div class="card mb-3">
+
+                <div class="card-header fw-semibold">
+                    Inventory schedule
+                </div>
+
+                <div class="card-body">
+
+                    <div class="form-check form-switch mb-3">
+                        <input
+                            class="form-check-input"
+                            type="checkbox"
+                            role="switch"
+                            id="automaticUpdates"
+                            name="automatic_updates"
+                            {% if settings.automatic_updates %}checked{% endif %}
+                        >
+                        <label class="form-check-label" for="automaticUpdates">
+                            Enable automatic metadata updates
+                        </label>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label" for="refreshInterval">
+                                Refresh interval
+                            </label>
+                            <div class="input-group">
+                                <input
+                                    class="form-control"
+                                    type="number"
+                                    id="refreshInterval"
+                                    name="refresh_interval_hours"
+                                    min="1"
+                                    max="720"
+                                    value="{{ settings.refresh_interval_hours }}"
+                                    required
+                                >
+                                <span class="input-group-text">hours</span>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label" for="reconciliationInterval">
+                                Full reconciliation
+                            </label>
+                            <div class="input-group">
+                                <input
+                                    class="form-control"
+                                    type="number"
+                                    id="reconciliationInterval"
+                                    name="full_reconciliation_days"
+                                    min="1"
+                                    max="365"
+                                    value="{{ settings.full_reconciliation_days }}"
+                                    required
+                                >
+                                <span class="input-group-text">days</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-check mb-2">
+                        <input
+                            class="form-check-input"
+                            type="checkbox"
+                            id="updateAtStartup"
+                            name="update_when_overdue_at_startup"
+                            {% if settings.update_when_overdue_at_startup %}checked{% endif %}
+                        >
+                        <label class="form-check-label" for="updateAtStartup">
+                            Update when overdue at application startup
+                        </label>
+                    </div>
+
+                    <div class="form-check">
+                        <input
+                            class="form-check-input"
+                            type="checkbox"
+                            id="permissionScanning"
+                            name="permission_scanning"
+                            {% if settings.permission_scanning %}checked{% endif %}
+                        >
+                        <label class="form-check-label" for="permissionScanning">
+                            Include sharing permissions in metadata updates
+                        </label>
+                    </div>
+
+                </div>
+
+            </div>
+
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-save me-1"></i>
+                Save settings
+            </button>
+
+        </form>
+
+        <p class="small text-body-secondary mt-3">
+            Scheduling preferences are saved now. Automatic and Google Drive updates
+            will be enabled incrementally as the inventory scanner is implemented.
+        </p>
+
+    </div>
+
+</div>
+
+{% endblock %}

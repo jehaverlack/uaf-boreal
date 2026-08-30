@@ -151,7 +151,7 @@
                     <li class="nav-item dropdown">
 
                         <a
-                            class="nav-link dropdown-toggle{% if active_page == "about" %} active{% endif %}"
+                            class="nav-link dropdown-toggle{% if active_page == "about" || active_page == "settings" %} active{% endif %}"
                             href="#"
                             role="button"
                             data-bs-toggle="dropdown"
@@ -163,6 +163,22 @@
                         <ul
                             class="dropdown-menu dropdown-menu-end"
                         >
+
+                            <li>
+
+                                <a
+                                    class="dropdown-item{% if active_page == "settings" %} active{% endif %}"
+                                    href="/settings"
+                                >
+                                    <i class="bi bi-gear me-2"></i>
+                                    Settings
+                                </a>
+
+                            </li>
+
+                            <li>
+                                <hr class="dropdown-divider">
+                            </li>
 
                             <li>
 

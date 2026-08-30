@@ -1,0 +1,100 @@
+<section
+    id="boreal-metadata-progress"
+    class="row mb-3"
+    {% if metadata.poll %}
+    hx-get="/ui/metadata-progress"
+    hx-trigger="every 1s"
+    hx-swap="outerHTML"
+    {% endif %}
+>
+
+    {% if metadata.available %}
+
+    <div class="col-xl-9 col-xxl-8">
+
+        <div class="card">
+
+            <div class="card-body">
+
+                <div class="d-flex justify-content-between align-items-start gap-3">
+
+                    <div>
+                        <h2 class="h5 mb-1">
+                            {% if metadata.updating %}
+                            <span
+                                class="spinner-border spinner-border-sm text-primary me-2"
+                                role="status"
+                                aria-hidden="true"
+                            ></span>
+                            {% else %}
+                            <i class="bi bi-database me-2"></i>
+                            {% endif %}
+                            Metadata inventory
+                        </h2>
+
+                        <p class="small text-body-secondary mb-0">
+                            {{ metadata.phase }}
+                        </p>
+                    </div>
+
+                    <span class="badge {{ metadata.state_class }}">
+                        {{ metadata.state_label }}
+                    </span>
+
+                </div>
+
+                {% if metadata.updating %}
+
+                <div
+                    class="progress mt-3"
+                    role="progressbar"
+                    aria-label="Metadata update in progress"
+                >
+                    <div
+                        class="progress-bar progress-bar-striped progress-bar-animated w-100"
+                    ></div>
+                </div>
+
+                {% endif %}
+
+                {% if metadata.updating || metadata.completed_at.len() > 0 %}
+
+                <div class="d-flex flex-wrap gap-3 small mt-3">
+                    <span><strong>{{ metadata.files_scanned }}</strong> files</span>
+                    <span><strong>{{ metadata.folders_scanned }}</strong> folders</span>
+                    <span><strong>{{ metadata.permissions_scanned }}</strong> permissions</span>
+                    <span><strong>{{ metadata.size_label }}</strong> discovered</span>
+                    <span><strong>{{ metadata.errors }}</strong> errors</span>
+                </div>
+
+                {% endif %}
+
+                {% if metadata.completed_at.len() > 0 %}
+                <p class="small text-body-secondary mt-2 mb-0">
+                    Preview completed {{ metadata.completed_at }} UTC
+                </p>
+                {% endif %}
+
+                {% if !metadata.updating %}
+
+                <form method="post" action="/metadata/preview" class="mt-3">
+                    <button type="submit" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-play-circle me-1"></i>
+                        Test update workflow
+                    </button>
+                    <span class="small text-body-secondary ms-2">
+                        Simulation only; Google Drive is not queried yet.
+                    </span>
+                </form>
+
+                {% endif %}
+
+            </div>
+
+        </div>
+
+    </div>
+
+    {% endif %}
+
+</section>

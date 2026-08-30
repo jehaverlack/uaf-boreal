@@ -1,7 +1,25 @@
+macro_rules! println {
+    () => {
+        std::println!()
+    };
+
+    ($($argument:tt)*) => {
+        log::info!($($argument)*)
+    };
+}
+
+macro_rules! eprintln {
+    ($($argument:tt)*) => {
+        log::error!($($argument)*)
+    };
+}
+
 mod app;
 mod bootstrap;
 mod config;
+mod database;
 mod google;
+mod logging;
 mod rclone;
 mod web;
 
@@ -15,6 +33,10 @@ use app::AppState;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let runtime = bootstrap::initialize()?;
+
+    logging::initialize(
+        &runtime,
+    )?;
 
     println!(
         "BOREAL initialized."

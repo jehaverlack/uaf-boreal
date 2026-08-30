@@ -1,5 +1,4 @@
 use std::{
-    fs,
     path::Path,
 };
 
@@ -214,7 +213,10 @@ fn check_value(
 #[cfg(unix)]
 fn protect_config(path: &Path) -> Result<(), RcloneError> {
     use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+    std::fs::set_permissions(
+        path,
+        std::fs::Permissions::from_mode(0o600),
+    )?;
     Ok(())
 }
 

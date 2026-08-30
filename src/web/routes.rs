@@ -4,12 +4,15 @@ use askama::Template;
 
 use axum::{
     extract::{
+        Form,
         Multipart,
+        Query,
         State,
     },
     http::StatusCode,
     response::{
         Html,
+        IntoResponse,
         Redirect,
     },
     routing::{
@@ -24,7 +27,12 @@ use crate::{
         AppState,
         GoogleRemotesState,
         GoogleClientState,
+        MetadataState,
         RcloneState,
+    },
+    database::settings::{
+        self,
+        InventorySettings,
     },
     google,
     rclone::remotes::{
@@ -48,6 +56,7 @@ pub struct StatusItem {
     pub value: String,
     pub value_class: &'static str,
     pub value_url: String,
+    pub spinner: bool,
 }
 
 #[allow(dead_code)]
@@ -73,6 +82,22 @@ pub struct RemoteAction {
 }
 
 #[allow(dead_code)]
+pub struct MetadataView {
+    pub available: bool,
+    pub poll: bool,
+    pub updating: bool,
+    pub state_label: String,
+    pub state_class: &'static str,
+    pub phase: String,
+    pub files_scanned: u64,
+    pub folders_scanned: u64,
+    pub permissions_scanned: u64,
+    pub size_label: String,
+    pub errors: u64,
+    pub completed_at: String,
+}
+
+#[allow(dead_code)]
 #[derive(Template)]
 #[template(
     path = "dashboard.html",
@@ -86,6 +111,24 @@ struct DashboardTemplate {
     setup_steps: Vec<SetupStep>,
     setup_percent: u8,
     poll_rclone: bool,
+    metadata: MetadataView,
+}
+
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(
+    path = "settings.html",
+    config = "askama.toml"
+)]
+struct SettingsTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+    settings: InventorySettings,
+    saved: bool,
+    error: String,
 }
 
 #[allow(dead_code)]
@@ -136,6 +179,34 @@ struct SetupProgressTemplate {
     poll_rclone: bool,
 }
 
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(
+    path = "partials/metadata-progress.html",
+    config = "askama.toml"
+)]
+struct MetadataProgressTemplate {
+    metadata: MetadataView,
+}
+
+#[derive(serde::Deserialize)]
+struct SettingsQuery {
+    #[serde(default)]
+    saved: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct SettingsForm {
+    #[serde(default)]
+    automatic_updates: Option<String>,
+    refresh_interval_hours: u32,
+    full_reconciliation_days: u32,
+    #[serde(default)]
+    update_when_overdue_at_startup: Option<String>,
+    #[serde(default)]
+    permission_scanning: Option<String>,
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route(
@@ -145,6 +216,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/about",
             get(about),
+        )
+        .route(
+            "/settings",
+            get(settings_page).post(save_settings),
         )
         .route(
             "/status",
@@ -167,6 +242,10 @@ pub fn router() -> Router<Arc<AppState>> {
             get(ui_setup_progress),
         )
         .route(
+            "/ui/metadata-progress",
+            get(ui_metadata_progress),
+        )
+        .route(
             "/setup/google-client/import",
             post(import_google_client),
         )
@@ -177,6 +256,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/setup/remotes/my-drive-ro",
             post(setup_my_drive_ro),
+        )
+        .route(
+            "/metadata/preview",
+            post(start_metadata_preview),
         )
         .route(
             "/app/quit",
@@ -193,6 +276,8 @@ async fn index(
         state.google_client_state();
     let google_remotes_state =
         state.google_remotes_state();
+    let metadata_state =
+        state.metadata_state();
 
     let alerts = build_alerts(
         &rclone_state,
@@ -203,6 +288,7 @@ async fn index(
         &rclone_state,
         &google_client_state,
         &google_remotes_state,
+        &metadata_state,
     );
 
     let (
@@ -214,9 +300,10 @@ async fn index(
         &google_remotes_state,
     );
 
-    let poll_rclone = should_poll_setup(
+    let poll_rclone = should_poll_ui(
         &rclone_state,
         &google_remotes_state,
+        &metadata_state,
     );
 
     let template = DashboardTemplate {
@@ -227,6 +314,14 @@ async fn index(
         setup_steps,
         setup_percent,
         poll_rclone,
+        metadata: build_metadata_view(
+            &metadata_state,
+            setup_percent == 100,
+            should_poll_setup(
+                &rclone_state,
+                &google_remotes_state,
+            ),
+        ),
     };
 
     render_template(
@@ -421,6 +516,225 @@ fn build_remote_action(
     }
 }
 
+fn build_metadata_view(
+    state: &MetadataState,
+    available: bool,
+    poll_for_setup: bool,
+) -> MetadataView {
+    match state {
+        MetadataState::NotSynchronized => MetadataView {
+            available,
+            poll: poll_for_setup,
+            updating: false,
+            state_label: "Not synchronized".to_string(),
+            state_class: "text-bg-warning",
+            phase: "No metadata inventory has been created yet.".to_string(),
+            files_scanned: 0,
+            folders_scanned: 0,
+            permissions_scanned: 0,
+            size_label: "0 B".to_string(),
+            errors: 0,
+            completed_at: String::new(),
+        },
+
+        MetadataState::Updating(
+            progress,
+        ) => MetadataView {
+            available,
+            poll: true,
+            updating: true,
+            state_label: "Updating".to_string(),
+            state_class: "text-bg-primary",
+            phase: progress.phase.to_string(),
+            files_scanned: progress.files_scanned,
+            folders_scanned: progress.folders_scanned,
+            permissions_scanned: progress.permissions_scanned,
+            size_label: format_bytes(
+                progress.bytes_discovered,
+            ),
+            errors: progress.errors,
+            completed_at: String::new(),
+        },
+
+        MetadataState::PreviewComplete(
+            summary,
+        ) => MetadataView {
+            available,
+            poll: poll_for_setup,
+            updating: false,
+            state_label: "Workflow tested".to_string(),
+            state_class: "text-bg-info",
+            phase:
+                "Simulation complete. Google Drive metadata has not been synchronized yet."
+                    .to_string(),
+            files_scanned: summary.files_scanned,
+            folders_scanned: summary.folders_scanned,
+            permissions_scanned: summary.permissions_scanned,
+            size_label: format_bytes(
+                summary.bytes_discovered,
+            ),
+            errors: 0,
+            completed_at: summary.completed_at.clone(),
+        },
+
+        MetadataState::Error(
+            error,
+        ) => MetadataView {
+            available,
+            poll: poll_for_setup,
+            updating: false,
+            state_label: "Update failed".to_string(),
+            state_class: "text-bg-danger",
+            phase: error.clone(),
+            files_scanned: 0,
+            folders_scanned: 0,
+            permissions_scanned: 0,
+            size_label: "0 B".to_string(),
+            errors: 1,
+            completed_at: String::new(),
+        },
+    }
+}
+
+fn format_bytes(
+    bytes: u64,
+) -> String {
+    const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+    const MIB: f64 = 1024.0 * 1024.0;
+
+    if bytes as f64 >= GIB {
+        format!(
+            "{:.1} GiB",
+            bytes as f64 / GIB,
+        )
+    } else if bytes as f64 >= MIB {
+        format!(
+            "{:.1} MiB",
+            bytes as f64 / MIB,
+        )
+    } else {
+        format!(
+            "{bytes} B",
+        )
+    }
+}
+
+async fn settings_page(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<SettingsQuery>,
+) -> Result<Html<String>, StatusCode> {
+    let database = state.database()
+        .map_err(
+            |error| {
+                eprintln!(
+                    "Unable to open settings: {error}"
+                );
+                StatusCode::SERVICE_UNAVAILABLE
+            },
+        )?;
+    let inventory_settings = settings::load(
+        &database,
+    )
+    .map_err(
+        |error| {
+            eprintln!(
+                "Unable to load settings: {error}"
+            );
+            StatusCode::INTERNAL_SERVER_ERROR
+        },
+    )?;
+
+    render_settings(
+        &state,
+        inventory_settings,
+        query.saved,
+        String::new(),
+    )
+}
+
+async fn save_settings(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<SettingsForm>,
+) -> Result<axum::response::Response, StatusCode> {
+    let inventory_settings = InventorySettings {
+        automatic_updates: form.automatic_updates.is_some(),
+        refresh_interval_hours: form.refresh_interval_hours,
+        full_reconciliation_days: form.full_reconciliation_days,
+        update_when_overdue_at_startup:
+            form.update_when_overdue_at_startup.is_some(),
+        permission_scanning: form.permission_scanning.is_some(),
+    };
+    let database = state.database()
+        .map_err(
+            |_| StatusCode::SERVICE_UNAVAILABLE,
+        )?;
+
+    match settings::save(
+        &database,
+        &inventory_settings,
+    ) {
+        Ok(
+            (),
+        ) => Ok(
+            Redirect::to(
+                "/settings?saved=true",
+            )
+            .into_response(),
+        ),
+
+        Err(
+            error,
+        ) => render_settings(
+            &state,
+            inventory_settings,
+            false,
+            error.to_string(),
+        )
+        .map(
+            axum::response::IntoResponse::into_response,
+        ),
+    }
+}
+
+fn render_settings(
+    state: &AppState,
+    inventory_settings: InventorySettings,
+    saved: bool,
+    error: String,
+) -> Result<Html<String>, StatusCode> {
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+
+    let template = SettingsTemplate {
+        title: "Settings - BOREAL",
+        active_page: "settings",
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+        ),
+        status_items: build_status_items(
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+        ),
+        poll_rclone: should_poll_ui(
+            &rclone_state,
+            &google_remotes_state,
+            &metadata_state,
+        ),
+        settings: inventory_settings,
+        saved,
+        error,
+    };
+
+    render_template(
+        &template,
+    )
+}
+
 async fn about(
     State(state): State<Arc<AppState>>,
 ) -> Result<Html<String>, StatusCode> {
@@ -430,6 +744,8 @@ async fn about(
         state.google_client_state();
     let google_remotes_state =
         state.google_remotes_state();
+    let metadata_state =
+        state.metadata_state();
 
     let alerts = build_alerts(
         &rclone_state,
@@ -440,11 +756,13 @@ async fn about(
         &rclone_state,
         &google_client_state,
         &google_remotes_state,
+        &metadata_state,
     );
 
-    let poll_rclone = should_poll_setup(
+    let poll_rclone = should_poll_ui(
         &rclone_state,
         &google_remotes_state,
+        &metadata_state,
     );
 
     let template = AboutTemplate {
@@ -529,17 +847,21 @@ async fn ui_status(
         state.google_client_state();
     let google_remotes_state =
         state.google_remotes_state();
+    let metadata_state =
+        state.metadata_state();
 
     let template = StatusTemplate {
         status_items: build_status_items(
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
+            &metadata_state,
         ),
 
-        poll_rclone: should_poll_setup(
+        poll_rclone: should_poll_ui(
             &rclone_state,
             &google_remotes_state,
+            &metadata_state,
         ),
     };
 
@@ -578,6 +900,34 @@ async fn ui_setup_progress(
 
     render_template(
         &template,
+    )
+}
+
+async fn ui_metadata_progress(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
+    let remotes = state.google_remotes_state();
+    let rclone_state = state.rclone_state();
+    let available = matches!(
+        remotes.rw,
+        RemoteState::Ready
+    ) && matches!(
+        remotes.ro,
+        RemoteState::Ready
+    );
+    let metadata_state = state.metadata_state();
+
+    render_template(
+        &MetadataProgressTemplate {
+            metadata: build_metadata_view(
+                &metadata_state,
+                available,
+                should_poll_setup(
+                    &rclone_state,
+                    &remotes,
+                ),
+            ),
+        },
     )
 }
 
@@ -708,6 +1058,42 @@ fn start_remote_setup(
     Ok(Redirect::to("/"))
 }
 
+async fn start_metadata_preview(
+    State(state): State<Arc<AppState>>,
+) -> Result<Redirect, StatusCode> {
+    let remotes = state.google_remotes_state();
+
+    if !matches!(
+        remotes.rw,
+        RemoteState::Ready
+    ) || !matches!(
+        remotes.ro,
+        RemoteState::Ready
+    ) {
+        return Err(
+            StatusCode::PRECONDITION_FAILED,
+        );
+    }
+
+    AppState::start_metadata_preview(
+        state,
+    )
+    .map_err(
+        |error| {
+            eprintln!(
+                "Unable to start metadata workflow preview: {error}"
+            );
+            StatusCode::CONFLICT
+        },
+    )?;
+
+    Ok(
+        Redirect::to(
+            "/",
+        ),
+    )
+}
+
 fn should_poll_rclone(
     rclone_state: &RcloneState,
 ) -> bool {
@@ -724,6 +1110,20 @@ fn should_poll_setup(
     should_poll_rclone(rclone_state)
         || matches!(remotes_state.rw, RemoteState::Configuring)
         || matches!(remotes_state.ro, RemoteState::Configuring)
+}
+
+fn should_poll_ui(
+    rclone_state: &RcloneState,
+    remotes_state: &GoogleRemotesState,
+    metadata_state: &MetadataState,
+) -> bool {
+    should_poll_setup(
+        rclone_state,
+        remotes_state,
+    ) || matches!(
+        metadata_state,
+        MetadataState::Updating(_)
+    )
 }
 
 fn rclone_gui_url(
@@ -824,6 +1224,7 @@ fn build_status_items(
     rclone_state: &RcloneState,
     google_client_state: &GoogleClientState,
     google_remotes_state: &GoogleRemotesState,
+    metadata_state: &MetadataState,
 ) -> Vec<StatusItem> {
     let (
         rclone_value,
@@ -903,6 +1304,39 @@ fn build_status_items(
         (false, false) => ("Not configured".to_string(), "text-warning"),
     };
 
+    let (
+        metadata_value,
+        metadata_class,
+        metadata_spinner,
+    ) = match metadata_state {
+        MetadataState::NotSynchronized => (
+            "Not synchronized".to_string(),
+            "text-warning",
+            false,
+        ),
+        MetadataState::Updating(
+            progress,
+        ) => (
+            progress.phase.to_string(),
+            "text-primary",
+            true,
+        ),
+        MetadataState::PreviewComplete(
+            _,
+        ) => (
+            "Workflow tested; not synchronized".to_string(),
+            "text-warning",
+            false,
+        ),
+        MetadataState::Error(
+            _,
+        ) => (
+            "Update failed".to_string(),
+            "text-danger",
+            false,
+        ),
+    };
+
     vec![
         StatusItem {
             icon: "bi-folder-symlink",
@@ -912,6 +1346,7 @@ fn build_status_items(
             value_url: rclone_gui_url(
                 rclone_state,
             ),
+            spinner: false,
         },
 
         StatusItem {
@@ -920,6 +1355,7 @@ fn build_status_items(
             value: client_id_value,
             value_class: client_id_value_class,
             value_url: String::new(),
+            spinner: false,
         },
 
         StatusItem {
@@ -928,14 +1364,16 @@ fn build_status_items(
             value: remote_value,
             value_class: remote_class,
             value_url: String::new(),
+            spinner: false,
         },
 
         StatusItem {
             icon: "bi-database",
             label: "Metadata",
-            value: "Not synchronized".to_string(),
-            value_class: "text-warning",
+            value: metadata_value,
+            value_class: metadata_class,
             value_url: String::new(),
+            spinner: metadata_spinner,
         },
 
         StatusItem {
@@ -949,6 +1387,7 @@ fn build_status_items(
             ),
             value_class: "text-success",
             value_url: String::new(),
+            spinner: false,
         },
     ]
 }
