@@ -35,11 +35,45 @@ use crate::{
         InventorySettings,
     },
     google,
-    rclone::remotes::{
-        RemoteKind,
-        RemoteState,
+    rclone::{
+        self,
+        remotes::{
+            RemoteKind,
+            RemoteState,
+        },
     },
 };
+
+fn remote_state_label(state: &RemoteState) -> &'static str {
+    match state {
+        RemoteState::Ready => "Ready",
+        RemoteState::Configuring => "Configuring",
+        RemoteState::NotConfigured | RemoteState::Waiting => "Not ready",
+        RemoteState::Conflict(_) => "Conflict",
+        RemoteState::Error(_) => "Error",
+    }
+}
+
+fn remote_state_class(state: &RemoteState) -> &'static str {
+    match state {
+        RemoteState::Ready => "text-bg-success",
+        RemoteState::Configuring | RemoteState::Waiting => "text-bg-warning",
+        RemoteState::NotConfigured => "text-bg-secondary",
+        RemoteState::Conflict(_) | RemoteState::Error(_) => "text-bg-danger",
+    }
+}
+
+fn configured_remote_count(
+    runtime: &crate::bootstrap::Runtime,
+    rclone_state: &RcloneState,
+) -> usize {
+    match rclone_state {
+        RcloneState::Ready(status) => rclone::remotes::list_configured(runtime, &status.path)
+            .map(|remotes| remotes.len())
+            .unwrap_or(0),
+        _ => 0,
+    }
+}
 
 #[allow(dead_code)]
 pub struct AlertItem {
@@ -147,6 +181,32 @@ struct AboutTemplate {
 }
 
 #[allow(dead_code)]
+pub struct RemoteView {
+    pub name: String,
+    pub backend: String,
+    pub access: &'static str,
+    pub purpose: &'static str,
+    pub status: &'static str,
+    pub status_class: &'static str,
+}
+
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(
+    path = "remotes.html",
+    config = "askama.toml"
+)]
+struct RemotesTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+    remotes: Vec<RemoteView>,
+    error: String,
+}
+
+#[allow(dead_code)]
 #[derive(Template)]
 #[template(
     path = "partials/alerts.html",
@@ -217,6 +277,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/about",
             get(about),
+        )
+        .route(
+            "/remotes",
+            get(remotes_page),
         )
         .route(
             "/settings",
@@ -290,6 +354,7 @@ async fn index(
         &google_client_state,
         &google_remotes_state,
         &metadata_state,
+        configured_remote_count(&state.runtime, &rclone_state),
     );
 
     let (
@@ -598,18 +663,18 @@ fn build_metadata_view(
 fn format_bytes(
     bytes: u64,
 ) -> String {
-    const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
-    const MIB: f64 = 1024.0 * 1024.0;
+    const GB: f64 = 1_000_000_000.0;
+    const MB: f64 = 1_000_000.0;
 
-    if bytes as f64 >= GIB {
+    if bytes as f64 >= GB {
         format!(
-            "{:.1} GiB",
-            bytes as f64 / GIB,
+            "{:.1} GB",
+            bytes as f64 / GB,
         )
-    } else if bytes as f64 >= MIB {
+    } else if bytes as f64 >= MB {
         format!(
-            "{:.1} MiB",
-            bytes as f64 / MIB,
+            "{:.1} MB",
+            bytes as f64 / MB,
         )
     } else {
         format!(
@@ -718,6 +783,7 @@ fn render_settings(
             &google_client_state,
             &google_remotes_state,
             &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
         ),
         poll_rclone: should_poll_ui(
             &rclone_state,
@@ -756,6 +822,7 @@ async fn about(
         &google_client_state,
         &google_remotes_state,
         &metadata_state,
+        configured_remote_count(&state.runtime, &rclone_state),
     );
 
     let poll_rclone = should_poll_ui(
@@ -779,6 +846,74 @@ async fn about(
 
 async fn status() -> StatusCode {
     StatusCode::NO_CONTENT
+}
+
+async fn remotes_page(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+
+    let listed = match &rclone_state {
+        RcloneState::Ready(status) => rclone::remotes::list_configured(
+            &state.runtime,
+            &status.path,
+        ),
+        _ => Err("Rclone is not ready".into()),
+    };
+    let (remotes, error) = match listed {
+        Ok(remotes) => (
+            remotes.into_iter().map(|remote| {
+                let (access, purpose, status, status_class) = match remote.name.as_str() {
+                    "my-drive-ro" => (
+                        "Read only",
+                        "Metadata inventory",
+                        remote_state_label(&google_remotes_state.ro),
+                        remote_state_class(&google_remotes_state.ro),
+                    ),
+                    "my-drive-rw" => (
+                        "Read/write",
+                        "Migration operations",
+                        remote_state_label(&google_remotes_state.rw),
+                        remote_state_class(&google_remotes_state.rw),
+                    ),
+                    _ => ("Remote-defined", "General", "Configured", "text-bg-success"),
+                };
+                RemoteView {
+                    name: remote.name,
+                    backend: remote.backend,
+                    access,
+                    purpose,
+                    status,
+                    status_class,
+                }
+            }).collect(),
+            String::new(),
+        ),
+        Err(error) => {
+            eprintln!("Unable to render remotes page: {error}");
+            (Vec::new(), error.to_string())
+        }
+    };
+
+    let template = RemotesTemplate {
+        title: "Remotes - BOREAL",
+        active_page: "remotes",
+        alerts: build_alerts(&rclone_state, &google_client_state),
+        status_items: build_status_items(
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            remotes.len(),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+        remotes,
+        error,
+    };
+    render_template(&template)
 }
 
 async fn open_rclone_gui(
@@ -855,6 +990,7 @@ async fn ui_status(
             &google_client_state,
             &google_remotes_state,
             &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
         ),
 
         poll_rclone: should_poll_ui(
@@ -1216,8 +1352,9 @@ fn build_alerts(
 fn build_status_items(
     rclone_state: &RcloneState,
     google_client_state: &GoogleClientState,
-    google_remotes_state: &GoogleRemotesState,
+    _google_remotes_state: &GoogleRemotesState,
     metadata_state: &MetadataState,
+    configured_remote_count: usize,
 ) -> Vec<StatusItem> {
     let (
         rclone_value,
@@ -1288,13 +1425,10 @@ fn build_status_items(
             }
         };
 
-    let rw_ready = matches!(google_remotes_state.rw, RemoteState::Ready);
-    let ro_ready = matches!(google_remotes_state.ro, RemoteState::Ready);
-    let (remote_value, remote_class) = match (rw_ready, ro_ready) {
-        (true, true) => ("My Drive RW + RO".to_string(), "text-success"),
-        (true, false) => ("My Drive RW".to_string(), "text-warning"),
-        (false, true) => ("My Drive RO".to_string(), "text-warning"),
-        (false, false) => ("Not configured".to_string(), "text-warning"),
+    let (remote_value, remote_class) = if configured_remote_count == 0 {
+        ("0 configured".to_string(), "text-warning")
+    } else {
+        (format!("{configured_remote_count} configured"), "text-success")
     };
 
     let (

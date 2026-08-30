@@ -121,6 +121,16 @@
                     </li>
 
                     <li class="nav-item">
+                        <a
+                            class="nav-link{% if active_page == "remotes" %} active{% endif %}"
+                            {% if active_page == "remotes" %}aria-current="page"{% endif %}
+                            href="/remotes"
+                        >
+                            Remotes
+                        </a>
+                    </li>
+
+                    <li class="nav-item">
                         <button
                             class="nav-link"
                             type="button"

@@ -54,6 +54,51 @@ pub enum RemoteState {
     Error(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfiguredRemote {
+    pub name: String,
+    pub backend: String,
+}
+
+/// List configured remotes without reading or exposing their credentials.
+pub fn list_configured(
+    runtime: &Runtime,
+    executable: &Path,
+) -> Result<Vec<ConfiguredRemote>, RcloneError> {
+    let config_path = config::path(runtime)?;
+    if !config_path.is_file() {
+        return Ok(Vec::new());
+    }
+
+    let output = command::run(
+        executable,
+        [
+            "listremotes",
+            "--long",
+            "--config",
+            config_path.to_string_lossy().as_ref(),
+        ],
+    )?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Unable to list Rclone remotes: {}", stderr.trim()).into());
+    }
+
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|error| format!("Invalid Rclone remote listing: {error}"))?;
+    let mut remotes = Vec::new();
+    for line in stdout.lines().filter(|line| !line.trim().is_empty()) {
+        let Some((name, backend)) = line.rsplit_once(':') else {
+            return Err(format!("Invalid Rclone remote listing row: {line}").into());
+        };
+        remotes.push(ConfiguredRemote {
+            name: name.trim().to_string(),
+            backend: backend.trim().to_string(),
+        });
+    }
+    Ok(remotes)
+}
+
 enum DetectedRemote {
     Missing,
     NeedsAuthorization,
