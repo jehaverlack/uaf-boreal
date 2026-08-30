@@ -134,6 +134,26 @@
 
 <script>
     (() => {
+        const organizations = document.getElementById("directory-organizations");
+        const organizationsButton = document.querySelector('[data-bs-target="#directory-organizations"]');
+        const organizationStateKey = "boreal.directory.organizations.expanded";
+        if (organizations && organizationsButton) {
+            try {
+                if (window.localStorage.getItem(organizationStateKey) === "false") {
+                    organizations.classList.remove("show");
+                    organizationsButton.setAttribute("aria-expanded", "false");
+                }
+            } catch (_error) {
+                // Browser storage can be unavailable in private or restricted contexts.
+            }
+            organizations.addEventListener("shown.bs.collapse", () => {
+                try { window.localStorage.setItem(organizationStateKey, "true"); } catch (_error) {}
+            });
+            organizations.addEventListener("hidden.bs.collapse", () => {
+                try { window.localStorage.setItem(organizationStateKey, "false"); } catch (_error) {}
+            });
+        }
+
         const form = document.getElementById("directory-import-form");
         const button = document.getElementById("directory-import-button");
         const modalElement = document.getElementById("directoryImportModal");
