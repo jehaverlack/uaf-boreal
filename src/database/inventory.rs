@@ -32,10 +32,21 @@ pub struct DriveExplorerItem {
 pub fn list_my_drive_directory(
     database: &Database,
     parent_path: Option<&str>,
+    search: &str,
+    sort: &str,
+    descending: bool,
 ) -> Result<Vec<DriveExplorerItem>, DatabaseError> {
     let connection = database.connect()?;
     let remote = RemoteKind::MyDriveRo.name();
-    let mut statement = connection.prepare(
+    let sort_expression = match sort {
+        "type" => "CASE WHEN is_directory THEN 'folder' ELSE COALESCE(mime_type, '') END COLLATE NOCASE",
+        "size" => "COALESCE(CASE WHEN is_directory THEN cumulative_size_bytes ELSE size_bytes END, -1)",
+        "modified" => "COALESCE(modified_at, '')",
+        "owner" => "COALESCE(owner_email, '') COLLATE NOCASE",
+        _ => "name COLLATE NOCASE",
+    };
+    let direction = if descending { "DESC" } else { "ASC" };
+    let sql = format!(
         "SELECT item_id, name, relative_path, is_directory, mime_type,
                 CASE WHEN is_directory THEN cumulative_size_bytes ELSE size_bytes END,
                 modified_at, owner_email
@@ -43,10 +54,12 @@ pub fn list_my_drive_directory(
          WHERE remote_name = ?1
            AND is_deleted = 0
            AND ((?2 IS NULL AND parent_path IS NULL) OR parent_path = ?2)
-         ORDER BY is_directory DESC, name COLLATE NOCASE, item_id",
-    )?;
+           AND (?3 = '' OR instr(lower(name), lower(?3)) > 0)
+         ORDER BY is_directory DESC, {sort_expression} {direction}, name COLLATE NOCASE, item_id"
+    );
+    let mut statement = connection.prepare(&sql)?;
     let rows = statement.query_map(
-        params![remote, parent_path],
+        params![remote, parent_path, search.trim()],
         |row| {
             let size: Option<i64> = row.get(5)?;
             Ok(DriveExplorerItem {

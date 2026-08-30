@@ -20,6 +20,8 @@
     {% if has_parent %}
     <form method="get" action="/my-drive">
         <input type="hidden" name="path" value="{{ parent_path }}">
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="direction" value="{{ direction }}">
         <button class="btn btn-sm btn-outline-secondary" type="submit" title="Browse parent folder"><i class="bi bi-arrow-up"></i></button>
     </form>
     {% endif %}
@@ -27,17 +29,34 @@
     <span class="fw-semibold">{{ current_path }}</span>
 </div>
 
+<form method="get" action="/my-drive" class="row g-2 mb-3" role="search">
+    <input type="hidden" name="path" value="{% if has_parent %}{{ current_path }}{% endif %}">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="direction" value="{{ direction }}">
+    <div class="col-sm-8 col-lg-5">
+        <label class="visually-hidden" for="my-drive-search">Filter this folder</label>
+        <div class="input-group input-group-sm">
+            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <input id="my-drive-search" class="form-control" type="search" name="q" value="{{ search }}" placeholder="Filter this folder by name">
+            <button class="btn btn-primary" type="submit">Search</button>
+        </div>
+    </div>
+    {% if search.len() > 0 %}
+    <div class="col-auto"><a class="btn btn-sm btn-outline-secondary" href="{{ clear_search_url }}">Clear</a></div>
+    {% endif %}
+</form>
+
 <div class="card boreal-explorer-card flex-grow-1 overflow-hidden">
     <div class="table-responsive boreal-explorer-table">
         <table class="table table-hover align-middle mb-0">
             <thead class="table-light">
                 <tr>
                     <th scope="col" class="text-center"><span class="visually-hidden">Open in Google Drive</span></th>
-                    <th scope="col">Name</th>
-                    <th scope="col" class="text-center">Type</th>
-                    <th scope="col">Size</th>
-                    <th scope="col">Modified</th>
-                    <th scope="col">Owner</th>
+                    <th scope="col"><a class="text-body text-decoration-none" href="{{ name_sort_url }}">Name {% if sort == "name" %}<i class="bi {% if direction == "desc" %}bi-sort-alpha-down-alt{% else %}bi-sort-alpha-down{% endif %}"></i>{% endif %}</a></th>
+                    <th scope="col" class="text-center"><a class="text-body text-decoration-none" href="{{ type_sort_url }}" title="Sort by type">Type {% if sort == "type" %}<i class="bi {% if direction == "desc" %}bi-sort-down-alt{% else %}bi-sort-down{% endif %}"></i>{% endif %}</a></th>
+                    <th scope="col"><a class="text-body text-decoration-none" href="{{ size_sort_url }}">Size {% if sort == "size" %}<i class="bi {% if direction == "desc" %}bi-sort-numeric-down-alt{% else %}bi-sort-numeric-down{% endif %}"></i>{% endif %}</a></th>
+                    <th scope="col"><a class="text-body text-decoration-none" href="{{ modified_sort_url }}">Modified {% if sort == "modified" %}<i class="bi {% if direction == "desc" %}bi-sort-down-alt{% else %}bi-sort-down{% endif %}"></i>{% endif %}</a></th>
+                    <th scope="col"><a class="text-body text-decoration-none" href="{{ owner_sort_url }}">Owner {% if sort == "owner" %}<i class="bi {% if direction == "desc" %}bi-sort-alpha-down-alt{% else %}bi-sort-alpha-down{% endif %}"></i>{% endif %}</a></th>
                 </tr>
             </thead>
             <tbody>

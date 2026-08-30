@@ -240,6 +240,15 @@ struct MyDriveTemplate {
     has_parent: bool,
     rows: Vec<DriveExplorerRow>,
     error: String,
+    search: String,
+    sort: String,
+    direction: String,
+    name_sort_url: String,
+    type_sort_url: String,
+    size_sort_url: String,
+    modified_sort_url: String,
+    owner_sort_url: String,
+    clear_search_url: String,
 }
 
 #[allow(dead_code)]
@@ -306,6 +315,12 @@ struct SettingsQuery {
 struct DrivePathQuery {
     #[serde(default)]
     path: String,
+    #[serde(default)]
+    q: String,
+    #[serde(default)]
+    sort: String,
+    #[serde(default)]
+    direction: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -990,9 +1005,17 @@ async fn my_drive_page(
     })?;
     let has_parent = !query.path.is_empty();
     let parent_filter = has_parent.then_some(query.path.as_str());
+    let sort = match query.sort.as_str() {
+        "type" | "size" | "modified" | "owner" => query.sort.as_str(),
+        _ => "name",
+    };
+    let descending = query.direction == "desc";
     let (items, error) = match database::inventory::list_my_drive_directory(
         &database,
         parent_filter,
+        &query.q,
+        sort,
+        descending,
     ) {
         Ok(items) => (items, String::new()),
         Err(error) => {
@@ -1008,7 +1031,7 @@ async fn my_drive_page(
         },
         name: item.name,
         name_url: if item.is_directory {
-            format!("/my-drive?path={}", encode_query_value(&item.relative_path))
+            explorer_url(&item.relative_path, "", sort, if descending { "desc" } else { "asc" })
         } else {
             format!("https://drive.google.com/open?id={}", item.item_id)
         },
@@ -1041,6 +1064,20 @@ async fn my_drive_page(
         has_parent,
         rows,
         error,
+        search: query.q.clone(),
+        sort: sort.to_string(),
+        direction: if descending { "desc".to_string() } else { "asc".to_string() },
+        name_sort_url: sort_url(&query.path, &query.q, sort, descending, "name"),
+        type_sort_url: sort_url(&query.path, &query.q, sort, descending, "type"),
+        size_sort_url: sort_url(&query.path, &query.q, sort, descending, "size"),
+        modified_sort_url: sort_url(&query.path, &query.q, sort, descending, "modified"),
+        owner_sort_url: sort_url(&query.path, &query.q, sort, descending, "owner"),
+        clear_search_url: explorer_url(
+            &query.path,
+            "",
+            sort,
+            if descending { "desc" } else { "asc" },
+        ),
     };
     render_template(&template)
 }
@@ -1073,6 +1110,31 @@ fn encode_query_value(value: &str) -> String {
         }
     }
     encoded
+}
+
+fn explorer_url(path: &str, search: &str, sort: &str, direction: &str) -> String {
+    format!(
+        "/my-drive?path={}&q={}&sort={}&direction={}",
+        encode_query_value(path),
+        encode_query_value(search),
+        encode_query_value(sort),
+        encode_query_value(direction),
+    )
+}
+
+fn sort_url(
+    path: &str,
+    search: &str,
+    current_sort: &str,
+    descending: bool,
+    requested_sort: &str,
+) -> String {
+    let next_direction = if current_sort == requested_sort && !descending {
+        "desc"
+    } else {
+        "asc"
+    };
+    explorer_url(path, search, requested_sort, next_direction)
 }
 
 async fn open_rclone_gui(

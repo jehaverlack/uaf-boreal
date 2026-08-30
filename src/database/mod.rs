@@ -425,10 +425,21 @@ mod tests {
         assert_eq!(first_summary.folders_scanned, 1);
         assert_eq!(first_summary.bytes_discovered, 42);
         assert_eq!(first_summary.permissions_scanned, 1);
-        let root_items = inventory::list_my_drive_directory(&database, None)
+        let root_items = inventory::list_my_drive_directory(&database, None, "", "name", false)
             .expect("explorer root should be readable");
         assert_eq!(root_items.len(), 1);
         assert_eq!(root_items[0].size_bytes, Some(42));
+        assert_eq!(
+            inventory::list_my_drive_directory(&database, None, "report", "size", true)
+                .expect("filtered explorer root should be readable")
+                .len(),
+            1,
+        );
+        assert!(
+            inventory::list_my_drive_directory(&database, None, "missing", "name", false)
+                .expect("empty explorer search should be readable")
+                .is_empty(),
+        );
         let second_scan = database.start_scan_run("my-drive").expect("scan should start");
         let summary = inventory::synchronize_my_drive(&database, second_scan, &[], true)
             .expect("empty authoritative inventory should synchronize");
@@ -437,7 +448,7 @@ mod tests {
         assert_eq!(summary.files_scanned, 0);
         assert_eq!(summary.bytes_discovered, 0);
         assert!(
-            inventory::list_my_drive_directory(&database, Some("Reports"))
+            inventory::list_my_drive_directory(&database, Some("Reports"), "", "name", false)
                 .expect("explorer directory should be readable")
                 .is_empty(),
             "soft-deleted items must not appear in the explorer",
