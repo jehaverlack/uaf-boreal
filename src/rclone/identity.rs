@@ -14,6 +14,68 @@ pub struct RemoteIdentity {
     pub raw_json: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GoogleSheetLocation {
+    pub spreadsheet_id: String,
+    pub gid: String,
+}
+
+pub fn parse_google_sheet_url(url: &str) -> Result<GoogleSheetLocation, RcloneError> {
+    let marker = "docs.google.com/spreadsheets/d/";
+    let start = url.find(marker).ok_or("Directory source must be a Google Sheets URL")?
+        + marker.len();
+    let remainder = &url[start..];
+    let spreadsheet_id = remainder.split('/').next().unwrap_or("").trim();
+    if spreadsheet_id.is_empty()
+        || !spreadsheet_id.chars().all(|character| character.is_ascii_alphanumeric() || character == '-' || character == '_')
+    {
+        return Err("Google Sheets URL contains an invalid spreadsheet ID".into());
+    }
+    let gid = url
+        .split(['?', '#', '&'])
+        .filter_map(|part| part.strip_prefix("gid="))
+        .next()
+        .unwrap_or("0");
+    if gid.is_empty() || !gid.chars().all(|character| character.is_ascii_digit()) {
+        return Err("Google Sheets URL contains an invalid worksheet gid".into());
+    }
+    Ok(GoogleSheetLocation {
+        spreadsheet_id: spreadsheet_id.to_string(),
+        gid: gid.to_string(),
+    })
+}
+
+pub fn download_google_sheet_csv(
+    runtime: &Runtime,
+    url: &str,
+) -> Result<(GoogleSheetLocation, Vec<u8>), RcloneError> {
+    let location = parse_google_sheet_url(url)?;
+    let config_path = config::path(runtime)?;
+    let access_token = read_access_token(&config_path)?;
+    let export_url = format!(
+        "https://docs.google.com/spreadsheets/d/{}/export?format=csv&gid={}",
+        location.spreadsheet_id, location.gid,
+    );
+    let response = google_client()?
+        .get(export_url)
+        .bearer_auth(access_token)
+        .send()
+        .map_err(|error| format!("Unable to download directory spreadsheet: {error}"))?;
+    let status = response.status();
+    let bytes = response
+        .bytes()
+        .map_err(|error| format!("Unable to read directory spreadsheet download: {error}"))?;
+    if !status.is_success() {
+        return Err(format!(
+            "Directory spreadsheet download returned {status}; verify Viewer access and Shared Drive download permissions"
+        ).into());
+    }
+    if bytes.len() > 10 * 1024 * 1024 {
+        return Err("Directory spreadsheet CSV is larger than 10 MiB".into());
+    }
+    Ok((location, bytes.to_vec()))
+}
+
 pub fn fetch_read_only_account(
     runtime: &Runtime,
     executable: &Path,
@@ -45,23 +107,8 @@ fn parse_rclone_userinfo(bytes: &[u8]) -> Result<RemoteIdentity, RcloneError> {
 }
 
 fn fetch_drive_about(config_path: &Path) -> Result<RemoteIdentity, RcloneError> {
-    let config_text = fs::read_to_string(config_path)
-        .map_err(|error| format!("Unable to read rclone configuration for Drive identity: {error}"))?;
-    let token_json = remote_setting(&config_text, RemoteKind::MyDriveRo.name(), "token")
-        .ok_or("The read-only rclone remote does not contain an OAuth token")?;
-    let token: Value = serde_json::from_str(token_json)
-        .map_err(|error| format!("Invalid OAuth token in the read-only rclone remote: {error}"))?;
-    let access_token = token
-        .get("access_token")
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .ok_or("The read-only rclone remote OAuth token has no access token")?;
-
-    let client = reqwest::blocking::Client::builder()
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(20))
-        .build()
-        .map_err(|error| format!("Unable to create Google Drive identity client: {error}"))?;
+    let access_token = read_access_token(config_path)?;
+    let client = google_client()?;
     let response = client
         .get("https://www.googleapis.com/drive/v3/about?fields=user%28displayName%2CemailAddress%2CpermissionId%29")
         .bearer_auth(access_token)
@@ -85,6 +132,29 @@ fn fetch_drive_about(config_path: &Path) -> Result<RemoteIdentity, RcloneError> 
         return Err("Google Drive returned user information without an email address".into());
     }
     Ok(identity)
+}
+
+fn google_client() -> Result<reqwest::blocking::Client, RcloneError> {
+    reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|error| format!("Unable to create Google API client: {error}").into())
+}
+
+fn read_access_token(config_path: &Path) -> Result<String, RcloneError> {
+    let config_text = fs::read_to_string(config_path)
+        .map_err(|error| format!("Unable to read rclone configuration for Google access: {error}"))?;
+    let token_json = remote_setting(&config_text, RemoteKind::MyDriveRo.name(), "token")
+        .ok_or("The read-only rclone remote does not contain an OAuth token")?;
+    let token: Value = serde_json::from_str(token_json)
+        .map_err(|error| format!("Invalid OAuth token in the read-only rclone remote: {error}"))?;
+    token
+        .get("access_token")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| "The read-only rclone remote OAuth token has no access token".into())
 }
 
 fn identity_from_value(value: Value) -> Result<RemoteIdentity, RcloneError> {
@@ -131,7 +201,7 @@ fn string_field(value: &Value, names: &[&str]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{remote_setting, string_field};
+    use super::{parse_google_sheet_url, remote_setting, string_field};
 
     #[test]
     fn reads_common_userinfo_field_names() {
@@ -151,5 +221,15 @@ mod tests {
             remote_setting(config, "my-drive-ro", "token"),
             Some("{\"access_token\":\"secret\"}"),
         );
+    }
+
+    #[test]
+    fn parses_google_sheet_and_worksheet_ids() {
+        let location = parse_google_sheet_url(
+            "https://docs.google.com/spreadsheets/d/abc_DEF-123/edit?gid=42#gid=42",
+        )
+        .expect("Google Sheets URL should parse");
+        assert_eq!(location.spreadsheet_id, "abc_DEF-123");
+        assert_eq!(location.gid, "42");
     }
 }

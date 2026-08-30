@@ -29,6 +29,12 @@
         </div>
         {% endif %}
 
+        {% if notice.len() > 0 %}
+        <div class="alert alert-success" role="status">
+            <i class="bi bi-check-circle-fill me-1"></i>{{ notice }}
+        </div>
+        {% endif %}
+
         <form method="post" action="/settings">
 
             <div class="card mb-3">
@@ -123,16 +129,57 @@
 
             </div>
 
-            <button type="submit" class="btn btn-primary">
+            <div class="card mb-3">
+                <div class="card-header fw-semibold">Linked directory spreadsheet</div>
+                <div class="card-body">
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" role="switch"
+                               id="directorySheetEnabled" name="directory_sheet_enabled"
+                               {% if settings.directory_sheet_enabled %}checked{% endif %}>
+                        <label class="form-check-label" for="directorySheetEnabled">
+                            Import this directory during every metadata update
+                        </label>
+                    </div>
+                    <label class="form-label" for="directorySheetUrl">Google Sheets URL</label>
+                    <input class="form-control" type="url" id="directorySheetUrl"
+                           name="directory_sheet_url" value="{{ settings.directory_sheet_url }}"
+                           placeholder="https://docs.google.com/spreadsheets/d/.../edit?gid=0">
+                    <div class="form-text">
+                        BOREAL uses the authenticated read-only Drive account. That account must be able to view and export the selected worksheet.
+                    </div>
+                    <div class="alert alert-light border small mt-3 mb-0" role="note">
+                        The worksheet must contain an <code>email</code> column. Supported identity types are
+                        <code>person</code>, <code>group</code>, <code>service_acct</code>,
+                        <code>dept_acct</code>, and <code>other</code>.
+                    </div>
+                    {% if directory_source.configured %}
+                    <div class="small mt-3">
+                        {% if directory_source.last_error.len() > 0 %}
+                        <div class="text-danger"><i class="bi bi-exclamation-triangle me-1"></i>{{ directory_source.last_error }}</div>
+                        {% else if directory_source.last_success_at.len() > 0 %}
+                        <div class="text-success"><i class="bi bi-check-circle me-1"></i>Last imported {{ directory_source.last_success_at }} UTC</div>
+                        {% endif %}
+                        {% if directory_source.last_attempt_at.len() > 0 %}
+                        <div class="text-body-secondary">Last attempted {{ directory_source.last_attempt_at }} UTC</div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary me-2">
                 <i class="bi bi-save me-1"></i>
                 Save settings
+            </button>
+            <button type="submit" class="btn btn-outline-primary" formaction="/settings/directory/test">
+                <i class="bi bi-cloud-check me-1"></i>Save and test directory access
             </button>
 
         </form>
 
         <p class="small text-body-secondary mt-3">
-            Scheduling preferences are saved now. Automatic and Google Drive updates
-            will be enabled incrementally as the inventory scanner is implemented.
+            Directory spreadsheet failures do not prevent Drive metadata from updating.
+            Review the source status above or the BOREAL log for details.
         </p>
 
     </div>

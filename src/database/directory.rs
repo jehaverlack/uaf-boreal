@@ -49,6 +49,34 @@ pub struct RemoteAccountRow {
     pub last_verified_at: String,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct LinkedSheetStatus {
+    pub configured: bool,
+    pub last_attempt_at: String,
+    pub last_success_at: String,
+    pub last_error: String,
+}
+
+pub fn linked_sheet_status(database: &Database) -> Result<LinkedSheetStatus, DatabaseError> {
+    let connection = database.connect()?;
+    connection
+        .query_row(
+            "SELECT 1, COALESCE(last_attempt_at, ''), COALESCE(last_success_at, ''),
+                    COALESCE(last_error, '')
+             FROM directory_sources WHERE name = 'Linked Google Sheet directory'",
+            [],
+            |row| Ok(LinkedSheetStatus {
+                configured: row.get::<_, i64>(0)? != 0,
+                last_attempt_at: row.get(1)?,
+                last_success_at: row.get(2)?,
+                last_error: row.get(3)?,
+            }),
+        )
+        .optional()
+        .map(|value| value.unwrap_or_default())
+        .map_err(Into::into)
+}
+
 #[derive(Debug, Clone)]
 pub struct PrincipalAssociationRow {
     pub remote_name: String,
@@ -68,8 +96,9 @@ pub fn summary(database: &Database) -> Result<DirectorySummary, DatabaseError> {
             "SELECT
             (SELECT COUNT(*) FROM principals),
             (SELECT COUNT(*) FROM organizations),
-            (SELECT COUNT(*) FROM principals WHERE principal_type = 'google_group'),
-            (SELECT COUNT(*) FROM principals WHERE status IN ('former', 'departing')),
+            (SELECT COUNT(*) FROM principals WHERE principal_type = 'group'),
+            (SELECT COUNT(*) FROM principals
+             WHERE principal_type = 'person' AND status IN ('former', 'departing')),
             (SELECT COUNT(*) FROM directory_sources WHERE enabled = 1)",
             [],
             |row| {
@@ -365,6 +394,49 @@ pub fn import_csv(
     filename: &str,
     data: &[u8],
 ) -> Result<ImportSummary, DatabaseError> {
+    import_csv_source(
+        database,
+        &format!("CSV: {}", filename.trim()),
+        "csv_upload",
+        None,
+        false,
+        data,
+    )
+}
+
+pub fn validate_csv(data: &[u8]) -> Result<(), DatabaseError> {
+    let text = std::str::from_utf8(data).map_err(|_| "Directory CSV must use UTF-8 encoding")?;
+    let rows = parse_csv(text)?;
+    let headers = rows.first().ok_or("Directory CSV is empty")?
+        .iter().map(|value| normalize_header(value)).collect::<Vec<_>>();
+    header_index(&headers, &["email", "primary_email", "email_address"])
+        .ok_or_else(|| "Directory CSV requires an email column".into())
+        .map(|_| ())
+}
+
+pub fn import_linked_sheet_csv(
+    database: &Database,
+    source_location: &str,
+    data: &[u8],
+) -> Result<ImportSummary, DatabaseError> {
+    import_csv_source(
+        database,
+        "Linked Google Sheet directory",
+        "google_sheet",
+        Some(source_location),
+        true,
+        data,
+    )
+}
+
+fn import_csv_source(
+    database: &Database,
+    source_name: &str,
+    source_type: &str,
+    source_location: Option<&str>,
+    refresh_on_metadata_update: bool,
+    data: &[u8],
+) -> Result<ImportSummary, DatabaseError> {
     let text = std::str::from_utf8(data).map_err(|_| "Directory CSV must use UTF-8 encoding")?;
     let rows = parse_csv(text)?;
     if rows.is_empty() {
@@ -385,16 +457,21 @@ pub fn import_csv(
 
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
-    let source_name = format!("CSV: {}", filename.trim());
     transaction.execute(
-        "INSERT INTO directory_sources (name, source_type, enabled)
-         VALUES (?1, 'csv_upload', 1)
-         ON CONFLICT(name) DO UPDATE SET updated_at = CURRENT_TIMESTAMP",
-        [&source_name],
+        "INSERT INTO directory_sources (
+            name, source_type, source_location, enabled, refresh_on_metadata_update
+         ) VALUES (?1, ?2, ?3, 1, ?4)
+         ON CONFLICT(name) DO UPDATE SET
+            source_type = excluded.source_type,
+            source_location = excluded.source_location,
+            enabled = 1,
+            refresh_on_metadata_update = excluded.refresh_on_metadata_update,
+            updated_at = CURRENT_TIMESTAMP",
+        params![source_name, source_type, source_location, refresh_on_metadata_update],
     )?;
     let source_id: i64 = transaction.query_row(
         "SELECT id FROM directory_sources WHERE name = ?1",
-        [&source_name],
+        [source_name],
         |row| row.get(0),
     )?;
     transaction.execute(
@@ -420,7 +497,7 @@ pub fn import_csv(
         let principal_type = type_index
             .map(|index| cell(row, index).trim())
             .filter(|value| !value.is_empty())
-            .map(normalize_value)
+            .map(canonical_principal_type)
             .unwrap_or_else(|| "person".to_string());
         let status = status_index
             .map(|index| cell(row, index).trim())
@@ -522,6 +599,42 @@ pub fn import_csv(
     Ok(summary)
 }
 
+pub fn record_linked_sheet_failure(
+    database: &Database,
+    source_location: &str,
+    error: &str,
+) -> Result<(), DatabaseError> {
+    let connection = database.connect()?;
+    connection.execute(
+        "INSERT INTO directory_sources (
+            name, source_type, source_location, enabled, refresh_on_metadata_update,
+            last_attempt_at, last_error
+         ) VALUES ('Linked Google Sheet directory', 'google_sheet', ?1, 1, 1,
+                   CURRENT_TIMESTAMP, ?2)
+         ON CONFLICT(name) DO UPDATE SET
+            source_location = excluded.source_location,
+            enabled = 1,
+            refresh_on_metadata_update = 1,
+            last_attempt_at = CURRENT_TIMESTAMP,
+            last_error = excluded.last_error,
+            updated_at = CURRENT_TIMESTAMP",
+        params![source_location, error],
+    )?;
+    Ok(())
+}
+
+fn canonical_principal_type(value: &str) -> String {
+    match normalize_value(value).as_str() {
+        "person" | "user" => "person",
+        "group" | "google_group" => "group",
+        "service_acct" | "service_account" => "service_acct",
+        "dept_acct" | "department_account" | "departmental_account" | "departmental_acct" => "dept_acct",
+        "other" => "other",
+        _ => "other",
+    }
+    .to_string()
+}
+
 fn parse_csv(text: &str) -> Result<Vec<Vec<String>>, DatabaseError> {
     let mut rows = Vec::new();
     let mut row = Vec::new();
@@ -594,7 +707,7 @@ fn valid_email(email: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_csv;
+    use super::{canonical_principal_type, parse_csv};
 
     #[test]
     fn parses_quoted_csv_fields_and_newlines() {
@@ -605,5 +718,13 @@ mod tests {
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[1][1], "One, two");
         assert_eq!(rows[2][1], "Line 1\nLine 2");
+    }
+
+    #[test]
+    fn canonicalizes_supported_principal_types() {
+        assert_eq!(canonical_principal_type("Google Group"), "group");
+        assert_eq!(canonical_principal_type("service account"), "service_acct");
+        assert_eq!(canonical_principal_type("departmental_acct"), "dept_acct");
+        assert_eq!(canonical_principal_type("unexpected"), "other");
     }
 }

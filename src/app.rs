@@ -705,13 +705,17 @@ impl AppState {
                 return Err("Rclone is not ready".to_string());
             }
         };
-        let permission_scanning = match database::settings::load(&database) {
-            Ok(settings) => settings.permission_scanning,
+        let inventory_settings = match database::settings::load(&database) {
+            Ok(settings) => settings,
             Err(error) => {
                 state.finish_metadata_job();
                 return Err(error.to_string());
             }
         };
+        let permission_scanning = inventory_settings.permission_scanning;
+        let directory_sheet_url = inventory_settings
+            .directory_sheet_enabled
+            .then(|| inventory_settings.directory_sheet_url.clone());
         let scan_id = match database.start_scan_run(
             "my-drive",
         ) {
@@ -778,6 +782,62 @@ impl AppState {
                         }
                         Err(error) => {
                             log::warn!("Unable to verify authenticated Google account: {error}");
+                        }
+                    }
+                    if let Some(sheet_url) = directory_sheet_url.as_deref() {
+                        worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                            phase: "Downloading directory spreadsheet",
+                            files_scanned: 0,
+                            folders_scanned: 0,
+                            permissions_scanned: 0,
+                            bytes_discovered: 0,
+                            errors: 0,
+                        }));
+                        match rclone::identity::download_google_sheet_csv(
+                            &worker_state.runtime,
+                            sheet_url,
+                        ) {
+                            Ok((location, csv)) => {
+                                worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                                    phase: "Importing directory spreadsheet",
+                                    files_scanned: 0,
+                                    folders_scanned: 0,
+                                    permissions_scanned: 0,
+                                    bytes_discovered: 0,
+                                    errors: 0,
+                                }));
+                                match database::directory::import_linked_sheet_csv(
+                                    &database,
+                                    sheet_url,
+                                    &csv,
+                                ) {
+                                    Ok(summary) => log::info!(
+                                        "Linked directory spreadsheet imported: spreadsheet_id={}, gid={}, rows={}, created={}, updated={}, rejected={}",
+                                        location.spreadsheet_id,
+                                        location.gid,
+                                        summary.rows_seen,
+                                        summary.rows_created,
+                                        summary.rows_updated,
+                                        summary.rows_rejected,
+                                    ),
+                                    Err(error) => {
+                                        log::error!("Linked directory spreadsheet import failed: {error}");
+                                        let _ = database::directory::record_linked_sheet_failure(
+                                            &database,
+                                            sheet_url,
+                                            &error.to_string(),
+                                        );
+                                    }
+                                }
+                            }
+                            Err(error) => {
+                                log::error!("Linked directory spreadsheet download failed: {error}");
+                                let _ = database::directory::record_linked_sheet_failure(
+                                    &database,
+                                    sheet_url,
+                                    &error.to_string(),
+                                );
+                            }
                         }
                     }
                     worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {

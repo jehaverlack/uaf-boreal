@@ -347,6 +347,8 @@ mod tests {
             full_reconciliation_days: 14,
             update_when_overdue_at_startup: false,
             permission_scanning: true,
+            directory_sheet_enabled: true,
+            directory_sheet_url: "https://docs.google.com/spreadsheets/d/example/edit?gid=0".to_string(),
         };
 
         settings::save(

@@ -143,6 +143,8 @@ struct SettingsTemplate {
     settings: InventorySettings,
     saved: bool,
     error: String,
+    notice: String,
+    directory_source: database::directory::LinkedSheetStatus,
 }
 
 #[allow(dead_code)]
@@ -441,6 +443,10 @@ struct SettingsForm {
     update_when_overdue_at_startup: Option<String>,
     #[serde(default)]
     permission_scanning: Option<String>,
+    #[serde(default)]
+    directory_sheet_enabled: Option<String>,
+    #[serde(default)]
+    directory_sheet_url: String,
 }
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -461,6 +467,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/tags/create", post(create_tag))
         .route("/tags/update", post(update_tag))
         .route("/settings", get(settings_page).post(save_settings))
+        .route("/settings/directory/test", post(test_directory_sheet))
         .route("/status", get(status))
         .route("/rclone-gui", get(open_rclone_gui))
         .route("/ui/alerts", get(ui_alerts))
@@ -827,7 +834,7 @@ async fn settings_page(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    render_settings(&state, inventory_settings, query.saved, String::new())
+    render_settings(&state, inventory_settings, query.saved, String::new(), String::new())
 }
 
 async fn save_settings(
@@ -840,7 +847,17 @@ async fn save_settings(
         full_reconciliation_days: form.full_reconciliation_days,
         update_when_overdue_at_startup: form.update_when_overdue_at_startup.is_some(),
         permission_scanning: form.permission_scanning.is_some(),
+        directory_sheet_enabled: form.directory_sheet_enabled.is_some(),
+        directory_sheet_url: form.directory_sheet_url.trim().to_string(),
     };
+    if inventory_settings.directory_sheet_enabled {
+        if let Err(error) = crate::rclone::identity::parse_google_sheet_url(
+            &inventory_settings.directory_sheet_url,
+        ) {
+            return render_settings(&state, inventory_settings, false, error.to_string(), String::new())
+                .map(axum::response::IntoResponse::into_response);
+        }
+    }
     let database = state
         .database()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -848,9 +865,76 @@ async fn save_settings(
     match settings::save(&database, &inventory_settings) {
         Ok(()) => Ok(Redirect::to("/settings?saved=true").into_response()),
 
-        Err(error) => render_settings(&state, inventory_settings, false, error.to_string())
+        Err(error) => render_settings(&state, inventory_settings, false, error.to_string(), String::new())
             .map(axum::response::IntoResponse::into_response),
     }
+}
+
+async fn test_directory_sheet(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<SettingsForm>,
+) -> Result<axum::response::Response, StatusCode> {
+    let inventory_settings = InventorySettings {
+        automatic_updates: form.automatic_updates.is_some(),
+        refresh_interval_hours: form.refresh_interval_hours,
+        full_reconciliation_days: form.full_reconciliation_days,
+        update_when_overdue_at_startup: form.update_when_overdue_at_startup.is_some(),
+        permission_scanning: form.permission_scanning.is_some(),
+        directory_sheet_enabled: form.directory_sheet_enabled.is_some(),
+        directory_sheet_url: form.directory_sheet_url.trim().to_string(),
+    };
+    if let Err(error) = crate::rclone::identity::parse_google_sheet_url(
+        &inventory_settings.directory_sheet_url,
+    ) {
+        return render_settings(&state, inventory_settings, false, error.to_string(), String::new())
+            .map(axum::response::IntoResponse::into_response);
+    }
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if let Err(error) = settings::save(&database, &inventory_settings) {
+        return render_settings(&state, inventory_settings, false, error.to_string(), String::new())
+            .map(axum::response::IntoResponse::into_response);
+    }
+    let worker_state = Arc::clone(&state);
+    let url = inventory_settings.directory_sheet_url.clone();
+    let rclone_path = match state.rclone_state() {
+        RcloneState::Ready(status) => status.path,
+        _ => {
+            return render_settings(
+                &state,
+                inventory_settings,
+                false,
+                "Rclone must be ready before directory access can be tested".to_string(),
+                String::new(),
+            )
+            .map(axum::response::IntoResponse::into_response)
+        }
+    };
+    let result: Result<(), String> = tokio::task::spawn_blocking(move || {
+        crate::rclone::identity::fetch_read_only_account(&worker_state.runtime, &rclone_path)
+            .map_err(|error| error.to_string())?;
+        let (_, csv) = crate::rclone::identity::download_google_sheet_csv(&worker_state.runtime, &url)
+            .map_err(|error| error.to_string())?;
+        database::directory::validate_csv(&csv).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    match result {
+        Ok(()) => render_settings(
+            &state,
+            inventory_settings,
+            false,
+            String::new(),
+            "Directory spreadsheet access verified; the selected worksheet contains a usable email column.".to_string(),
+        ),
+        Err(error) => render_settings(
+            &state,
+            inventory_settings,
+            false,
+            error.to_string(),
+            String::new(),
+        ),
+    }
+    .map(axum::response::IntoResponse::into_response)
 }
 
 fn render_settings(
@@ -858,11 +942,17 @@ fn render_settings(
     inventory_settings: InventorySettings,
     saved: bool,
     error: String,
+    notice: String,
 ) -> Result<Html<String>, StatusCode> {
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
     let metadata_state = state.metadata_state();
+    let directory_source = state
+        .database()
+        .ok()
+        .and_then(|database| database::directory::linked_sheet_status(&database).ok())
+        .unwrap_or_default();
 
     let template = SettingsTemplate {
         title: "Settings - BOREAL",
@@ -880,6 +970,8 @@ fn render_settings(
         settings: inventory_settings,
         saved,
         error,
+        notice,
+        directory_source,
     };
 
     render_template(&template)
@@ -1763,6 +1855,8 @@ fn metadata_progress_percent(
     let phase_percent = match state {
         MetadataState::Updating(progress) => match progress.phase {
             "Connecting" => 5,
+            "Downloading directory spreadsheet" => 8,
+            "Importing directory spreadsheet" => 12,
             "Fetching My Drive metadata" => 15,
             "Fetching Shared with me metadata" => 45,
             "Saving My Drive metadata" => 65,

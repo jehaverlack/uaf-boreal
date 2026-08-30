@@ -16,6 +16,8 @@ pub struct InventorySettings {
     pub full_reconciliation_days: u32,
     pub update_when_overdue_at_startup: bool,
     pub permission_scanning: bool,
+    pub directory_sheet_enabled: bool,
+    pub directory_sheet_url: String,
 }
 
 impl Default for InventorySettings {
@@ -26,6 +28,8 @@ impl Default for InventorySettings {
             full_reconciliation_days: 7,
             update_when_overdue_at_startup: true,
             permission_scanning: true,
+            directory_sheet_enabled: false,
+            directory_sheet_url: String::new(),
         }
     }
 }
@@ -50,6 +54,10 @@ impl InventorySettings {
                 "Full reconciliation interval must be between 1 and 365 days"
                     .into(),
             );
+        }
+
+        if self.directory_sheet_enabled && self.directory_sheet_url.trim().is_empty() {
+            return Err("A Google Sheets URL is required when linked directory import is enabled".into());
         }
 
         Ok(
@@ -91,6 +99,15 @@ pub fn load(
                 "inventory.permission_scanning",
                 defaults.permission_scanning,
             )?,
+            directory_sheet_enabled: get_bool(
+                &connection,
+                "directory.sheet_enabled",
+                defaults.directory_sheet_enabled,
+            )?,
+            directory_sheet_url: get(
+                &connection,
+                "directory.sheet_url",
+            )?.unwrap_or(defaults.directory_sheet_url),
         },
     )
 }
@@ -128,6 +145,30 @@ pub fn save(
         &transaction,
         "inventory.permission_scanning",
         bool_value(settings.permission_scanning),
+    )?;
+    set(
+        &transaction,
+        "directory.sheet_enabled",
+        bool_value(settings.directory_sheet_enabled),
+    )?;
+    set(
+        &transaction,
+        "directory.sheet_url",
+        settings.directory_sheet_url.trim(),
+    )?;
+    transaction.execute(
+        "INSERT INTO directory_sources (
+            name, source_type, source_location, enabled, refresh_on_metadata_update
+         ) VALUES ('Linked Google Sheet directory', 'google_sheet', ?1, ?2, ?2)
+         ON CONFLICT(name) DO UPDATE SET
+            source_location = excluded.source_location,
+            enabled = excluded.enabled,
+            refresh_on_metadata_update = excluded.refresh_on_metadata_update,
+            updated_at = CURRENT_TIMESTAMP",
+        params![
+            settings.directory_sheet_url.trim(),
+            settings.directory_sheet_enabled,
+        ],
     )?;
 
     transaction.commit()?;
