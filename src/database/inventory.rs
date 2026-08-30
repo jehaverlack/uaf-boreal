@@ -29,6 +29,7 @@ pub struct DriveExplorerItem {
     pub owner_email: Option<String>,
     pub tags: Vec<Tag>,
     pub permissions: Vec<String>,
+    pub is_deleted: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +50,7 @@ pub fn list_my_drive_directory(
     owner_filter: &str,
     exclude_owner: bool,
     permission_filter: &str,
+    include_deleted: bool,
     sort: &str,
     descending: bool,
 ) -> Result<Vec<DriveExplorerItem>, DatabaseError> {
@@ -83,10 +85,10 @@ pub fn list_my_drive_directory(
                       AND p.item_id = drive_items.item_id
                       AND COALESCE(p.email_address, '') <> COALESCE(drive_items.owner_email, '')
                     ORDER BY label COLLATE NOCASE
-                ))
+                )), is_deleted
          FROM drive_items
          WHERE remote_name = ?1
-           AND is_deleted = 0
+           AND (?13 = 1 OR is_deleted = 0)
            AND ((?2 IS NULL AND parent_path IS NULL) OR parent_path = ?2)
            AND (?3 = '' OR instr(lower(name), lower(?3)) > 0)
            AND (?4 = '' OR EXISTS (
@@ -130,7 +132,7 @@ pub fn list_my_drive_directory(
         params![
             remote, parent_path, search.trim(), tag_filter, type_filter.trim(),
             size_comparison, size_bytes, modified_comparison, modified_value,
-            owner_filter.trim(), exclude_owner, permission_filter.trim(),
+            owner_filter.trim(), exclude_owner, permission_filter.trim(), include_deleted,
         ],
         |row| {
             let size: Option<i64> = row.get(5)?;
@@ -152,6 +154,7 @@ pub fn list_my_drive_directory(
                 permissions: row.get::<_, Option<String>>(9)?
                     .map(|permissions| permissions.split('\u{1f}').map(str::to_string).collect())
                     .unwrap_or_default(),
+                is_deleted: row.get(10)?,
             })
         },
     )?;

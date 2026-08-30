@@ -6,7 +6,7 @@ Browser-based Organizer for Rclone Exploration, Audit & Lookup
 | **Project** | Boreal |
 | **Description** | Browser-based Organizer for Rclone Exploration, Audit and Lookup | 
 | **Author** | John Haverlack |
-| **Copyright** | 2026 University of Alaska Faribanks |
+| **Copyright** | 2026 University of Alaska Fairbanks |
 | **License** | MIT |
 | **Version** | 0.0.2 |
 | **Date** | 2026-08-27 |
@@ -47,5 +47,4 @@ BOREAL is written in Rust and builds as a standalone binary for Linux, Windows, 
 ```
 ./tools/setup-build-linux.sh
 ```
-
 

@@ -9,7 +9,7 @@ use axum::{
         Query,
         State,
     },
-    http::StatusCode,
+    http::{header, StatusCode},
     response::{
         Html,
         IntoResponse,
@@ -224,6 +224,7 @@ pub struct DriveExplorerRow {
     pub modified_at: String,
     pub owner_email: String,
     pub drive_url: String,
+    pub is_deleted: bool,
 }
 
 #[allow(dead_code)]
@@ -267,6 +268,7 @@ struct MyDriveTemplate {
     modified_filter: String,
     owner_filter: String,
     permission_filter: String,
+    include_deleted: bool,
 }
 
 #[allow(dead_code)]
@@ -366,6 +368,8 @@ struct DrivePathQuery {
     owner_filter: String,
     #[serde(default)]
     permission_filter: String,
+    #[serde(default)]
+    include_deleted: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -383,6 +387,8 @@ struct ApplyTagForm {
     modified_filter: String,
     owner_filter: String,
     permission_filter: String,
+    #[serde(default)]
+    include_deleted: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -414,6 +420,14 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/about",
             get(about),
+        )
+        .route(
+            "/assets/uaf-logo.png",
+            get(uaf_logo),
+        )
+        .route(
+            "/assets/acep-logo.png",
+            get(acep_logo),
         )
         .route(
             "/remotes",
@@ -491,6 +505,26 @@ pub fn router() -> Router<Arc<AppState>> {
             "/app/quit",
             post(quit),
         )
+}
+
+async fn uaf_logo() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_bytes!("../../tmpl/html/img/UAFLogo_A_blue.png").as_slice(),
+    )
+}
+
+async fn acep_logo() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_bytes!("../../tmpl/html/img/ACEP Logo.png").as_slice(),
+    )
 }
 
 async fn index(
@@ -826,6 +860,7 @@ fn format_bytes(
 ) -> String {
     const GB: f64 = 1_000_000_000.0;
     const MB: f64 = 1_000_000.0;
+    const KB: f64 = 1_000.0;
 
     if bytes as f64 >= GB {
         format!(
@@ -836,6 +871,11 @@ fn format_bytes(
         format!(
             "{:.1} MB",
             bytes as f64 / MB,
+        )
+    } else if bytes as f64 >= KB {
+        format!(
+            "{:.1} kB",
+            bytes as f64 / KB,
         )
     } else {
         format!(
@@ -1111,6 +1151,7 @@ async fn my_drive_page(
         owner_filter,
         exclude_owner,
         &query.permission_filter,
+        query.include_deleted,
         sort,
         descending,
     ) {
@@ -1133,6 +1174,7 @@ async fn my_drive_page(
                 &item.relative_path, "", &query.tag, &query.type_filter,
                 &query.size_filter, &query.modified_filter, &query.owner_filter,
                 &query.permission_filter, sort, if descending { "desc" } else { "asc" },
+                query.include_deleted,
             )
         } else {
             format!("https://drive.google.com/open?id={}", item.item_id)
@@ -1154,6 +1196,7 @@ async fn my_drive_page(
         size: item.size_bytes.map(format_bytes).unwrap_or_else(|| "—".to_string()),
         modified_at: item.modified_at.unwrap_or_else(|| "—".to_string()),
         owner_email: item.owner_email.unwrap_or_else(|| "—".to_string()),
+        is_deleted: item.is_deleted,
     }).collect();
     let parent_path = query.path.rsplit_once('/')
         .map(|(parent, _)| parent.to_string())
@@ -1194,6 +1237,7 @@ async fn my_drive_page(
             "", "", "", "", "", "",
             sort,
             if descending { "desc" } else { "asc" },
+            false,
         ),
         tags,
         tag_filter: query.tag,
@@ -1203,6 +1247,7 @@ async fn my_drive_page(
         modified_filter: query.modified_filter,
         owner_filter: query.owner_filter,
         permission_filter: query.permission_filter,
+        include_deleted: query.include_deleted,
     };
     render_template(&template)
 }
@@ -1240,10 +1285,10 @@ fn encode_query_value(value: &str) -> String {
 fn explorer_url(
     path: &str, search: &str, tag: &str, type_filter: &str, size_filter: &str,
     modified_filter: &str, owner_filter: &str, permission_filter: &str,
-    sort: &str, direction: &str,
+    sort: &str, direction: &str, include_deleted: bool,
 ) -> String {
     format!(
-        "/my-drive?path={}&q={}&tag={}&type_filter={}&size_filter={}&modified_filter={}&owner_filter={}&permission_filter={}&sort={}&direction={}",
+        "/my-drive?path={}&q={}&tag={}&type_filter={}&size_filter={}&modified_filter={}&owner_filter={}&permission_filter={}&sort={}&direction={}&include_deleted={include_deleted}",
         encode_query_value(path),
         encode_query_value(search),
         encode_query_value(tag),
@@ -1270,6 +1315,7 @@ fn sort_url(
         &query.path, &query.q, &query.tag, &query.type_filter, &query.size_filter,
         &query.modified_filter, &query.owner_filter, &query.permission_filter,
         requested_sort, next_direction,
+        query.include_deleted,
     )
 }
 
@@ -1308,6 +1354,7 @@ async fn apply_my_drive_tag(
         &form.permission_filter,
         &form.sort,
         &form.direction,
+        form.include_deleted,
     );
     url.push_str(&format!("&tagged={applied}"));
     Ok(Redirect::to(&url))

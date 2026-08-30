@@ -28,6 +28,7 @@
         <input type="hidden" name="modified_filter" value="{{ modified_filter }}">
         <input type="hidden" name="owner_filter" value="{{ owner_filter }}">
         <input type="hidden" name="permission_filter" value="{{ permission_filter }}">
+        <input type="hidden" name="include_deleted" value="{{ include_deleted }}">
         <button class="btn btn-sm btn-outline-secondary" type="submit" title="Browse parent folder"><i class="bi bi-arrow-up"></i></button>
     </form>
     {% endif %}
@@ -50,6 +51,10 @@
     </div>
     <div class="col-auto"><button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-funnel me-1"></i>Apply filters</button></div>
     <div class="col-auto"><a class="btn btn-sm btn-outline-secondary" href="{{ clear_search_url }}">Clear filters</a></div>
+    <div class="col-auto form-check align-self-center ms-1">
+        <input class="form-check-input" type="checkbox" id="my-drive-include-deleted" name="include_deleted" value="true" {% if include_deleted %}checked{% endif %}>
+        <label class="form-check-label small" for="my-drive-include-deleted">Include deleted items</label>
+    </div>
     <div class="col-auto small text-body-secondary align-self-center">Prefix Owner with <code>!</code> to exclude a value.</div>
 </form>
 
@@ -70,6 +75,7 @@
     <input type="hidden" name="modified_filter" value="{{ modified_filter }}">
     <input type="hidden" name="owner_filter" value="{{ owner_filter }}">
     <input type="hidden" name="permission_filter" value="{{ permission_filter }}">
+    <input type="hidden" name="include_deleted" value="{{ include_deleted }}">
     <input type="hidden" id="my-drive-selected-item-ids" name="selected_item_ids" value="">
     <div class="d-flex align-items-center gap-2 mb-2">
         <label class="small fw-semibold" for="my-drive-apply-tag">Apply tag to selected:</label>
@@ -112,9 +118,9 @@
             </thead>
             <tbody>
                 {% for row in rows %}
-                <tr>
+                <tr class="{% if row.is_deleted %}table-secondary opacity-75{% endif %}">
                     <td class="text-center">
-                        <input class="form-check-input my-drive-item-select" type="checkbox" value="{{ row.item_id }}" aria-label="Select {{ row.name }}">
+                        <input class="form-check-input my-drive-item-select" type="checkbox" value="{{ row.item_id }}" aria-label="Select {{ row.name }}" {% if row.is_deleted %}disabled title="Deleted items cannot be tagged"{% endif %}>
                     </td>
                     <td class="text-center">
                         <a href="{{ row.drive_url }}" target="_blank" rel="noopener noreferrer" title="Open in Google Drive" aria-label="Open {{ row.name }} in Google Drive">
@@ -134,6 +140,7 @@
                             {{ row.name }}
                         </a>
                         <span class="boreal-item-tags">{% for tag in row.tags %}<span class="badge rounded-pill ms-1" style="background-color: {{ tag.color }}; color: {{ tag.text_color }};">{{ tag.name }}</span>{% endfor %}</span>
+                        {% if row.is_deleted %}<span class="badge rounded-pill text-bg-secondary ms-1">Deleted</span>{% endif %}
                     </th>
                     <td class="text-nowrap">{{ row.size }}</td>
                     <td class="text-nowrap small">{{ row.modified_at }}</td>
