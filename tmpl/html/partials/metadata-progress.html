@@ -71,19 +71,19 @@
 
                 {% if metadata.completed_at.len() > 0 %}
                 <p class="small text-body-secondary mt-2 mb-0">
-                    Preview completed {{ metadata.completed_at }} UTC
+                    Last synchronized {{ metadata.completed_at }} UTC
                 </p>
                 {% endif %}
 
                 {% if !metadata.updating %}
 
-                <form method="post" action="/metadata/preview" class="mt-3">
+                <form method="post" action="/metadata/update" class="mt-3">
                     <button type="submit" class="btn btn-sm btn-outline-primary">
                         <i class="bi bi-play-circle me-1"></i>
-                        Test update workflow
+                        Update My Drive metadata
                     </button>
                     <span class="small text-body-secondary ms-2">
-                        Simulation only; Google Drive is not queried yet.
+                        Uses the My Drive RO remote. Missing items are retained and marked deleted.
                     </span>
                 </form>
 

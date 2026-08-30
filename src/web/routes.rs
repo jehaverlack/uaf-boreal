@@ -258,8 +258,8 @@ pub fn router() -> Router<Arc<AppState>> {
             post(setup_my_drive_ro),
         )
         .route(
-            "/metadata/preview",
-            post(start_metadata_preview),
+            "/metadata/update",
+            post(start_metadata_update),
         )
         .route(
             "/app/quit",
@@ -556,17 +556,15 @@ fn build_metadata_view(
             completed_at: String::new(),
         },
 
-        MetadataState::PreviewComplete(
+        MetadataState::Synchronized(
             summary,
         ) => MetadataView {
             available,
             poll: poll_for_setup,
             updating: false,
-            state_label: "Workflow tested".to_string(),
-            state_class: "text-bg-info",
-            phase:
-                "Simulation complete. Google Drive metadata has not been synchronized yet."
-                    .to_string(),
+            state_label: "Synchronized".to_string(),
+            state_class: "text-bg-success",
+            phase: "My Drive inventory is current as of the completed update.".to_string(),
             files_scanned: summary.files_scanned,
             folders_scanned: summary.folders_scanned,
             permissions_scanned: summary.permissions_scanned,
@@ -1058,30 +1056,24 @@ fn start_remote_setup(
     Ok(Redirect::to("/"))
 }
 
-async fn start_metadata_preview(
+async fn start_metadata_update(
     State(state): State<Arc<AppState>>,
 ) -> Result<Redirect, StatusCode> {
     let remotes = state.google_remotes_state();
 
-    if !matches!(
-        remotes.rw,
-        RemoteState::Ready
-    ) || !matches!(
-        remotes.ro,
-        RemoteState::Ready
-    ) {
+    if !matches!(remotes.ro, RemoteState::Ready) {
         return Err(
             StatusCode::PRECONDITION_FAILED,
         );
     }
 
-    AppState::start_metadata_preview(
+    AppState::start_metadata_update(
         state,
     )
     .map_err(
         |error| {
             eprintln!(
-                "Unable to start metadata workflow preview: {error}"
+                "Unable to start metadata update: {error}"
             );
             StatusCode::CONFLICT
         },
@@ -1321,11 +1313,11 @@ fn build_status_items(
             "text-primary",
             true,
         ),
-        MetadataState::PreviewComplete(
+        MetadataState::Synchronized(
             _,
         ) => (
-            "Workflow tested; not synchronized".to_string(),
-            "text-warning",
+            "Synchronized".to_string(),
+            "text-success",
             false,
         ),
         MetadataState::Error(

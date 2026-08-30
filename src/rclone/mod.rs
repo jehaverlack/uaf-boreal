@@ -2,6 +2,7 @@ pub mod command;
 pub mod config;
 pub mod gui;
 pub mod install;
+pub mod inventory;
 pub mod remotes;
 
 use std::{

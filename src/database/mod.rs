@@ -1,4 +1,5 @@
 mod migrations;
+pub mod inventory;
 pub mod settings;
 
 use std::{
@@ -105,34 +106,6 @@ impl Database {
         )
     }
 
-    pub fn complete_scan_run(
-        &self,
-        id: i64,
-    ) -> Result<String, DatabaseError> {
-        let connection = self.connect()?;
-
-        connection.execute(
-            "UPDATE scan_runs
-             SET status = 'complete',
-                 completed_at = CURRENT_TIMESTAMP,
-                 error_message = NULL
-             WHERE id = ?1",
-            [id],
-        )?;
-
-        let completed_at = connection.query_row(
-            "SELECT completed_at
-             FROM scan_runs
-             WHERE id = ?1",
-            [id],
-            |row| row.get(0),
-        )?;
-
-        Ok(
-            completed_at,
-        )
-    }
-
     pub fn fail_scan_run(
         &self,
         id: i64,
@@ -199,6 +172,8 @@ fn configure_connection(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+
+    use crate::rclone::inventory::DriveItem;
 
     use super::*;
 
@@ -282,7 +257,7 @@ mod tests {
 
         assert_eq!(
             migration_count,
-            1,
+            2,
         );
 
         fs::remove_dir_all(
@@ -311,6 +286,8 @@ mod tests {
             "schema_migrations",
             "settings",
             "scan_runs",
+            "drive_items",
+            "drive_permissions",
         ] {
             let exists: bool = connection.query_row(
                 "SELECT EXISTS(
@@ -402,5 +379,51 @@ mod tests {
         .expect(
             "temporary database directory should be removable",
         );
+    }
+
+    #[test]
+    fn inventory_upserts_and_soft_deletes_missing_items() {
+        let root = temporary_directory();
+        let database = Database::initialize(&runtime(&root))
+            .expect("database should initialize");
+        let mut metadata = BTreeMap::new();
+        metadata.insert("owner".to_string(), "owner@example.edu".to_string());
+        metadata.insert(
+            "permissions".to_string(),
+            r#"[{"id":"permission-1","type":"user","role":"reader","emailAddress":"reader@example.edu"}]"#
+                .to_string(),
+        );
+        let item = DriveItem {
+            id: "drive-id-1".to_string(),
+            name: "Report.pdf".to_string(),
+            path: "Reports/Report.pdf".to_string(),
+            is_dir: false,
+            size: 42,
+            mime_type: "application/pdf".to_string(),
+            mod_time: "2026-08-29T12:00:00Z".to_string(),
+            metadata,
+        };
+
+        let first_scan = database.start_scan_run("my-drive").expect("scan should start");
+        inventory::synchronize_my_drive(&database, first_scan, &[item], true)
+            .expect("inventory should synchronize");
+        let second_scan = database.start_scan_run("my-drive").expect("scan should start");
+        let summary = inventory::synchronize_my_drive(&database, second_scan, &[], true)
+            .expect("empty authoritative inventory should synchronize");
+
+        assert_eq!(summary.deleted_items, 1);
+        let connection = database.connect().expect("database should connect");
+        let values: (i64, i64, String) = connection.query_row(
+            "SELECT i.is_deleted, i.size_bytes, p.email_address
+             FROM drive_items i JOIN drive_permissions p
+               ON p.remote_name = i.remote_name AND p.item_id = i.item_id
+             WHERE i.item_id = 'drive-id-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).expect("soft-deleted item and permission should remain queryable");
+        assert_eq!(values, (1, 42, "reader@example.edu".to_string()));
+
+        drop(connection);
+        fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
 }

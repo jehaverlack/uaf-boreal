@@ -19,6 +19,13 @@ const MIGRATIONS: &[Migration] = &[
             "migrations/0001_foundation.sql"
         ),
     },
+    Migration {
+        version: 2,
+        name: "drive_inventory",
+        sql: include_str!(
+            "migrations/0002_drive_inventory.sql"
+        ),
+    },
 ];
 
 pub fn apply(

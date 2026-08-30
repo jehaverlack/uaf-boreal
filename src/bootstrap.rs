@@ -74,11 +74,23 @@ pub fn initialize() -> Result<Runtime, Box<dyn Error>> {
      * Resolve every directory configured under
      * BOREAL.DIRS.
      */
-    let directories =
+    let mut directories =
         config::resolve_all_directories(
             &boreal,
             &boreal_home,
         )?;
+
+    // Existing installations may predate the CACHE entry in boreal.json.
+    // Keep them upgrade-safe without overwriting their configuration file.
+    if !directories.contains_key("CACHE") {
+        let data_dir = directories
+            .get("DATA")
+            .ok_or("Missing BOREAL.DIRS.data in boreal.json")?;
+        directories.insert(
+            "CACHE".to_string(),
+            data_dir.join("cache"),
+        );
+    }
 
     /*
      * Create every configured directory.

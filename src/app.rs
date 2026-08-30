@@ -104,7 +104,7 @@ pub enum MetadataState {
     Updating(
         MetadataProgress,
     ),
-    PreviewComplete(
+    Synchronized(
         MetadataSummary,
     ),
     Error(
@@ -215,6 +215,21 @@ impl AppState {
             }
         };
 
+        let metadata = match &database {
+            DatabaseState::Ready(database) => match database::inventory::latest_summary(database) {
+                Ok(Some(summary)) => MetadataState::Synchronized(MetadataSummary {
+                    completed_at: summary.completed_at,
+                    files_scanned: summary.files_scanned,
+                    folders_scanned: summary.folders_scanned,
+                    permissions_scanned: summary.permissions_scanned,
+                    bytes_discovered: summary.bytes_discovered,
+                }),
+                Ok(None) => MetadataState::NotSynchronized,
+                Err(error) => MetadataState::Error(error.to_string()),
+            },
+            DatabaseState::Error(_) => MetadataState::NotSynchronized,
+        };
+
         Self {
             runtime,
 
@@ -235,9 +250,7 @@ impl AppState {
                 },
             ),
 
-            metadata: RwLock::new(
-                MetadataState::NotSynchronized,
-            ),
+            metadata: RwLock::new(metadata),
 
             metadata_job_active: Mutex::new(
                 false,
@@ -625,9 +638,7 @@ impl AppState {
             )
     }
 
-    /// Exercise the metadata job lifecycle without contacting Google Drive.
-    /// This will be replaced incrementally by the real inventory scanner.
-    pub fn start_metadata_preview(
+    pub fn start_metadata_update(
         state: Arc<Self>,
     ) -> Result<(), String> {
         {
@@ -663,8 +674,22 @@ impl AppState {
             }
         };
 
+        let rclone_path = match state.rclone_state() {
+            RcloneState::Ready(status) => status.path,
+            _ => {
+                state.finish_metadata_job();
+                return Err("Rclone is not ready".to_string());
+            }
+        };
+        let permission_scanning = match database::settings::load(&database) {
+            Ok(settings) => settings.permission_scanning,
+            Err(error) => {
+                state.finish_metadata_job();
+                return Err(error.to_string());
+            }
+        };
         let scan_id = match database.start_scan_run(
-            "simulation",
+            "my-drive",
         ) {
             Ok(
                 id,
@@ -694,69 +719,51 @@ impl AppState {
 
         tokio::spawn(
             async move {
-                let phases = [
-                    ("Scanning My Drive", 280, 35, 0, 1_200_000_000),
-                    ("Scanning Shared Drives", 460, 58, 0, 2_900_000_000),
-                    ("Scanning Shared with me", 530, 66, 0, 3_200_000_000),
-                    ("Reading permissions", 530, 66, 490, 3_200_000_000),
-                    ("Calculating folder sizes", 530, 66, 490, 3_200_000_000),
-                    ("Saving metadata", 530, 66, 490, 3_200_000_000),
-                ];
-
-                for (
-                    phase,
-                    files_scanned,
-                    folders_scanned,
-                    permissions_scanned,
-                    bytes_discovered,
-                ) in phases
-                {
-                    tokio::time::sleep(
-                        std::time::Duration::from_millis(
-                            700,
-                        ),
+                let worker_state = Arc::clone(&state);
+                let failure_database = database.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    let items = rclone::inventory::fetch_my_drive(
+                        &worker_state.runtime,
+                        &rclone_path,
+                        scan_id,
+                        permission_scanning,
+                    )?;
+                    let files = items.iter().filter(|item| !item.is_dir).count() as u64;
+                    let folders = items.iter().filter(|item| item.is_dir).count() as u64;
+                    let bytes = items.iter().filter_map(|item| (item.size >= 0).then_some(item.size as u64)).sum();
+                    worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                        phase: "Saving My Drive metadata",
+                        files_scanned: files,
+                        folders_scanned: folders,
+                        permissions_scanned: 0,
+                        bytes_discovered: bytes,
+                        errors: 0,
+                    }));
+                    database::inventory::synchronize_my_drive(
+                        &database,
+                        scan_id,
+                        &items,
+                        permission_scanning,
                     )
-                    .await;
+                }).await;
 
-                    state.set_metadata_state(
-                        MetadataState::Updating(
-                            MetadataProgress {
-                                phase,
-                                files_scanned,
-                                folders_scanned,
-                                permissions_scanned,
-                                bytes_discovered,
-                                errors: 0,
-                            },
-                        ),
-                    );
-                }
-
-                match database.complete_scan_run(
-                    scan_id,
-                ) {
-                    Ok(
-                        completed_at,
-                    ) => {
+                match result {
+                    Ok(Ok(summary)) => {
                         state.set_metadata_state(
-                            MetadataState::PreviewComplete(
+                            MetadataState::Synchronized(
                                 MetadataSummary {
-                                    completed_at,
-                                    files_scanned: 530,
-                                    folders_scanned: 66,
-                                    permissions_scanned: 490,
-                                    bytes_discovered: 3_200_000_000,
+                                    completed_at: summary.completed_at,
+                                    files_scanned: summary.files_scanned,
+                                    folders_scanned: summary.folders_scanned,
+                                    permissions_scanned: summary.permissions_scanned,
+                                    bytes_discovered: summary.bytes_discovered,
                                 },
                             ),
                         );
                     }
-
-                    Err(
-                        error,
-                    ) => {
+                    Ok(Err(error)) => {
                         let message = error.to_string();
-
-                        let _ = database.fail_scan_run(
+                        let _ = failure_database.fail_scan_run(
                             scan_id,
                             &message,
                         );
@@ -766,6 +773,11 @@ impl AppState {
                                 message,
                             ),
                         );
+                    }
+                    Err(error) => {
+                        let message = format!("Metadata worker failed: {error}");
+                        let _ = failure_database.fail_scan_run(scan_id, &message);
+                        state.set_metadata_state(MetadataState::Error(message));
                     }
                 }
 

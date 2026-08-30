@@ -6,6 +6,7 @@
             "bin": "HOME/bin",
             "conf": "HOME/conf",
             "data": "HOME/data",
+            "cache": "DATA/cache",
             "sqlite": "DATA/sqlite",
             "logs": "HOME/logs"
         },
