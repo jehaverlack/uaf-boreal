@@ -53,11 +53,27 @@
         .boreal-metadata-age.text-warning {
             color: #a15c00 !important;
         }
+
+        .boreal-explorer-table {
+            height: 100%;
+            overflow: auto;
+        }
+
+        .boreal-explorer-table thead th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+
+        .boreal-google-drive-icon {
+            width: 1.15rem;
+            height: 1.15rem;
+        }
     </style>
 
 </head>
 
-<body class="d-flex flex-column min-vh-100">
+<body class="d-flex flex-column min-vh-100{% if active_page == "my-drive" %} vh-100 overflow-hidden{% endif %}">
 
     <nav
         class="navbar navbar-expand-lg bg-body-tertiary border-bottom"
@@ -235,7 +251,7 @@
 
     {% include "partials/alerts.html" %}
 
-    <main class="container-fluid py-4 flex-grow-1">
+    <main class="container-fluid py-4 flex-grow-1{% if active_page == "my-drive" %} overflow-hidden{% endif %}">
 
         {% block content %}
         {% endblock %}

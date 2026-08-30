@@ -257,7 +257,7 @@ mod tests {
 
         assert_eq!(
             migration_count,
-            2,
+            3,
         );
 
         fs::remove_dir_all(
@@ -403,22 +403,37 @@ mod tests {
             mod_time: "2026-08-29T12:00:00Z".to_string(),
             metadata,
         };
+        let folder = DriveItem {
+            id: "folder-id-1".to_string(),
+            name: "Reports".to_string(),
+            path: "Reports".to_string(),
+            is_dir: true,
+            size: -1,
+            mime_type: "inode/directory".to_string(),
+            mod_time: "2026-08-29T12:00:00Z".to_string(),
+            metadata: BTreeMap::new(),
+        };
 
         let first_scan = database.start_scan_run("my-drive").expect("scan should start");
         let first_summary = inventory::synchronize_my_drive(
             &database,
             first_scan,
-            &[item.clone(), item],
+            &[folder, item.clone(), item],
             true,
         ).expect("inventory should synchronize");
         assert_eq!(first_summary.files_scanned, 1);
+        assert_eq!(first_summary.folders_scanned, 1);
         assert_eq!(first_summary.bytes_discovered, 42);
         assert_eq!(first_summary.permissions_scanned, 1);
+        let root_items = inventory::list_my_drive_directory(&database, None)
+            .expect("explorer root should be readable");
+        assert_eq!(root_items.len(), 1);
+        assert_eq!(root_items[0].size_bytes, Some(42));
         let second_scan = database.start_scan_run("my-drive").expect("scan should start");
         let summary = inventory::synchronize_my_drive(&database, second_scan, &[], true)
             .expect("empty authoritative inventory should synchronize");
 
-        assert_eq!(summary.deleted_items, 1);
+        assert_eq!(summary.deleted_items, 2);
         assert_eq!(summary.files_scanned, 0);
         assert_eq!(summary.bytes_discovered, 0);
         assert!(

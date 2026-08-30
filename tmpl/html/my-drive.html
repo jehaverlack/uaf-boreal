@@ -2,6 +2,8 @@
 
 {% block content %}
 
+<div class="d-flex flex-column h-100 overflow-hidden">
+
 <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
     <div>
         <h1 class="h3 mb-1"><i class="bi bi-folder2-open text-primary me-2"></i>My Drive Explorer</h1>
@@ -25,33 +27,43 @@
     <span class="fw-semibold">{{ current_path }}</span>
 </div>
 
-<div class="card">
-    <div class="table-responsive">
+<div class="card boreal-explorer-card flex-grow-1 overflow-hidden">
+    <div class="table-responsive boreal-explorer-table">
         <table class="table table-hover align-middle mb-0">
             <thead class="table-light">
-                <tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Size</th><th scope="col">Modified</th><th scope="col">Owner</th><th scope="col" class="text-end">Actions</th></tr>
+                <tr>
+                    <th scope="col" class="text-center"><span class="visually-hidden">Open in Google Drive</span></th>
+                    <th scope="col">Name</th>
+                    <th scope="col" class="text-center">Type</th>
+                    <th scope="col">Size</th>
+                    <th scope="col">Modified</th>
+                    <th scope="col">Owner</th>
+                </tr>
             </thead>
             <tbody>
                 {% for row in rows %}
                 <tr>
+                    <td class="text-center">
+                        <a href="{{ row.drive_url }}" target="_blank" rel="noopener noreferrer" title="Open in Google Drive" aria-label="Open {{ row.name }} in Google Drive">
+                            <svg class="boreal-google-drive-icon" viewBox="0 0 87.3 78" aria-hidden="true">
+                                <path fill="#0066da" d="m6.6 66.9 3.8 6.6c.8 1.4 2 2.5 3.4 3.3L27.4 53H.2c0 1.6.4 3.2 1.2 4.6z"/>
+                                <path fill="#00ac47" d="M43.7 25.2 30.1 1.4A10 10 0 0 0 26.6 0L13.8 22.3 27.4 46z"/>
+                                <path fill="#ea4335" d="M73.5 76.8a10 10 0 0 0 3.4-3.3l1.6-2.8 7.5-13.1c.8-1.4 1.2-3 1.2-4.6H59.8l5.8 11.4z"/>
+                                <path fill="#00832d" d="M43.7 25.2 57.3 1.4A10 10 0 0 0 53.8 0H33.6c-2.5 0-4.8.5-7 1.4z"/>
+                                <path fill="#2684fc" d="M59.8 53H27.4L13.8 76.8c1.4.8 3 1.2 4.6 1.2h50.5c1.6 0 3.2-.4 4.6-1.2z"/>
+                                <path fill="#ffba00" d="M73.3 26.7 60.7 4.6a10 10 0 0 0-3.4-3.2L43.7 25.2 59.8 53h27.3c0-1.6-.4-3.2-1.2-4.6z"/>
+                            </svg>
+                        </a>
+                    </td>
                     <th scope="row">
-                        <a href="{{ row.drive_url }}" target="_blank" rel="noopener noreferrer" class="text-decoration-none" title="Open in Google Drive">
-                            <i class="bi {% if row.is_directory %}bi-folder-fill{% else %}bi-file-earmark{% endif %} text-primary me-2"></i>{{ row.name }}
+                        <a href="{{ row.name_url }}" {% if row.name_new_tab %}target="_blank" rel="noopener noreferrer"{% endif %} class="text-decoration-none" title="{% if row.is_directory %}Browse folder in BOREAL{% else %}Open in Google Drive{% endif %}">
+                            {{ row.name }}
                         </a>
                     </th>
-                    <td class="small">{{ row.kind }}</td>
+                    <td class="text-center"><i class="bi {{ row.type_icon }} fs-5 text-primary" title="{{ row.mime_type }}" aria-label="{{ row.mime_type }}"></i></td>
                     <td class="text-nowrap">{{ row.size }}</td>
                     <td class="text-nowrap small">{{ row.modified_at }}</td>
                     <td class="small">{{ row.owner_email }}</td>
-                    <td class="text-end text-nowrap">
-                        {% if row.is_directory %}
-                        <form method="get" action="/my-drive" class="d-inline">
-                            <input type="hidden" name="path" value="{{ row.relative_path }}">
-                            <button class="btn btn-sm btn-outline-primary" type="submit" title="Browse folder in BOREAL"><i class="bi bi-folder2-open me-1"></i>Browse</button>
-                        </form>
-                        {% endif %}
-                        <a class="btn btn-sm btn-outline-secondary" href="{{ row.drive_url }}" target="_blank" rel="noopener noreferrer" title="Open in Google Drive"><i class="bi bi-box-arrow-up-right"></i></a>
-                    </td>
                 </tr>
                 {% endfor %}
                 {% if rows.is_empty() %}
@@ -60,6 +72,8 @@
             </tbody>
         </table>
     </div>
+</div>
+
 </div>
 
 {% endblock %}

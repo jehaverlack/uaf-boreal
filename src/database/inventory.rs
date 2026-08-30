@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::{params, OptionalExtension};
 use serde_json::Value;
@@ -37,7 +37,8 @@ pub fn list_my_drive_directory(
     let remote = RemoteKind::MyDriveRo.name();
     let mut statement = connection.prepare(
         "SELECT item_id, name, relative_path, is_directory, mime_type,
-                size_bytes, modified_at, owner_email
+                CASE WHEN is_directory THEN cumulative_size_bytes ELSE size_bytes END,
+                modified_at, owner_email
          FROM drive_items
          WHERE remote_name = ?1
            AND is_deleted = 0
@@ -75,6 +76,7 @@ pub fn synchronize_my_drive(
     let remote = RemoteKind::MyDriveRo.name();
     let mut summary = InventorySummary::default();
     let mut seen_item_ids = HashSet::new();
+    let mut folder_sizes: HashMap<&str, u64> = HashMap::new();
 
     for item in items {
         // Rclone may expose the same Drive object through multiple paths,
@@ -149,9 +151,30 @@ pub fn synchronize_my_drive(
         } else {
             summary.files_scanned += 1;
             summary.bytes_discovered = summary.bytes_discovered.saturating_add(size.unwrap_or(0) as u64);
+            let file_size = size.unwrap_or(0) as u64;
+            let mut ancestor = item.path.rsplit_once('/').map(|(parent, _)| parent);
+            while let Some(folder_path) = ancestor {
+                let total = folder_sizes.entry(folder_path).or_default();
+                *total = total.saturating_add(file_size);
+                ancestor = folder_path.rsplit_once('/').map(|(parent, _)| parent);
+            }
         }
     }
 
+    transaction.execute(
+        "UPDATE drive_items
+         SET cumulative_size_bytes = 0
+         WHERE remote_name = ?1 AND is_directory = 1 AND last_seen_scan_id = ?2",
+        params![remote, scan_id],
+    )?;
+    for (folder_path, size) in folder_sizes {
+        transaction.execute(
+            "UPDATE drive_items
+             SET cumulative_size_bytes = ?3
+             WHERE remote_name = ?1 AND relative_path = ?2 AND is_directory = 1",
+            params![remote, folder_path, size as i64],
+        )?;
+    }
     summary.deleted_items = transaction.execute(
         "UPDATE drive_items
          SET is_deleted = 1,

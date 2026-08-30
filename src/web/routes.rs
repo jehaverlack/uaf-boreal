@@ -212,9 +212,11 @@ struct RemotesTemplate {
 #[allow(dead_code)]
 pub struct DriveExplorerRow {
     pub name: String,
-    pub relative_path: String,
     pub is_directory: bool,
-    pub kind: String,
+    pub name_url: String,
+    pub name_new_tab: bool,
+    pub mime_type: String,
+    pub type_icon: &'static str,
     pub size: String,
     pub modified_at: String,
     pub owner_email: String,
@@ -1005,15 +1007,15 @@ async fn my_drive_page(
             format!("https://drive.google.com/open?id={}", item.item_id)
         },
         name: item.name,
-        relative_path: item.relative_path,
-        is_directory: item.is_directory,
-        kind: if item.is_directory {
-            "Folder".to_string()
-        } else if let Some(mime_type) = item.mime_type {
-            mime_type
+        name_url: if item.is_directory {
+            format!("/my-drive?path={}", encode_query_value(&item.relative_path))
         } else {
-            "File".to_string()
+            format!("https://drive.google.com/open?id={}", item.item_id)
         },
+        name_new_tab: !item.is_directory,
+        is_directory: item.is_directory,
+        type_icon: mime_icon(item.is_directory, item.mime_type.as_deref()),
+        mime_type: if item.is_directory { "Folder".to_string() } else { item.mime_type.unwrap_or_else(|| "Unknown file type".to_string()) },
         size: item.size_bytes.map(format_bytes).unwrap_or_else(|| "—".to_string()),
         modified_at: item.modified_at.unwrap_or_else(|| "—".to_string()),
         owner_email: item.owner_email.unwrap_or_else(|| "—".to_string()),
@@ -1041,6 +1043,36 @@ async fn my_drive_page(
         error,
     };
     render_template(&template)
+}
+
+fn mime_icon(is_directory: bool, mime_type: Option<&str>) -> &'static str {
+    if is_directory {
+        "bi-folder-fill"
+    } else {
+        match mime_type.unwrap_or("") {
+            value if value.contains("spreadsheet") || value.contains("excel") => "bi-file-earmark-spreadsheet",
+            value if value.contains("presentation") || value.contains("powerpoint") => "bi-file-earmark-slides",
+            value if value.contains("document") || value.contains("word") || value.starts_with("text/") => "bi-file-earmark-text",
+            value if value == "application/pdf" => "bi-file-earmark-pdf",
+            value if value.starts_with("image/") => "bi-file-earmark-image",
+            value if value.starts_with("audio/") => "bi-file-earmark-music",
+            value if value.starts_with("video/") => "bi-file-earmark-play",
+            value if value.contains("zip") || value.contains("compressed") => "bi-file-earmark-zip",
+            _ => "bi-file-earmark",
+        }
+    }
+}
+
+fn encode_query_value(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
 }
 
 async fn open_rclone_gui(

@@ -26,6 +26,13 @@ const MIGRATIONS: &[Migration] = &[
             "migrations/0002_drive_inventory.sql"
         ),
     },
+    Migration {
+        version: 3,
+        name: "folder_sizes",
+        sql: include_str!(
+            "migrations/0003_folder_sizes.sql"
+        ),
+    },
 ];
 
 pub fn apply(
