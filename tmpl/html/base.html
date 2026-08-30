@@ -516,6 +516,29 @@
                 ? bootstrap.Modal.getOrCreateInstance(metadataModalElement)
                 : null;
             let metadataModalDismissed = false;
+            let metadataRefreshPending = false;
+
+            async function replaceFromEndpoint(url, selector) {
+                const current = document.querySelector(selector);
+                if (!current) return;
+                const response = await fetch(url, { cache: "no-store" });
+                if (!response.ok) return;
+                const holder = document.createElement("div");
+                holder.innerHTML = await response.text();
+                const replacement = holder.querySelector(selector);
+                if (!replacement) return;
+                current.replaceWith(replacement);
+                if (window.htmx) htmx.process(replacement);
+            }
+
+            async function refreshMetadataUi() {
+                await Promise.all([
+                    replaceFromEndpoint("/ui/status", "#boreal-status"),
+                    replaceFromEndpoint("/ui/drive-summaries", "#boreal-drive-summaries"),
+                ]);
+                refreshDataAges();
+                refreshMetadataStatusAge();
+            }
 
             async function refreshMetadataModal(autoShow = false) {
                 if (!metadataModalElement) return;
@@ -537,6 +560,7 @@
                         ?.dataset.complete === "true";
                     modalContent.innerHTML = responseHtml;
                     if (wasUpdating && !isUpdating && completed) {
+                        metadataRefreshPending = true;
                         modalContent.innerHTML = `
                             <div class="modal-header">
                                 <h2 class="modal-title fs-5"><i class="bi bi-check-circle-fill text-success me-2"></i>Metadata update complete</h2>
@@ -558,6 +582,11 @@
             if (metadataModalElement) {
                 metadataModalElement.addEventListener("hide.bs.modal", () => {
                     metadataModalDismissed = true;
+                });
+                metadataModalElement.addEventListener("hidden.bs.modal", () => {
+                    if (!metadataRefreshPending) return;
+                    metadataRefreshPending = false;
+                    refreshMetadataUi();
                 });
                 metadataModalElement.addEventListener("show.bs.modal", () => {
                     metadataModalDismissed = false;
