@@ -103,7 +103,7 @@
 
 </head>
 
-<body class="d-flex flex-column min-vh-100{% if active_page == "my-drive" %} vh-100 overflow-hidden{% endif %}">
+<body class="d-flex flex-column min-vh-100{% if active_page == "my-drive" || active_page == "shared-with-me" %} vh-100 overflow-hidden{% endif %}">
 
     <nav
         class="navbar navbar-expand-lg bg-body-tertiary border-bottom"
@@ -175,6 +175,17 @@
                             title="Explore My Drive"
                         >
                             My Drive
+                        </a>
+                    </li>
+
+                    <li class="nav-item">
+                        <a
+                            class="nav-link{% if active_page == "shared-with-me" %} active{% endif %}"
+                            {% if active_page == "shared-with-me" %}aria-current="page"{% endif %}
+                            href="/shared-with-me"
+                            title="Explore Shared with me"
+                        >
+                            Shared with me
                         </a>
                     </li>
 
@@ -322,7 +333,7 @@
                 </div>
                 <div class="modal-body">
                     <p>
-                        BOREAL will read My Drive through the read-only remote and update its local inventory.
+                        BOREAL will read My Drive and Shared with me through the read-only remote and update their local inventories.
                     </p>
                     <p class="mb-0">
                         Large Drives can take up to an hour. Keep BOREAL running until the update completes; you may continue using this browser tab.

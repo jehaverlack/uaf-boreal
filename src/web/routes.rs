@@ -133,6 +133,12 @@ pub struct MetadataView {
     pub size_label: String,
     pub errors: u64,
     pub completed_at: String,
+    pub shared_indexed: bool,
+    pub shared_files_scanned: u64,
+    pub shared_folders_scanned: u64,
+    pub shared_permissions_scanned: u64,
+    pub shared_size_label: String,
+    pub shared_completed_at: String,
 }
 
 #[allow(dead_code)]
@@ -269,6 +275,11 @@ struct MyDriveTemplate {
     owner_filter: String,
     permission_filter: String,
     include_deleted: bool,
+    heading: &'static str,
+    description: &'static str,
+    root_label: &'static str,
+    explorer_path: &'static str,
+    tag_action: &'static str,
 }
 
 #[allow(dead_code)]
@@ -442,6 +453,14 @@ pub fn router() -> Router<Arc<AppState>> {
             post(apply_my_drive_tag),
         )
         .route(
+            "/shared-with-me",
+            get(shared_with_me_page),
+        )
+        .route(
+            "/shared-with-me/tags",
+            post(apply_shared_with_me_tag),
+        )
+        .route(
             "/tags",
             get(tags_page),
         )
@@ -567,6 +586,7 @@ async fn index(
         &metadata_state,
     );
 
+    let shared_summary = latest_shared_summary(&state);
     let template = DashboardTemplate {
         title: "BOREAL",
         active_page: "dashboard",
@@ -582,6 +602,7 @@ async fn index(
                 &rclone_state,
                 &google_remotes_state,
             ),
+            shared_summary.as_ref(),
         ),
     };
 
@@ -781,7 +802,10 @@ fn build_metadata_view(
     state: &MetadataState,
     available: bool,
     poll_for_setup: bool,
+    shared_summary: Option<&database::inventory::InventorySummary>,
 ) -> MetadataView {
+    let shared_indexed = shared_summary.is_some();
+    let shared = shared_summary.cloned().unwrap_or_default();
     match state {
         MetadataState::NotSynchronized => MetadataView {
             available,
@@ -796,6 +820,12 @@ fn build_metadata_view(
             size_label: "0 B".to_string(),
             errors: 0,
             completed_at: String::new(),
+            shared_indexed,
+            shared_files_scanned: shared.files_scanned,
+            shared_folders_scanned: shared.folders_scanned,
+            shared_permissions_scanned: shared.permissions_scanned,
+            shared_size_label: format_bytes(shared.bytes_discovered),
+            shared_completed_at: shared.completed_at.clone(),
         },
 
         MetadataState::Updating(
@@ -815,6 +845,12 @@ fn build_metadata_view(
             ),
             errors: progress.errors,
             completed_at: String::new(),
+            shared_indexed,
+            shared_files_scanned: shared.files_scanned,
+            shared_folders_scanned: shared.folders_scanned,
+            shared_permissions_scanned: shared.permissions_scanned,
+            shared_size_label: format_bytes(shared.bytes_discovered),
+            shared_completed_at: shared.completed_at.clone(),
         },
 
         MetadataState::Synchronized(
@@ -834,6 +870,12 @@ fn build_metadata_view(
             ),
             errors: 0,
             completed_at: summary.completed_at.clone(),
+            shared_indexed,
+            shared_files_scanned: shared.files_scanned,
+            shared_folders_scanned: shared.folders_scanned,
+            shared_permissions_scanned: shared.permissions_scanned,
+            shared_size_label: format_bytes(shared.bytes_discovered),
+            shared_completed_at: shared.completed_at.clone(),
         },
 
         MetadataState::Error(
@@ -851,6 +893,12 @@ fn build_metadata_view(
             size_label: "0 B".to_string(),
             errors: 1,
             completed_at: String::new(),
+            shared_indexed,
+            shared_files_scanned: shared.files_scanned,
+            shared_folders_scanned: shared.folders_scanned,
+            shared_permissions_scanned: shared.permissions_scanned,
+            shared_size_label: format_bytes(shared.bytes_discovered),
+            shared_completed_at: shared.completed_at.clone(),
         },
     }
 }
@@ -1121,6 +1169,35 @@ async fn my_drive_page(
     State(state): State<Arc<AppState>>,
     Query(query): Query<DrivePathQuery>,
 ) -> Result<Html<String>, StatusCode> {
+    render_drive_explorer(
+        &state, query, database::inventory::MY_DRIVE_SCOPE, "my-drive",
+        "My Drive Explorer", "Browse the latest local My Drive metadata inventory and open items in Google Drive.",
+        "My Drive", "/my-drive", "/my-drive/tags",
+    )
+}
+
+async fn shared_with_me_page(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<DrivePathQuery>,
+) -> Result<Html<String>, StatusCode> {
+    render_drive_explorer(
+        &state, query, database::inventory::SHARED_WITH_ME_SCOPE, "shared-with-me",
+        "Shared with me Explorer", "Browse content other people have shared with the authenticated Google account.",
+        "Shared with me", "/shared-with-me", "/shared-with-me/tags",
+    )
+}
+
+fn render_drive_explorer(
+    state: &AppState,
+    query: DrivePathQuery,
+    inventory_scope: &'static str,
+    active_page: &'static str,
+    heading: &'static str,
+    description: &'static str,
+    root_label: &'static str,
+    explorer_path: &'static str,
+    tag_action: &'static str,
+) -> Result<Html<String>, StatusCode> {
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
@@ -1140,8 +1217,9 @@ async fn my_drive_page(
         Some(owner) => (true, owner.trim()),
         None => (false, query.owner_filter.trim()),
     };
-    let (items, error) = match database::inventory::list_my_drive_directory(
+    let (items, error) = match database::inventory::list_drive_directory(
         &database,
+        inventory_scope,
         parent_filter,
         &query.q,
         &query.tag,
@@ -1171,7 +1249,7 @@ async fn my_drive_page(
         name: item.name,
         name_url: if item.is_directory {
             explorer_url(
-                &item.relative_path, "", &query.tag, &query.type_filter,
+                explorer_path, &item.relative_path, "", &query.tag, &query.type_filter,
                 &query.size_filter, &query.modified_filter, &query.owner_filter,
                 &query.permission_filter, sort, if descending { "desc" } else { "asc" },
                 query.include_deleted,
@@ -1207,8 +1285,8 @@ async fn my_drive_page(
     })?;
 
     let template = MyDriveTemplate {
-        title: "My Drive - BOREAL",
-        active_page: "my-drive",
+        title: heading,
+        active_page,
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
             &rclone_state,
@@ -1218,7 +1296,7 @@ async fn my_drive_page(
             configured_remote_count(&state.runtime, &rclone_state),
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
-        current_path: if query.path.is_empty() { "My Drive".to_string() } else { query.path.clone() },
+        current_path: if query.path.is_empty() { root_label.to_string() } else { query.path.clone() },
         parent_path,
         has_parent,
         rows,
@@ -1226,12 +1304,13 @@ async fn my_drive_page(
         search: query.q.clone(),
         sort: sort.to_string(),
         direction: if descending { "desc".to_string() } else { "asc".to_string() },
-        name_sort_url: sort_url(&query, sort, descending, "name"),
-        type_sort_url: sort_url(&query, sort, descending, "type"),
-        size_sort_url: sort_url(&query, sort, descending, "size"),
-        modified_sort_url: sort_url(&query, sort, descending, "modified"),
-        owner_sort_url: sort_url(&query, sort, descending, "owner"),
+        name_sort_url: sort_url(explorer_path, &query, sort, descending, "name"),
+        type_sort_url: sort_url(explorer_path, &query, sort, descending, "type"),
+        size_sort_url: sort_url(explorer_path, &query, sort, descending, "size"),
+        modified_sort_url: sort_url(explorer_path, &query, sort, descending, "modified"),
+        owner_sort_url: sort_url(explorer_path, &query, sort, descending, "owner"),
         clear_search_url: explorer_url(
+            explorer_path,
             &query.path,
             "",
             "", "", "", "", "", "",
@@ -1248,6 +1327,11 @@ async fn my_drive_page(
         owner_filter: query.owner_filter,
         permission_filter: query.permission_filter,
         include_deleted: query.include_deleted,
+        heading,
+        description,
+        root_label,
+        explorer_path,
+        tag_action,
     };
     render_template(&template)
 }
@@ -1283,12 +1367,12 @@ fn encode_query_value(value: &str) -> String {
 }
 
 fn explorer_url(
-    path: &str, search: &str, tag: &str, type_filter: &str, size_filter: &str,
+    explorer_path: &str, path: &str, search: &str, tag: &str, type_filter: &str, size_filter: &str,
     modified_filter: &str, owner_filter: &str, permission_filter: &str,
     sort: &str, direction: &str, include_deleted: bool,
 ) -> String {
     format!(
-        "/my-drive?path={}&q={}&tag={}&type_filter={}&size_filter={}&modified_filter={}&owner_filter={}&permission_filter={}&sort={}&direction={}&include_deleted={include_deleted}",
+        "{explorer_path}?path={}&q={}&tag={}&type_filter={}&size_filter={}&modified_filter={}&owner_filter={}&permission_filter={}&sort={}&direction={}&include_deleted={include_deleted}",
         encode_query_value(path),
         encode_query_value(search),
         encode_query_value(tag),
@@ -1301,6 +1385,7 @@ fn explorer_url(
 }
 
 fn sort_url(
+    explorer_path: &str,
     query: &DrivePathQuery,
     current_sort: &str,
     descending: bool,
@@ -1312,7 +1397,7 @@ fn sort_url(
         "asc"
     };
     explorer_url(
-        &query.path, &query.q, &query.tag, &query.type_filter, &query.size_filter,
+        explorer_path, &query.path, &query.q, &query.tag, &query.type_filter, &query.size_filter,
         &query.modified_filter, &query.owner_filter, &query.permission_filter,
         requested_sort, next_direction,
         query.include_deleted,
@@ -1323,6 +1408,24 @@ async fn apply_my_drive_tag(
     State(state): State<Arc<AppState>>,
     Form(form): Form<ApplyTagForm>,
 ) -> Result<Redirect, StatusCode> {
+    apply_drive_tag(&state, form, database::inventory::MY_DRIVE_SCOPE, "/my-drive")
+}
+
+async fn apply_shared_with_me_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<ApplyTagForm>,
+) -> Result<Redirect, StatusCode> {
+    apply_drive_tag(
+        &state, form, database::inventory::SHARED_WITH_ME_SCOPE, "/shared-with-me",
+    )
+}
+
+fn apply_drive_tag(
+    state: &AppState,
+    form: ApplyTagForm,
+    inventory_scope: &str,
+    explorer_path: &str,
+) -> Result<Redirect, StatusCode> {
     let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let selected_items: Vec<String> = form.selected_item_ids
         .split(',')
@@ -1330,8 +1433,9 @@ async fn apply_my_drive_tag(
         .filter(|item_id| !item_id.is_empty())
         .map(str::to_string)
         .collect();
-    let applied = database::inventory::apply_tag_recursively(
+    let applied = database::inventory::apply_tag_recursively_for_scope(
         &database,
+        inventory_scope,
         &selected_items,
         &form.tag,
     ).map_err(|error| {
@@ -1344,6 +1448,7 @@ async fn apply_my_drive_tag(
         selected_items.len(),
     );
     let mut url = explorer_url(
+        explorer_path,
         &form.path,
         &form.q,
         &form.tag_filter,
@@ -1547,11 +1652,13 @@ async fn ui_drive_summaries(
     State(state): State<Arc<AppState>>,
 ) -> Result<Html<String>, StatusCode> {
     let metadata_state = state.metadata_state();
+    let shared_summary = latest_shared_summary(&state);
     let template = DriveSummariesTemplate {
         metadata: build_metadata_view(
             &metadata_state,
             true,
             false,
+            shared_summary.as_ref(),
         ),
     };
     render_template(&template)
@@ -1570,6 +1677,7 @@ async fn ui_metadata_progress(
         RemoteState::Ready
     );
     let metadata_state = state.metadata_state();
+    let shared_summary = latest_shared_summary(&state);
 
     render_template(
         &MetadataProgressTemplate {
@@ -1580,9 +1688,17 @@ async fn ui_metadata_progress(
                     &rclone_state,
                     &remotes,
                 ),
+                shared_summary.as_ref(),
             ),
         },
     )
+}
+
+fn latest_shared_summary(state: &AppState) -> Option<database::inventory::InventorySummary> {
+    let database = state.database().ok()?;
+    database::inventory::latest_summary_for(&database, "shared-with-me")
+        .ok()
+        .flatten()
 }
 
 async fn import_google_client(

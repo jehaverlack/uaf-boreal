@@ -118,7 +118,8 @@ impl Database {
              SET status = 'error',
                  completed_at = CURRENT_TIMESTAMP,
                  error_message = ?2
-             WHERE id = ?1",
+             WHERE id = ?1
+               AND status = 'running'",
             params![
                 id,
                 error,
@@ -420,7 +421,7 @@ mod tests {
         let first_summary = inventory::synchronize_my_drive(
             &database,
             first_scan,
-            &[folder, item.clone(), item],
+            &[folder.clone(), item.clone(), item.clone()],
             true,
         ).expect("inventory should synchronize");
         assert_eq!(first_summary.files_scanned, 1);
@@ -433,6 +434,29 @@ mod tests {
             .expect("explorer root should be readable");
         assert_eq!(root_items.len(), 1);
         assert_eq!(root_items[0].size_bytes, Some(42));
+        let shared_scan = database.start_scan_run("shared-with-me").expect("scan should start");
+        let shared_summary = inventory::synchronize_drive(
+            &database,
+            inventory::SHARED_WITH_ME_SCOPE,
+            shared_scan,
+            &[folder.clone(), item.clone()],
+            true,
+        ).expect("Shared with me inventory should synchronize");
+        assert_eq!(shared_summary.files_scanned, 1);
+        assert_eq!(
+            inventory::list_drive_directory(
+                &database, inventory::SHARED_WITH_ME_SCOPE, Some("Reports"), "", "", "",
+                "", "", "", false, "", false, "name", false,
+            ).expect("Shared with me explorer should be readable").len(),
+            1,
+        );
+        assert_eq!(
+            inventory::latest_summary_for(&database, "shared-with-me")
+                .expect("Shared with me summary should be readable")
+                .expect("Shared with me summary should exist")
+                .files_scanned,
+            1,
+        );
         assert_eq!(
             inventory::list_my_drive_directory(
                 &database, None, "report", "", "", "", "", "", false, "", false, "size", true,
@@ -508,6 +532,13 @@ mod tests {
                 .expect("explorer directory should be readable")
                 .is_empty(),
             "soft-deleted items must not appear in the explorer",
+        );
+        assert_eq!(
+            inventory::list_drive_directory(
+                &database, inventory::SHARED_WITH_ME_SCOPE, Some("Reports"), "", "", "",
+                "", "", "", false, "", false, "name", false,
+            ).expect("My Drive deletion must not affect Shared with me").len(),
+            1,
         );
         assert_eq!(
             inventory::list_my_drive_directory(

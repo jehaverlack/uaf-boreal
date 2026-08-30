@@ -38,6 +38,25 @@ pub fn fetch_my_drive(
     scan_id: i64,
     include_permissions: bool,
 ) -> Result<Vec<DriveItem>, RcloneError> {
+    fetch_drive(runtime, executable, scan_id, include_permissions, false)
+}
+
+pub fn fetch_shared_with_me(
+    runtime: &Runtime,
+    executable: &Path,
+    scan_id: i64,
+    include_permissions: bool,
+) -> Result<Vec<DriveItem>, RcloneError> {
+    fetch_drive(runtime, executable, scan_id, include_permissions, true)
+}
+
+fn fetch_drive(
+    runtime: &Runtime,
+    executable: &Path,
+    scan_id: i64,
+    include_permissions: bool,
+    shared_with_me: bool,
+) -> Result<Vec<DriveItem>, RcloneError> {
     if !executable.is_file() {
         return Err(format!("Rclone executable does not exist: {}", executable.display()).into());
     }
@@ -45,7 +64,8 @@ pub fn fetch_my_drive(
     let cache_dir = runtime.directories.get("CACHE")
         .ok_or("BOREAL CACHE directory is not configured")?;
     fs::create_dir_all(cache_dir)?;
-    let cache_path = cache_dir.join(format!("my-drive-inventory-{scan_id}.json"));
+    let scope = if shared_with_me { "shared-with-me" } else { "my-drive" };
+    let cache_path = cache_dir.join(format!("{scope}-inventory-{scan_id}.json"));
     let output_file = File::create(&cache_path)?;
     let config_path = config::path(runtime)?;
 
@@ -63,6 +83,9 @@ pub fn fetch_my_drive(
     if include_permissions {
         command.arg("--drive-metadata-permissions=read");
     }
+    if shared_with_me {
+        command.arg("--drive-shared-with-me");
+    }
 
     let output = command.stdout(Stdio::from(output_file)).stderr(Stdio::piped()).output()
         .map_err(|error| format!("Unable to execute My Drive inventory: {error}"))?;
@@ -70,7 +93,7 @@ pub fn fetch_my_drive(
     if !output.status.success() {
         let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let _ = fs::remove_file(&cache_path);
-        return Err(format!("Rclone My Drive inventory failed: {message}").into());
+        return Err(format!("Rclone {scope} inventory failed: {message}").into());
     }
 
     let result = parse(&cache_path);

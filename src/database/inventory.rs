@@ -3,9 +3,12 @@ use std::collections::{HashMap, HashSet};
 use rusqlite::{params, OptionalExtension};
 use serde_json::Value;
 
-use crate::rclone::{inventory::DriveItem, remotes::RemoteKind};
+use crate::rclone::inventory::DriveItem;
 
 use super::{Database, DatabaseError};
+
+pub const MY_DRIVE_SCOPE: &str = "my-drive-ro";
+pub const SHARED_WITH_ME_SCOPE: &str = "shared-with-me";
 
 #[derive(Debug, Clone, Default)]
 pub struct InventorySummary {
@@ -39,8 +42,32 @@ pub struct Tag {
     pub color: String,
 }
 
+#[allow(dead_code)]
 pub fn list_my_drive_directory(
     database: &Database,
+    parent_path: Option<&str>,
+    search: &str,
+    tag_filter: &str,
+    type_filter: &str,
+    size_filter: &str,
+    modified_filter: &str,
+    owner_filter: &str,
+    exclude_owner: bool,
+    permission_filter: &str,
+    include_deleted: bool,
+    sort: &str,
+    descending: bool,
+) -> Result<Vec<DriveExplorerItem>, DatabaseError> {
+    list_drive_directory(
+        database, MY_DRIVE_SCOPE, parent_path, search, tag_filter, type_filter,
+        size_filter, modified_filter, owner_filter, exclude_owner, permission_filter,
+        include_deleted, sort, descending,
+    )
+}
+
+pub fn list_drive_directory(
+    database: &Database,
+    inventory_scope: &str,
     parent_path: Option<&str>,
     search: &str,
     tag_filter: &str,
@@ -57,7 +84,7 @@ pub fn list_my_drive_directory(
     let connection = database.connect()?;
     let (size_comparison, size_bytes) = parse_size_filter(size_filter)?;
     let (modified_comparison, modified_value) = parse_modified_filter(modified_filter)?;
-    let remote = RemoteKind::MyDriveRo.name();
+    let remote = inventory_scope;
     let sort_expression = match sort {
         "type" => "CASE WHEN is_directory THEN 'folder' ELSE COALESCE(mime_type, '') END COLLATE NOCASE",
         "size" => "COALESCE(CASE WHEN is_directory THEN cumulative_size_bytes ELSE size_bytes END, -1)",
@@ -294,13 +321,23 @@ fn tag_slug(name: &str) -> String {
     }).trim_end_matches('-').to_string()
 }
 
+#[allow(dead_code)]
 pub fn apply_tag_recursively(
     database: &Database,
     item_ids: &[String],
     tag_slug: &str,
 ) -> Result<usize, DatabaseError> {
+    apply_tag_recursively_for_scope(database, MY_DRIVE_SCOPE, item_ids, tag_slug)
+}
+
+pub fn apply_tag_recursively_for_scope(
+    database: &Database,
+    inventory_scope: &str,
+    item_ids: &[String],
+    tag_slug: &str,
+) -> Result<usize, DatabaseError> {
     if item_ids.is_empty() {
-        return Err("Select at least one My Drive item".into());
+        return Err("Select at least one Drive item".into());
     }
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
@@ -309,7 +346,7 @@ pub fn apply_tag_recursively(
         [tag_slug],
         |row| row.get(0),
     ).optional()?.ok_or_else(|| format!("Unknown tag: {tag_slug}"))?;
-    let remote = RemoteKind::MyDriveRo.name();
+    let remote = inventory_scope;
     let mut applied = 0;
 
     for item_id in item_ids {
@@ -342,9 +379,19 @@ pub fn synchronize_my_drive(
     items: &[DriveItem],
     include_permissions: bool,
 ) -> Result<InventorySummary, DatabaseError> {
+    synchronize_drive(database, MY_DRIVE_SCOPE, scan_id, items, include_permissions)
+}
+
+pub fn synchronize_drive(
+    database: &Database,
+    inventory_scope: &str,
+    scan_id: i64,
+    items: &[DriveItem],
+    include_permissions: bool,
+) -> Result<InventorySummary, DatabaseError> {
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
-    let remote = RemoteKind::MyDriveRo.name();
+    let remote = inventory_scope;
     let mut summary = InventorySummary::default();
     let mut seen_item_ids = HashSet::new();
     let mut folder_sizes: HashMap<&str, u64> = HashMap::new();
@@ -479,14 +526,21 @@ pub fn synchronize_my_drive(
 }
 
 pub fn latest_summary(database: &Database) -> Result<Option<InventorySummary>, DatabaseError> {
+    latest_summary_for(database, "my-drive")
+}
+
+pub fn latest_summary_for(
+    database: &Database,
+    scan_type: &str,
+) -> Result<Option<InventorySummary>, DatabaseError> {
     let connection = database.connect()?;
     connection.query_row(
         "SELECT completed_at, files_scanned, folders_scanned,
                 permissions_scanned, bytes_discovered, deleted_items
          FROM scan_runs
-         WHERE scan_type = 'my-drive' AND status = 'complete'
+         WHERE scan_type = ?1 AND status = 'complete'
          ORDER BY id DESC LIMIT 1",
-        [],
+        [scan_type],
         |row| Ok(InventorySummary {
             completed_at: row.get(0)?,
             files_scanned: row.get::<_, i64>(1)? as u64,

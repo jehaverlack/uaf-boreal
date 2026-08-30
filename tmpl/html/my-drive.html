@@ -6,10 +6,10 @@
 
 <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
     <div>
-        <h1 class="h3 mb-1"><i class="bi bi-folder2-open text-primary me-2"></i>My Drive Explorer</h1>
-        <p class="text-body-secondary mb-0">Browse the latest local metadata inventory and open items in Google Drive.</p>
+        <h1 class="h3 mb-1"><i class="bi bi-folder2-open text-primary me-2"></i>{{ heading }}</h1>
+        <p class="text-body-secondary mb-0">{{ description }}</p>
     </div>
-    <a class="btn btn-sm btn-outline-primary" href="/my-drive"><i class="bi bi-house-door me-1"></i>My Drive root</a>
+    <a class="btn btn-sm btn-outline-primary" href="{{ explorer_path }}"><i class="bi bi-house-door me-1"></i>{{ root_label }} root</a>
 </div>
 
 {% if error.len() > 0 %}
@@ -18,7 +18,7 @@
 
 <div class="d-flex align-items-center gap-2 mb-3">
     {% if has_parent %}
-    <form method="get" action="/my-drive">
+    <form method="get" action="{{ explorer_path }}">
         <input type="hidden" name="path" value="{{ parent_path }}">
         <input type="hidden" name="sort" value="{{ sort }}">
         <input type="hidden" name="direction" value="{{ direction }}">
@@ -36,7 +36,7 @@
     <span class="fw-semibold">{{ current_path }}</span>
 </div>
 
-<form id="my-drive-filter-form" method="get" action="/my-drive" class="row g-2 mb-3" role="search">
+<form id="my-drive-filter-form" method="get" action="{{ explorer_path }}" class="row g-2 mb-3" role="search">
     <input type="hidden" name="path" value="{% if has_parent %}{{ current_path }}{% endif %}">
     <input type="hidden" name="sort" value="{{ sort }}">
     <input type="hidden" name="direction" value="{{ direction }}">
@@ -64,7 +64,7 @@
 </div>
 {% endif %}
 
-<form method="post" action="/my-drive/tags" class="d-flex flex-column flex-grow-1 overflow-hidden">
+<form method="post" action="{{ tag_action }}" class="d-flex flex-column flex-grow-1 overflow-hidden">
     <input type="hidden" name="path" value="{% if has_parent %}{{ current_path }}{% endif %}">
     <input type="hidden" name="q" value="{{ search }}">
     <input type="hidden" name="sort" value="{{ sort }}">

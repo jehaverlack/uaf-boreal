@@ -727,9 +727,17 @@ impl AppState {
                 );
             }
         };
+        let shared_scan_id = match database.start_scan_run("shared-with-me") {
+            Ok(id) => id,
+            Err(error) => {
+                let _ = database.fail_scan_run(scan_id, &error.to_string());
+                state.finish_metadata_job();
+                return Err(error.to_string());
+            }
+        };
 
         println!(
-            "Metadata update started: scan_id={scan_id}, remote=my-drive-ro, permissions={permission_scanning}"
+            "Metadata update started: my_drive_scan_id={scan_id}, shared_with_me_scan_id={shared_scan_id}, remote=my-drive-ro, permissions={permission_scanning}"
         );
 
         state.set_metadata_state(
@@ -779,6 +787,20 @@ impl AppState {
                         unique_ids.len(),
                     );
                     worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                        phase: "Fetching Shared with me metadata",
+                        files_scanned: files,
+                        folders_scanned: folders,
+                        permissions_scanned: 0,
+                        bytes_discovered: bytes,
+                        errors: 0,
+                    }));
+                    let shared_items = rclone::inventory::fetch_shared_with_me(
+                        &worker_state.runtime,
+                        &rclone_path,
+                        shared_scan_id,
+                        permission_scanning,
+                    )?;
+                    worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
                         phase: "Saving My Drive metadata",
                         files_scanned: files,
                         folders_scanned: folders,
@@ -786,16 +808,32 @@ impl AppState {
                         bytes_discovered: bytes,
                         errors: 0,
                     }));
-                    database::inventory::synchronize_my_drive(
+                    let my_drive_summary = database::inventory::synchronize_my_drive(
                         &database,
                         scan_id,
                         &items,
                         permission_scanning,
-                    )
+                    )?;
+                    worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                        phase: "Saving Shared with me metadata",
+                        files_scanned: my_drive_summary.files_scanned,
+                        folders_scanned: my_drive_summary.folders_scanned,
+                        permissions_scanned: my_drive_summary.permissions_scanned,
+                        bytes_discovered: my_drive_summary.bytes_discovered,
+                        errors: 0,
+                    }));
+                    let shared_summary = database::inventory::synchronize_drive(
+                        &database,
+                        database::inventory::SHARED_WITH_ME_SCOPE,
+                        shared_scan_id,
+                        &shared_items,
+                        permission_scanning,
+                    )?;
+                    Ok::<_, crate::database::DatabaseError>((my_drive_summary, shared_summary))
                 }).await;
 
                 match result {
-                    Ok(Ok(summary)) => {
+                    Ok(Ok((summary, shared_summary))) => {
                         println!(
                             "Metadata update completed: scan_id={scan_id}, files={}, folders={}, permissions={}, bytes={}, deleted_items={}",
                             summary.files_scanned,
@@ -803,6 +841,14 @@ impl AppState {
                             summary.permissions_scanned,
                             summary.bytes_discovered,
                             summary.deleted_items,
+                        );
+                        println!(
+                            "Shared with me update completed: scan_id={shared_scan_id}, files={}, folders={}, permissions={}, bytes={}, deleted_items={}",
+                            shared_summary.files_scanned,
+                            shared_summary.folders_scanned,
+                            shared_summary.permissions_scanned,
+                            shared_summary.bytes_discovered,
+                            shared_summary.deleted_items,
                         );
                         state.set_metadata_state(
                             MetadataState::Synchronized(
@@ -829,6 +875,7 @@ impl AppState {
                                 "Unable to record metadata failure: scan_id={scan_id}, error={database_error}"
                             );
                         }
+                        let _ = failure_database.fail_scan_run(shared_scan_id, &message);
 
                         state.set_metadata_state(
                             MetadataState::Error(
@@ -846,6 +893,7 @@ impl AppState {
                                 "Unable to record metadata failure: scan_id={scan_id}, error={database_error}"
                             );
                         }
+                        let _ = failure_database.fail_scan_run(shared_scan_id, &message);
                         state.set_metadata_state(MetadataState::Error(message));
                     }
                 }

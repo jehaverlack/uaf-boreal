@@ -48,9 +48,31 @@
 
     <section class="mb-4" aria-labelledby="shared-with-me-summary-heading">
         <div class="d-flex justify-content-between align-items-center mb-2">
-            <h2 class="h4 mb-0" id="shared-with-me-summary-heading"><i class="bi bi-share-fill text-primary me-2"></i>Shared with me</h2>
-            <span class="badge text-bg-secondary">Not indexed yet</span>
+            <h2 class="h4 mb-0" id="shared-with-me-summary-heading">
+                <a class="text-body text-decoration-none" href="/shared-with-me" title="Explore Shared with me">
+                    <i class="bi bi-share-fill text-primary me-2"></i>Shared with me
+                </a>
+            </h2>
+            {% if metadata.updating %}
+            <span class="badge text-bg-primary"><span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>{{ metadata.phase }}</span>
+            {% else if metadata.shared_indexed %}
+            <span class="badge text-bg-success">Indexed</span>
+            {% else %}
+            <span class="badge text-bg-warning">Not indexed</span>
+            {% endif %}
         </div>
-        <div class="card"><div class="card-body text-body-secondary">Shared with me metadata collection will be added in a future update.</div></div>
+        <div class="card"><div class="card-body">
+            {% if metadata.shared_indexed %}
+            <div class="row g-3">
+                <div class="col-6 col-md"><div class="small text-body-secondary">Files</div><div class="fs-4 fw-semibold">{{ metadata.shared_files_scanned }}</div></div>
+                <div class="col-6 col-md"><div class="small text-body-secondary">Folders</div><div class="fs-4 fw-semibold">{{ metadata.shared_folders_scanned }}</div></div>
+                <div class="col-6 col-md"><div class="small text-body-secondary">Total size</div><div class="fs-4 fw-semibold">{{ metadata.shared_size_label }}</div></div>
+                <div class="col-6 col-md"><div class="small text-body-secondary">Permissions</div><div class="fs-4 fw-semibold">{{ metadata.shared_permissions_scanned }}</div></div>
+                <div class="col-6 col-md"><div class="small text-body-secondary">Data age</div><div class="fs-4 fw-semibold boreal-data-age" data-synchronized-at="{{ metadata.shared_completed_at }}">just now</div></div>
+            </div>
+            {% else %}
+            <p class="text-body-secondary mb-0">Use Update in the navigation bar to populate Shared with me statistics.</p>
+            {% endif %}
+        </div></div>
     </section>
 </div>
