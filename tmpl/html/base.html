@@ -304,7 +304,7 @@
 
     {% include "partials/alerts.html" %}
 
-    <main class="container-fluid py-4 flex-grow-1{% if active_page == "my-drive" %} overflow-hidden{% endif %}">
+    <main class="container-fluid py-4 flex-grow-1{% if active_page == "my-drive" || active_page == "shared-with-me" %} overflow-hidden{% endif %}">
 
         {% block content %}
         {% endblock %}
