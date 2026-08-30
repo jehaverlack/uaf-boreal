@@ -43,6 +43,12 @@ pub fn list_my_drive_directory(
     parent_path: Option<&str>,
     search: &str,
     tag_filter: &str,
+    type_filter: &str,
+    minimum_size_bytes: u64,
+    modified_filter: &str,
+    owner_filter: &str,
+    exclude_owner: bool,
+    permission_filter: &str,
     sort: &str,
     descending: bool,
 ) -> Result<Vec<DriveExplorerItem>, DatabaseError> {
@@ -56,6 +62,7 @@ pub fn list_my_drive_directory(
         _ => "name COLLATE NOCASE",
     };
     let direction = if descending { "DESC" } else { "ASC" };
+    let directory_grouping = if sort == "name" { "is_directory DESC," } else { "" };
     let sql = format!(
         "SELECT item_id, name, relative_path, is_directory, mime_type,
                 CASE WHEN is_directory THEN cumulative_size_bytes ELSE size_bytes END,
@@ -85,11 +92,36 @@ pub fn list_my_drive_directory(
                 WHERE dit.remote_name = drive_items.remote_name
                   AND dit.item_id = drive_items.item_id AND t.slug = ?4
            ))
-         ORDER BY is_directory DESC, {sort_expression} {direction}, name COLLATE NOCASE, item_id"
+           AND (?5 = '' OR instr(lower(
+                CASE WHEN is_directory THEN 'folder' ELSE COALESCE(mime_type, '') END
+           ), lower(?5)) > 0)
+           AND (?6 = 0 OR COALESCE(
+                CASE WHEN is_directory THEN cumulative_size_bytes ELSE size_bytes END, 0
+           ) >= ?6)
+           AND (?7 = '' OR instr(lower(COALESCE(modified_at, '')), lower(?7)) > 0)
+           AND (?8 = '' OR
+                (?9 = 0 AND instr(lower(COALESCE(owner_email, '')), lower(?8)) > 0) OR
+                (?9 = 1 AND instr(lower(COALESCE(owner_email, '')), lower(?8)) = 0))
+           AND (?10 = '' OR EXISTS (
+                SELECT 1 FROM drive_permissions permission_filter
+                WHERE permission_filter.remote_name = drive_items.remote_name
+                  AND permission_filter.item_id = drive_items.item_id
+                  AND instr(lower(
+                      COALESCE(permission_filter.email_address, '') || ' ' ||
+                      COALESCE(permission_filter.domain, '') || ' ' ||
+                      COALESCE(permission_filter.display_name, '') || ' ' ||
+                      COALESCE(permission_filter.permission_type, '')
+                  ), lower(?10)) > 0
+           ))
+         ORDER BY {directory_grouping} {sort_expression} {direction}, name COLLATE NOCASE, item_id"
     );
     let mut statement = connection.prepare(&sql)?;
     let rows = statement.query_map(
-        params![remote, parent_path, search.trim(), tag_filter],
+        params![
+            remote, parent_path, search.trim(), tag_filter, type_filter.trim(),
+            minimum_size_bytes as i64, modified_filter.trim(), owner_filter.trim(),
+            exclude_owner, permission_filter.trim(),
+        ],
         |row| {
             let size: Option<i64> = row.get(5)?;
             Ok(DriveExplorerItem {

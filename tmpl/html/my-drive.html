@@ -23,6 +23,11 @@
         <input type="hidden" name="sort" value="{{ sort }}">
         <input type="hidden" name="direction" value="{{ direction }}">
         <input type="hidden" name="tag" value="{{ tag_filter }}">
+        <input type="hidden" name="type_filter" value="{{ type_filter }}">
+        <input type="hidden" name="size_filter" value="{{ size_filter }}">
+        <input type="hidden" name="modified_filter" value="{{ modified_filter }}">
+        <input type="hidden" name="owner_filter" value="{{ owner_filter }}">
+        <input type="hidden" name="permission_filter" value="{{ permission_filter }}">
         <button class="btn btn-sm btn-outline-secondary" type="submit" title="Browse parent folder"><i class="bi bi-arrow-up"></i></button>
     </form>
     {% endif %}
@@ -30,18 +35,10 @@
     <span class="fw-semibold">{{ current_path }}</span>
 </div>
 
-<form method="get" action="/my-drive" class="row g-2 mb-3" role="search">
+<form id="my-drive-filter-form" method="get" action="/my-drive" class="row g-2 mb-3" role="search">
     <input type="hidden" name="path" value="{% if has_parent %}{{ current_path }}{% endif %}">
     <input type="hidden" name="sort" value="{{ sort }}">
     <input type="hidden" name="direction" value="{{ direction }}">
-    <div class="col-sm-8 col-lg-5">
-        <label class="visually-hidden" for="my-drive-search">Filter this folder</label>
-        <div class="input-group input-group-sm">
-            <span class="input-group-text"><i class="bi bi-search"></i></span>
-            <input id="my-drive-search" class="form-control" type="search" name="q" value="{{ search }}" placeholder="Filter this folder by name">
-            <button class="btn btn-primary" type="submit">Search</button>
-        </div>
-    </div>
     <div class="col-sm-4 col-lg-3">
         <label class="visually-hidden" for="my-drive-tag-filter">Filter by tag</label>
         <select id="my-drive-tag-filter" class="form-select form-select-sm" name="tag">
@@ -51,9 +48,9 @@
             {% endfor %}
         </select>
     </div>
-    {% if search.len() > 0 %}
-    <div class="col-auto"><a class="btn btn-sm btn-outline-secondary" href="{{ clear_search_url }}">Clear</a></div>
-    {% endif %}
+    <div class="col-auto"><button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-funnel me-1"></i>Apply filters</button></div>
+    <div class="col-auto"><a class="btn btn-sm btn-outline-secondary" href="{{ clear_search_url }}">Clear filters</a></div>
+    <div class="col-auto small text-body-secondary align-self-center">Prefix Owner with <code>!</code> to exclude a value.</div>
 </form>
 
 {% if tagged_count > 0 %}
@@ -68,6 +65,11 @@
     <input type="hidden" name="sort" value="{{ sort }}">
     <input type="hidden" name="direction" value="{{ direction }}">
     <input type="hidden" name="tag_filter" value="{{ tag_filter }}">
+    <input type="hidden" name="type_filter" value="{{ type_filter }}">
+    <input type="hidden" name="size_filter" value="{{ size_filter }}">
+    <input type="hidden" name="modified_filter" value="{{ modified_filter }}">
+    <input type="hidden" name="owner_filter" value="{{ owner_filter }}">
+    <input type="hidden" name="permission_filter" value="{{ permission_filter }}">
     <input type="hidden" id="my-drive-selected-item-ids" name="selected_item_ids" value="">
     <div class="d-flex align-items-center gap-2 mb-2">
         <label class="small fw-semibold" for="my-drive-apply-tag">Apply tag to selected:</label>
@@ -106,6 +108,16 @@
                     <th scope="col"><a class="text-body text-decoration-none" href="{{ modified_sort_url }}">Modified {% if sort == "modified" %}<i class="bi {% if direction == "desc" %}bi-sort-down-alt{% else %}bi-sort-down{% endif %}"></i>{% endif %}</a></th>
                     <th scope="col"><a class="text-body text-decoration-none" href="{{ owner_sort_url }}">Owner {% if sort == "owner" %}<i class="bi {% if direction == "desc" %}bi-sort-alpha-down-alt{% else %}bi-sort-alpha-down{% endif %}"></i>{% endif %}</a></th>
                     <th scope="col">Permissions</th>
+                </tr>
+                <tr class="boreal-column-filters">
+                    <th></th>
+                    <th></th>
+                    <th><input class="form-control form-control-sm" form="my-drive-filter-form" name="type_filter" value="{{ type_filter }}" placeholder="Type" aria-label="Filter by type"></th>
+                    <th><input class="form-control form-control-sm" form="my-drive-filter-form" name="q" value="{{ search }}" placeholder="Name" aria-label="Filter by name"></th>
+                    <th><input class="form-control form-control-sm" form="my-drive-filter-form" name="size_filter" value="{{ size_filter }}" inputmode="decimal" placeholder="Min MB" aria-label="Minimum size in megabytes"></th>
+                    <th><input class="form-control form-control-sm" form="my-drive-filter-form" name="modified_filter" value="{{ modified_filter }}" placeholder="YYYY-MM-DD" aria-label="Filter by modified date"></th>
+                    <th><input class="form-control form-control-sm" form="my-drive-filter-form" name="owner_filter" value="{{ owner_filter }}" placeholder="Owner or !owner" aria-label="Filter or exclude owner"></th>
+                    <th><input class="form-control form-control-sm" form="my-drive-filter-form" name="permission_filter" value="{{ permission_filter }}" placeholder="User or domain" aria-label="Filter permissions"></th>
                 </tr>
             </thead>
             <tbody>

@@ -262,6 +262,11 @@ struct MyDriveTemplate {
     tags: Vec<database::inventory::Tag>,
     tag_filter: String,
     tagged_count: usize,
+    type_filter: String,
+    size_filter: String,
+    modified_filter: String,
+    owner_filter: String,
+    permission_filter: String,
 }
 
 #[allow(dead_code)]
@@ -351,6 +356,16 @@ struct DrivePathQuery {
     tag: String,
     #[serde(default)]
     tagged: usize,
+    #[serde(default)]
+    type_filter: String,
+    #[serde(default)]
+    size_filter: String,
+    #[serde(default)]
+    modified_filter: String,
+    #[serde(default)]
+    owner_filter: String,
+    #[serde(default)]
+    permission_filter: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -363,6 +378,11 @@ struct ApplyTagForm {
     sort: String,
     direction: String,
     tag_filter: String,
+    type_filter: String,
+    size_filter: String,
+    modified_filter: String,
+    owner_filter: String,
+    permission_filter: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -1076,11 +1096,26 @@ async fn my_drive_page(
         _ => "name",
     };
     let descending = query.direction == "desc";
+    let minimum_size_bytes = query.size_filter.trim().parse::<f64>()
+        .ok()
+        .filter(|value| *value >= 0.0)
+        .map(|megabytes| (megabytes * 1_000_000.0) as u64)
+        .unwrap_or(0);
+    let (exclude_owner, owner_filter) = match query.owner_filter.strip_prefix('!') {
+        Some(owner) => (true, owner.trim()),
+        None => (false, query.owner_filter.trim()),
+    };
     let (items, error) = match database::inventory::list_my_drive_directory(
         &database,
         parent_filter,
         &query.q,
         &query.tag,
+        &query.type_filter,
+        minimum_size_bytes,
+        &query.modified_filter,
+        owner_filter,
+        exclude_owner,
+        &query.permission_filter,
         sort,
         descending,
     ) {
@@ -1099,7 +1134,11 @@ async fn my_drive_page(
         item_id: item.item_id.clone(),
         name: item.name,
         name_url: if item.is_directory {
-            explorer_url(&item.relative_path, "", &query.tag, sort, if descending { "desc" } else { "asc" })
+            explorer_url(
+                &item.relative_path, "", &query.tag, &query.type_filter,
+                &query.size_filter, &query.modified_filter, &query.owner_filter,
+                &query.permission_filter, sort, if descending { "desc" } else { "asc" },
+            )
         } else {
             format!("https://drive.google.com/open?id={}", item.item_id)
         },
@@ -1149,21 +1188,26 @@ async fn my_drive_page(
         search: query.q.clone(),
         sort: sort.to_string(),
         direction: if descending { "desc".to_string() } else { "asc".to_string() },
-        name_sort_url: sort_url(&query.path, &query.q, &query.tag, sort, descending, "name"),
-        type_sort_url: sort_url(&query.path, &query.q, &query.tag, sort, descending, "type"),
-        size_sort_url: sort_url(&query.path, &query.q, &query.tag, sort, descending, "size"),
-        modified_sort_url: sort_url(&query.path, &query.q, &query.tag, sort, descending, "modified"),
-        owner_sort_url: sort_url(&query.path, &query.q, &query.tag, sort, descending, "owner"),
+        name_sort_url: sort_url(&query, sort, descending, "name"),
+        type_sort_url: sort_url(&query, sort, descending, "type"),
+        size_sort_url: sort_url(&query, sort, descending, "size"),
+        modified_sort_url: sort_url(&query, sort, descending, "modified"),
+        owner_sort_url: sort_url(&query, sort, descending, "owner"),
         clear_search_url: explorer_url(
             &query.path,
             "",
-            &query.tag,
+            "", "", "", "", "", "",
             sort,
             if descending { "desc" } else { "asc" },
         ),
         tags,
         tag_filter: query.tag,
         tagged_count: query.tagged,
+        type_filter: query.type_filter,
+        size_filter: query.size_filter,
+        modified_filter: query.modified_filter,
+        owner_filter: query.owner_filter,
+        permission_filter: query.permission_filter,
     };
     render_template(&template)
 }
@@ -1198,21 +1242,26 @@ fn encode_query_value(value: &str) -> String {
     encoded
 }
 
-fn explorer_url(path: &str, search: &str, tag: &str, sort: &str, direction: &str) -> String {
+fn explorer_url(
+    path: &str, search: &str, tag: &str, type_filter: &str, size_filter: &str,
+    modified_filter: &str, owner_filter: &str, permission_filter: &str,
+    sort: &str, direction: &str,
+) -> String {
     format!(
-        "/my-drive?path={}&q={}&tag={}&sort={}&direction={}",
+        "/my-drive?path={}&q={}&tag={}&type_filter={}&size_filter={}&modified_filter={}&owner_filter={}&permission_filter={}&sort={}&direction={}",
         encode_query_value(path),
         encode_query_value(search),
         encode_query_value(tag),
+        encode_query_value(type_filter), encode_query_value(size_filter),
+        encode_query_value(modified_filter), encode_query_value(owner_filter),
+        encode_query_value(permission_filter),
         encode_query_value(sort),
         encode_query_value(direction),
     )
 }
 
 fn sort_url(
-    path: &str,
-    search: &str,
-    tag: &str,
+    query: &DrivePathQuery,
     current_sort: &str,
     descending: bool,
     requested_sort: &str,
@@ -1222,7 +1271,11 @@ fn sort_url(
     } else {
         "asc"
     };
-    explorer_url(path, search, tag, requested_sort, next_direction)
+    explorer_url(
+        &query.path, &query.q, &query.tag, &query.type_filter, &query.size_filter,
+        &query.modified_filter, &query.owner_filter, &query.permission_filter,
+        requested_sort, next_direction,
+    )
 }
 
 async fn apply_my_drive_tag(
@@ -1253,6 +1306,11 @@ async fn apply_my_drive_tag(
         &form.path,
         &form.q,
         &form.tag_filter,
+        &form.type_filter,
+        &form.size_filter,
+        &form.modified_filter,
+        &form.owner_filter,
+        &form.permission_filter,
         &form.sort,
         &form.direction,
     );

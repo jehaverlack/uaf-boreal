@@ -427,18 +427,24 @@ mod tests {
         assert_eq!(first_summary.folders_scanned, 1);
         assert_eq!(first_summary.bytes_discovered, 42);
         assert_eq!(first_summary.permissions_scanned, 1);
-        let root_items = inventory::list_my_drive_directory(&database, None, "", "", "name", false)
+        let root_items = inventory::list_my_drive_directory(
+            &database, None, "", "", "", 0, "", "", false, "", "name", false,
+        )
             .expect("explorer root should be readable");
         assert_eq!(root_items.len(), 1);
         assert_eq!(root_items[0].size_bytes, Some(42));
         assert_eq!(
-            inventory::list_my_drive_directory(&database, None, "report", "", "size", true)
+            inventory::list_my_drive_directory(
+                &database, None, "report", "", "", 0, "", "", false, "", "size", true,
+            )
                 .expect("filtered explorer root should be readable")
                 .len(),
             1,
         );
         assert!(
-            inventory::list_my_drive_directory(&database, None, "missing", "", "name", false)
+            inventory::list_my_drive_directory(
+                &database, None, "missing", "", "", 0, "", "", false, "", "name", false,
+            )
                 .expect("empty explorer search should be readable")
                 .is_empty(),
         );
@@ -463,12 +469,15 @@ mod tests {
         assert_eq!(custom_tag.color, "#123456");
         assert_eq!(
             inventory::list_my_drive_directory(
-                &database,
-                Some("Reports"),
-                "",
-                "to-migrate",
-                "name",
-                false,
+                &database, Some("Reports"), "", "", "", 0, "",
+                "jehaverlack", true, "reader@example.edu", "owner", false,
+            ).expect("combined owner and permission filters should be readable").len(),
+            1,
+        );
+        assert_eq!(
+            inventory::list_my_drive_directory(
+                &database, Some("Reports"), "", "to-migrate", "", 0,
+                "", "", false, "", "name", false,
             ).expect("tagged folder contents should be readable").len(),
             1,
         );
@@ -480,7 +489,9 @@ mod tests {
         assert_eq!(summary.files_scanned, 0);
         assert_eq!(summary.bytes_discovered, 0);
         assert!(
-            inventory::list_my_drive_directory(&database, Some("Reports"), "", "", "name", false)
+            inventory::list_my_drive_directory(
+                &database, Some("Reports"), "", "", "", 0, "", "", false, "", "name", false,
+            )
                 .expect("explorer directory should be readable")
                 .is_empty(),
             "soft-deleted items must not appear in the explorer",
