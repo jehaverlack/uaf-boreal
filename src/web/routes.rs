@@ -1096,11 +1096,6 @@ async fn my_drive_page(
         _ => "name",
     };
     let descending = query.direction == "desc";
-    let minimum_size_bytes = query.size_filter.trim().parse::<f64>()
-        .ok()
-        .filter(|value| *value >= 0.0)
-        .map(|megabytes| (megabytes * 1_000_000.0) as u64)
-        .unwrap_or(0);
     let (exclude_owner, owner_filter) = match query.owner_filter.strip_prefix('!') {
         Some(owner) => (true, owner.trim()),
         None => (false, query.owner_filter.trim()),
@@ -1111,7 +1106,7 @@ async fn my_drive_page(
         &query.q,
         &query.tag,
         &query.type_filter,
-        minimum_size_bytes,
+        &query.size_filter,
         &query.modified_filter,
         owner_filter,
         exclude_owner,

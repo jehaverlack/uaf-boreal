@@ -44,7 +44,7 @@ pub fn list_my_drive_directory(
     search: &str,
     tag_filter: &str,
     type_filter: &str,
-    minimum_size_bytes: u64,
+    size_filter: &str,
     modified_filter: &str,
     owner_filter: &str,
     exclude_owner: bool,
@@ -53,6 +53,8 @@ pub fn list_my_drive_directory(
     descending: bool,
 ) -> Result<Vec<DriveExplorerItem>, DatabaseError> {
     let connection = database.connect()?;
+    let (size_comparison, size_bytes) = parse_size_filter(size_filter)?;
+    let (modified_comparison, modified_value) = parse_modified_filter(modified_filter)?;
     let remote = RemoteKind::MyDriveRo.name();
     let sort_expression = match sort {
         "type" => "CASE WHEN is_directory THEN 'folder' ELSE COALESCE(mime_type, '') END COLLATE NOCASE",
@@ -95,14 +97,22 @@ pub fn list_my_drive_directory(
            AND (?5 = '' OR instr(lower(
                 CASE WHEN is_directory THEN 'folder' ELSE COALESCE(mime_type, '') END
            ), lower(?5)) > 0)
-           AND (?6 = 0 OR COALESCE(
-                CASE WHEN is_directory THEN cumulative_size_bytes ELSE size_bytes END, 0
-           ) >= ?6)
-           AND (?7 = '' OR instr(lower(COALESCE(modified_at, '')), lower(?7)) > 0)
-           AND (?8 = '' OR
-                (?9 = 0 AND instr(lower(COALESCE(owner_email, '')), lower(?8)) > 0) OR
-                (?9 = 1 AND instr(lower(COALESCE(owner_email, '')), lower(?8)) = 0))
-           AND (?10 = '' OR EXISTS (
+           AND (?6 = 0 OR
+                (?6 = 1 AND COALESCE(CASE WHEN is_directory THEN cumulative_size_bytes ELSE size_bytes END, 0) > ?7) OR
+                (?6 = 2 AND COALESCE(CASE WHEN is_directory THEN cumulative_size_bytes ELSE size_bytes END, 0) >= ?7) OR
+                (?6 = 3 AND COALESCE(CASE WHEN is_directory THEN cumulative_size_bytes ELSE size_bytes END, 0) < ?7) OR
+                (?6 = 4 AND COALESCE(CASE WHEN is_directory THEN cumulative_size_bytes ELSE size_bytes END, 0) <= ?7) OR
+                (?6 = 5 AND COALESCE(CASE WHEN is_directory THEN cumulative_size_bytes ELSE size_bytes END, 0) = ?7))
+           AND (?8 = 0 OR
+                (?8 = 1 AND substr(COALESCE(modified_at, ''), 1, 10) > ?9) OR
+                (?8 = 2 AND substr(COALESCE(modified_at, ''), 1, 10) >= ?9) OR
+                (?8 = 3 AND substr(COALESCE(modified_at, ''), 1, 10) < ?9) OR
+                (?8 = 4 AND substr(COALESCE(modified_at, ''), 1, 10) <= ?9) OR
+                (?8 = 5 AND substr(COALESCE(modified_at, ''), 1, length(?9)) = ?9))
+           AND (?10 = '' OR
+                (?11 = 0 AND instr(lower(COALESCE(owner_email, '')), lower(?10)) > 0) OR
+                (?11 = 1 AND instr(lower(COALESCE(owner_email, '')), lower(?10)) = 0))
+           AND (?12 = '' OR EXISTS (
                 SELECT 1 FROM drive_permissions permission_filter
                 WHERE permission_filter.remote_name = drive_items.remote_name
                   AND permission_filter.item_id = drive_items.item_id
@@ -111,7 +121,7 @@ pub fn list_my_drive_directory(
                       COALESCE(permission_filter.domain, '') || ' ' ||
                       COALESCE(permission_filter.display_name, '') || ' ' ||
                       COALESCE(permission_filter.permission_type, '')
-                  ), lower(?10)) > 0
+                  ), lower(?12)) > 0
            ))
          ORDER BY {directory_grouping} {sort_expression} {direction}, name COLLATE NOCASE, item_id"
     );
@@ -119,8 +129,8 @@ pub fn list_my_drive_directory(
     let rows = statement.query_map(
         params![
             remote, parent_path, search.trim(), tag_filter, type_filter.trim(),
-            minimum_size_bytes as i64, modified_filter.trim(), owner_filter.trim(),
-            exclude_owner, permission_filter.trim(),
+            size_comparison, size_bytes, modified_comparison, modified_value,
+            owner_filter.trim(), exclude_owner, permission_filter.trim(),
         ],
         |row| {
             let size: Option<i64> = row.get(5)?;
@@ -147,6 +157,66 @@ pub fn list_my_drive_directory(
     )?;
 
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+fn comparison_prefix(value: &str) -> (i64, &str) {
+    for (prefix, comparison) in [(">=", 2), ("<=", 4), (">", 1), ("<", 3), ("=", 5)] {
+        if let Some(rest) = value.strip_prefix(prefix) {
+            return (comparison, rest.trim());
+        }
+    }
+    (5, value.trim())
+}
+
+fn parse_size_filter(filter: &str) -> Result<(i64, i64), DatabaseError> {
+    let filter = filter.trim();
+    if filter.is_empty() {
+        return Ok((0, 0));
+    }
+    let (mut comparison, value) = comparison_prefix(filter);
+    if !matches!(filter.chars().next(), Some('>' | '<' | '=')) {
+        comparison = 2; // A bare size remains a convenient minimum-size filter.
+    }
+    let split = value.find(|character: char| !character.is_ascii_digit() && character != '.')
+        .unwrap_or(value.len());
+    let number = value[..split].trim().parse::<f64>()
+        .map_err(|_| format!("Invalid size filter '{filter}'. Try >5GB or <=250MB."))?;
+    let unit = value[split..].trim().to_ascii_uppercase();
+    let multiplier = match unit.as_str() {
+        "" | "MB" => 1_000_000_f64,
+        "B" => 1_f64,
+        "KB" => 1_000_f64,
+        "GB" => 1_000_000_000_f64,
+        "TB" => 1_000_000_000_000_f64,
+        "KIB" => 1_024_f64,
+        "MIB" => 1_048_576_f64,
+        "GIB" => 1_073_741_824_f64,
+        "TIB" => 1_099_511_627_776_f64,
+        _ => return Err(format!("Unknown size unit in '{filter}'. Use B, KB, MB, GB, or TB.").into()),
+    };
+    let bytes = number * multiplier;
+    if !bytes.is_finite() || bytes < 0.0 || bytes > i64::MAX as f64 {
+        return Err(format!("Size filter '{filter}' is out of range.").into());
+    }
+    Ok((comparison, bytes.round() as i64))
+}
+
+fn parse_modified_filter(filter: &str) -> Result<(i64, String), DatabaseError> {
+    let filter = filter.trim();
+    if filter.is_empty() {
+        return Ok((0, String::new()));
+    }
+    let (comparison, value) = comparison_prefix(filter);
+    let valid = value.len() == 10
+        && value.as_bytes()[4] == b'-'
+        && value.as_bytes()[7] == b'-'
+        && value.chars().enumerate().all(|(index, character)| {
+            index == 4 || index == 7 || character.is_ascii_digit()
+        });
+    if !valid {
+        return Err(format!("Invalid modified-date filter '{filter}'. Try >2026-01-01.").into());
+    }
+    Ok((comparison, value.to_string()))
 }
 
 pub fn list_tags(database: &Database) -> Result<Vec<Tag>, DatabaseError> {
