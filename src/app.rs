@@ -758,6 +758,36 @@ impl AppState {
                 let worker_state = Arc::clone(&state);
                 let failure_database = database.clone();
                 let result = tokio::task::spawn_blocking(move || {
+                    match rclone::identity::fetch_read_only_account(
+                        &worker_state.runtime,
+                        &rclone_path,
+                    ) {
+                        Ok(identity) => {
+                            database::directory::save_remote_account(
+                                &database,
+                                RemoteKind::MyDriveRo.name(),
+                                identity.email.as_deref(),
+                                identity.display_name.as_deref(),
+                                identity.account_id.as_deref(),
+                                &identity.raw_json,
+                            )?;
+                            println!(
+                                "Authenticated Google account verified for remote={}",
+                                RemoteKind::MyDriveRo.name(),
+                            );
+                        }
+                        Err(error) => {
+                            log::warn!("Unable to verify authenticated Google account: {error}");
+                        }
+                    }
+                    worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                        phase: "Fetching My Drive metadata",
+                        files_scanned: 0,
+                        folders_scanned: 0,
+                        permissions_scanned: 0,
+                        bytes_discovered: 0,
+                        errors: 0,
+                    }));
                     let items = rclone::inventory::fetch_my_drive(
                         &worker_state.runtime,
                         &rclone_path,

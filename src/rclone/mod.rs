@@ -1,6 +1,7 @@
 pub mod command;
 pub mod config;
 pub mod gui;
+pub mod identity;
 pub mod install;
 pub mod inventory;
 pub mod remotes;

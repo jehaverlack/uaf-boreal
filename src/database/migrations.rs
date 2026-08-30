@@ -47,6 +47,20 @@ const MIGRATIONS: &[Migration] = &[
             "migrations/0005_tag_colors.sql"
         ),
     },
+    Migration {
+        version: 6,
+        name: "identity_directory",
+        sql: include_str!(
+            "migrations/0006_identity_directory.sql"
+        ),
+    },
+    Migration {
+        version: 7,
+        name: "identity_lookup_indexes",
+        sql: include_str!(
+            "migrations/0007_identity_lookup_indexes.sql"
+        ),
+    },
 ];
 
 pub fn apply(

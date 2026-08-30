@@ -3,47 +3,23 @@ use std::sync::Arc;
 use askama::Template;
 
 use axum::{
-    extract::{
-        Form,
-        Multipart,
-        Query,
-        State,
-    },
-    http::{header, StatusCode},
-    response::{
-        Html,
-        IntoResponse,
-        Redirect,
-    },
-    routing::{
-        get,
-        post,
-    },
     Router,
+    extract::{Form, Multipart, Path, Query, State},
+    http::{StatusCode, header},
+    response::{Html, IntoResponse, Redirect},
+    routing::{get, post},
 };
 
 use crate::{
-    app::{
-        AppState,
-        GoogleRemotesState,
-        GoogleClientState,
-        MetadataState,
-        RcloneState,
-    },
+    app::{AppState, GoogleClientState, GoogleRemotesState, MetadataState, RcloneState},
     database::{
         self,
-        settings::{
-            self,
-            InventorySettings,
-        },
+        settings::{self, InventorySettings},
     },
     google,
     rclone::{
         self,
-        remotes::{
-            RemoteKind,
-            RemoteState,
-        },
+        remotes::{RemoteKind, RemoteState},
     },
 };
 
@@ -143,10 +119,7 @@ pub struct MetadataView {
 
 #[allow(dead_code)]
 #[derive(Template)]
-#[template(
-    path = "dashboard.html",
-    config = "askama.toml"
-)]
+#[template(path = "dashboard.html", config = "askama.toml")]
 struct DashboardTemplate {
     title: &'static str,
     active_page: &'static str,
@@ -160,10 +133,7 @@ struct DashboardTemplate {
 
 #[allow(dead_code)]
 #[derive(Template)]
-#[template(
-    path = "settings.html",
-    config = "askama.toml"
-)]
+#[template(path = "settings.html", config = "askama.toml")]
 struct SettingsTemplate {
     title: &'static str,
     active_page: &'static str,
@@ -177,10 +147,7 @@ struct SettingsTemplate {
 
 #[allow(dead_code)]
 #[derive(Template)]
-#[template(
-    path = "about.html",
-    config = "askama.toml"
-)]
+#[template(path = "about.html", config = "askama.toml")]
 struct AboutTemplate {
     title: &'static str,
     active_page: &'static str,
@@ -201,10 +168,7 @@ pub struct RemoteView {
 
 #[allow(dead_code)]
 #[derive(Template)]
-#[template(
-    path = "remotes.html",
-    config = "askama.toml"
-)]
+#[template(path = "remotes.html", config = "askama.toml")]
 struct RemotesTemplate {
     title: &'static str,
     active_page: &'static str,
@@ -242,10 +206,7 @@ pub struct TagPill {
 
 #[allow(dead_code)]
 #[derive(Template)]
-#[template(
-    path = "my-drive.html",
-    config = "askama.toml"
-)]
+#[template(path = "my-drive.html", config = "askama.toml")]
 struct MyDriveTemplate {
     title: &'static str,
     active_page: &'static str,
@@ -297,10 +258,45 @@ struct TagsTemplate {
 
 #[allow(dead_code)]
 #[derive(Template)]
-#[template(
-    path = "partials/alerts.html",
-    config = "askama.toml"
-)]
+#[template(path = "directory.html", config = "askama.toml")]
+struct DirectoryTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+    summary: database::directory::DirectorySummary,
+    principals: Vec<database::directory::PrincipalRow>,
+    organizations: Vec<database::directory::OrganizationRow>,
+    remote_accounts: Vec<database::directory::RemoteAccountRow>,
+    import_complete: bool,
+    imported_created: u64,
+    imported_updated: u64,
+    imported_rejected: u64,
+    name_filter: String,
+    email_filter: String,
+    type_filter: String,
+    status_filter: String,
+    departure_filter: String,
+    organization_filter: String,
+}
+
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(path = "principal.html", config = "askama.toml")]
+struct PrincipalTemplate {
+    title: String,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+    principal: database::directory::PrincipalRow,
+    associations: Vec<database::directory::PrincipalAssociationRow>,
+}
+
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(path = "partials/alerts.html", config = "askama.toml")]
 struct AlertsTemplate {
     alerts: Vec<AlertItem>,
     poll_rclone: bool,
@@ -308,10 +304,7 @@ struct AlertsTemplate {
 
 #[allow(dead_code)]
 #[derive(Template)]
-#[template(
-    path = "partials/status.html",
-    config = "askama.toml"
-)]
+#[template(path = "partials/status.html", config = "askama.toml")]
 struct StatusTemplate {
     status_items: Vec<StatusItem>,
     poll_rclone: bool,
@@ -319,10 +312,7 @@ struct StatusTemplate {
 
 #[allow(dead_code)]
 #[derive(Template)]
-#[template(
-    path = "partials/setup-progress.html",
-    config = "askama.toml"
-)]
+#[template(path = "partials/setup-progress.html", config = "askama.toml")]
 struct SetupProgressTemplate {
     setup_steps: Vec<SetupStep>,
     setup_percent: u8,
@@ -331,20 +321,22 @@ struct SetupProgressTemplate {
 
 #[allow(dead_code)]
 #[derive(Template)]
-#[template(
-    path = "partials/metadata-progress.html",
-    config = "askama.toml"
-)]
+#[template(path = "partials/metadata-progress.html", config = "askama.toml")]
 struct MetadataProgressTemplate {
     metadata: MetadataView,
 }
 
 #[allow(dead_code)]
 #[derive(Template)]
-#[template(
-    path = "partials/drive-summaries.html",
-    config = "askama.toml"
-)]
+#[template(path = "partials/metadata-update-modal-content.html", config = "askama.toml")]
+struct MetadataUpdateModalTemplate {
+    metadata: MetadataView,
+    progress_percent: u8,
+}
+
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(path = "partials/drive-summaries.html", config = "askama.toml")]
 struct DriveSummariesTemplate {
     metadata: MetadataView,
 }
@@ -353,6 +345,30 @@ struct DriveSummariesTemplate {
 struct SettingsQuery {
     #[serde(default)]
     saved: bool,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct DirectoryQuery {
+    #[serde(default)]
+    imported: bool,
+    #[serde(default)]
+    created: u64,
+    #[serde(default)]
+    updated: u64,
+    #[serde(default)]
+    rejected: u64,
+    #[serde(default)]
+    name_filter: String,
+    #[serde(default)]
+    email_filter: String,
+    #[serde(default)]
+    type_filter: String,
+    #[serde(default)]
+    status_filter: String,
+    #[serde(default)]
+    departure_filter: String,
+    #[serde(default)]
+    organization_filter: String,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -424,106 +440,35 @@ struct SettingsForm {
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route(
-            "/",
-            get(index),
-        )
-        .route(
-            "/about",
-            get(about),
-        )
-        .route(
-            "/assets/uaf-logo.png",
-            get(uaf_logo),
-        )
-        .route(
-            "/assets/acep-logo.png",
-            get(acep_logo),
-        )
-        .route(
-            "/remotes",
-            get(remotes_page),
-        )
-        .route(
-            "/my-drive",
-            get(my_drive_page),
-        )
-        .route(
-            "/my-drive/tags",
-            post(apply_my_drive_tag),
-        )
-        .route(
-            "/shared-with-me",
-            get(shared_with_me_page),
-        )
-        .route(
-            "/shared-with-me/tags",
-            post(apply_shared_with_me_tag),
-        )
-        .route(
-            "/tags",
-            get(tags_page),
-        )
-        .route(
-            "/tags/create",
-            post(create_tag),
-        )
-        .route(
-            "/tags/update",
-            post(update_tag),
-        )
-        .route(
-            "/settings",
-            get(settings_page).post(save_settings),
-        )
-        .route(
-            "/status",
-            get(status),
-        )
-        .route(
-            "/rclone-gui",
-            get(open_rclone_gui),
-        )
-        .route(
-            "/ui/alerts",
-            get(ui_alerts),
-        )
-        .route(
-            "/ui/status",
-            get(ui_status),
-        )
-        .route(
-            "/ui/setup-progress",
-            get(ui_setup_progress),
-        )
-        .route(
-            "/ui/metadata-progress",
-            get(ui_metadata_progress),
-        )
-        .route(
-            "/ui/drive-summaries",
-            get(ui_drive_summaries),
-        )
-        .route(
-            "/setup/google-client/import",
-            post(import_google_client),
-        )
-        .route(
-            "/setup/remotes/my-drive-rw",
-            post(setup_my_drive_rw),
-        )
-        .route(
-            "/setup/remotes/my-drive-ro",
-            post(setup_my_drive_ro),
-        )
-        .route(
-            "/metadata/update",
-            post(start_metadata_update),
-        )
-        .route(
-            "/app/quit",
-            post(quit),
-        )
+        .route("/", get(index))
+        .route("/about", get(about))
+        .route("/assets/uaf-logo.png", get(uaf_logo))
+        .route("/assets/acep-logo.png", get(acep_logo))
+        .route("/remotes", get(remotes_page))
+        .route("/my-drive", get(my_drive_page))
+        .route("/my-drive/tags", post(apply_my_drive_tag))
+        .route("/shared-with-me", get(shared_with_me_page))
+        .route("/shared-with-me/tags", post(apply_shared_with_me_tag))
+        .route("/tags", get(tags_page))
+        .route("/directory", get(directory_page))
+        .route("/directory/principals/{principal_id}", get(principal_page))
+        .route("/directory/import/csv", post(import_directory_csv))
+        .route("/tags/create", post(create_tag))
+        .route("/tags/update", post(update_tag))
+        .route("/settings", get(settings_page).post(save_settings))
+        .route("/status", get(status))
+        .route("/rclone-gui", get(open_rclone_gui))
+        .route("/ui/alerts", get(ui_alerts))
+        .route("/ui/status", get(ui_status))
+        .route("/ui/setup-progress", get(ui_setup_progress))
+        .route("/ui/metadata-progress", get(ui_metadata_progress))
+        .route("/ui/metadata-update-modal", get(ui_metadata_update_modal))
+        .route("/ui/drive-summaries", get(ui_drive_summaries))
+        .route("/setup/google-client/import", post(import_google_client))
+        .route("/setup/remotes/my-drive-rw", post(setup_my_drive_rw))
+        .route("/setup/remotes/my-drive-ro", post(setup_my_drive_ro))
+        .route("/metadata/update", post(start_metadata_update))
+        .route("/app/quit", post(quit))
 }
 
 async fn uaf_logo() -> impl IntoResponse {
@@ -546,22 +491,14 @@ async fn acep_logo() -> impl IntoResponse {
     )
 }
 
-async fn index(
-    State(state): State<Arc<AppState>>,
-) -> Result<Html<String>, StatusCode> {
+async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
     let rclone_state = state.rclone_state();
 
-    let google_client_state =
-        state.google_client_state();
-    let google_remotes_state =
-        state.google_remotes_state();
-    let metadata_state =
-        state.metadata_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
 
-    let alerts = build_alerts(
-        &rclone_state,
-        &google_client_state,
-    );
+    let alerts = build_alerts(&rclone_state, &google_client_state);
 
     let status_items = build_status_items(
         &rclone_state,
@@ -569,22 +506,13 @@ async fn index(
         &google_remotes_state,
         &metadata_state,
         configured_remote_count(&state.runtime, &rclone_state),
+        authenticated_google_email(&state),
     );
 
-    let (
-        setup_steps,
-        setup_percent,
-    ) = build_setup_progress(
-        &rclone_state,
-        &google_client_state,
-        &google_remotes_state,
-    );
+    let (setup_steps, setup_percent) =
+        build_setup_progress(&rclone_state, &google_client_state, &google_remotes_state);
 
-    let poll_rclone = should_poll_ui(
-        &rclone_state,
-        &google_remotes_state,
-        &metadata_state,
-    );
+    let poll_rclone = should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state);
 
     let shared_summary = latest_shared_summary(&state);
     let template = DashboardTemplate {
@@ -598,17 +526,12 @@ async fn index(
         metadata: build_metadata_view(
             &metadata_state,
             setup_percent == 100,
-            should_poll_setup(
-                &rclone_state,
-                &google_remotes_state,
-            ),
+            should_poll_setup(&rclone_state, &google_remotes_state),
             shared_summary.as_ref(),
         ),
     };
 
-    render_template(
-        &template,
-    )
+    render_template(&template)
 }
 
 fn build_setup_progress(
@@ -629,15 +552,10 @@ fn build_setup_progress(
             remote_actions: Vec::new(),
         },
 
-        RcloneState::Ready(
-            status,
-        ) => SetupStep {
+        RcloneState::Ready(status) => SetupStep {
             icon: "bi-check-circle-fill",
             title: "Install Rclone",
-            description: format!(
-                "{} is installed and ready.",
-                status.version
-            ),
+            description: format!("{} is installed and ready.", status.version),
             state_label: "Complete",
             state_class: "text-bg-success",
             complete: true,
@@ -645,14 +563,10 @@ fn build_setup_progress(
             remote_actions: Vec::new(),
         },
 
-        RcloneState::Error(
-            error,
-        ) => SetupStep {
+        RcloneState::Error(error) => SetupStep {
             icon: "bi-exclamation-triangle-fill",
             title: "Install Rclone",
-            description: format!(
-                "Rclone setup failed: {error}"
-            ),
+            description: format!("Rclone setup failed: {error}"),
             state_label: "Needs attention",
             state_class: "text-bg-danger",
             complete: false,
@@ -741,27 +655,13 @@ fn build_setup_progress(
         ],
     };
 
-    let steps = vec![
-        rclone_step,
-        google_step,
-        remote_step,
-    ];
+    let steps = vec![rclone_step, google_step, remote_step];
 
-    let complete_count = steps
-        .iter()
-        .filter(
-            |step| step.complete,
-        )
-        .count();
+    let complete_count = steps.iter().filter(|step| step.complete).count();
 
-    let setup_percent = (
-        complete_count * 100 / steps.len()
-    ) as u8;
+    let setup_percent = (complete_count * 100 / steps.len()) as u8;
 
-    (
-        steps,
-        setup_percent,
-    )
+    (steps, setup_percent)
 }
 
 fn build_remote_action(
@@ -790,9 +690,9 @@ fn build_remote_action(
             || matches!(state, RemoteState::Ready | RemoteState::Conflict(_)),
         detail: match state {
             RemoteState::Conflict(error) | RemoteState::Error(error) => error.clone(),
-            RemoteState::Configuring =>
-                "Complete the Google authorization in the browser tab opened by Rclone."
-                    .to_string(),
+            RemoteState::Configuring => {
+                "Complete the Google authorization in the browser tab opened by Rclone.".to_string()
+            }
             _ => String::new(),
         },
     }
@@ -828,9 +728,7 @@ fn build_metadata_view(
             shared_completed_at: shared.completed_at.clone(),
         },
 
-        MetadataState::Updating(
-            progress,
-        ) => MetadataView {
+        MetadataState::Updating(progress) => MetadataView {
             available,
             poll: true,
             updating: true,
@@ -840,9 +738,7 @@ fn build_metadata_view(
             files_scanned: progress.files_scanned,
             folders_scanned: progress.folders_scanned,
             permissions_scanned: progress.permissions_scanned,
-            size_label: format_bytes(
-                progress.bytes_discovered,
-            ),
+            size_label: format_bytes(progress.bytes_discovered),
             errors: progress.errors,
             completed_at: String::new(),
             shared_indexed,
@@ -853,9 +749,7 @@ fn build_metadata_view(
             shared_completed_at: shared.completed_at.clone(),
         },
 
-        MetadataState::Synchronized(
-            summary,
-        ) => MetadataView {
+        MetadataState::Synchronized(summary) => MetadataView {
             available,
             poll: poll_for_setup,
             updating: false,
@@ -865,9 +759,7 @@ fn build_metadata_view(
             files_scanned: summary.files_scanned,
             folders_scanned: summary.folders_scanned,
             permissions_scanned: summary.permissions_scanned,
-            size_label: format_bytes(
-                summary.bytes_discovered,
-            ),
+            size_label: format_bytes(summary.bytes_discovered),
             errors: 0,
             completed_at: summary.completed_at.clone(),
             shared_indexed,
@@ -878,9 +770,7 @@ fn build_metadata_view(
             shared_completed_at: shared.completed_at.clone(),
         },
 
-        MetadataState::Error(
-            error,
-        ) => MetadataView {
+        MetadataState::Error(error) => MetadataView {
             available,
             poll: poll_for_setup,
             updating: false,
@@ -903,32 +793,19 @@ fn build_metadata_view(
     }
 }
 
-fn format_bytes(
-    bytes: u64,
-) -> String {
+fn format_bytes(bytes: u64) -> String {
     const GB: f64 = 1_000_000_000.0;
     const MB: f64 = 1_000_000.0;
     const KB: f64 = 1_000.0;
 
     if bytes as f64 >= GB {
-        format!(
-            "{:.1} GB",
-            bytes as f64 / GB,
-        )
+        format!("{:.1} GB", bytes as f64 / GB,)
     } else if bytes as f64 >= MB {
-        format!(
-            "{:.1} MB",
-            bytes as f64 / MB,
-        )
+        format!("{:.1} MB", bytes as f64 / MB,)
     } else if bytes as f64 >= KB {
-        format!(
-            "{:.1} kB",
-            bytes as f64 / KB,
-        )
+        format!("{:.1} kB", bytes as f64 / KB,)
     } else {
-        format!(
-            "{bytes} B",
-        )
+        format!("{bytes} B",)
     }
 }
 
@@ -936,33 +813,16 @@ async fn settings_page(
     State(state): State<Arc<AppState>>,
     Query(query): Query<SettingsQuery>,
 ) -> Result<Html<String>, StatusCode> {
-    let database = state.database()
-        .map_err(
-            |error| {
-                eprintln!(
-                    "Unable to open settings: {error}"
-                );
-                StatusCode::SERVICE_UNAVAILABLE
-            },
-        )?;
-    let inventory_settings = settings::load(
-        &database,
-    )
-    .map_err(
-        |error| {
-            eprintln!(
-                "Unable to load settings: {error}"
-            );
-            StatusCode::INTERNAL_SERVER_ERROR
-        },
-    )?;
+    let database = state.database().map_err(|error| {
+        eprintln!("Unable to open settings: {error}");
+        StatusCode::SERVICE_UNAVAILABLE
+    })?;
+    let inventory_settings = settings::load(&database).map_err(|error| {
+        eprintln!("Unable to load settings: {error}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
-    render_settings(
-        &state,
-        inventory_settings,
-        query.saved,
-        String::new(),
-    )
+    render_settings(&state, inventory_settings, query.saved, String::new())
 }
 
 async fn save_settings(
@@ -973,39 +833,18 @@ async fn save_settings(
         automatic_updates: form.automatic_updates.is_some(),
         refresh_interval_hours: form.refresh_interval_hours,
         full_reconciliation_days: form.full_reconciliation_days,
-        update_when_overdue_at_startup:
-            form.update_when_overdue_at_startup.is_some(),
+        update_when_overdue_at_startup: form.update_when_overdue_at_startup.is_some(),
         permission_scanning: form.permission_scanning.is_some(),
     };
-    let database = state.database()
-        .map_err(
-            |_| StatusCode::SERVICE_UNAVAILABLE,
-        )?;
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    match settings::save(
-        &database,
-        &inventory_settings,
-    ) {
-        Ok(
-            (),
-        ) => Ok(
-            Redirect::to(
-                "/settings?saved=true",
-            )
-            .into_response(),
-        ),
+    match settings::save(&database, &inventory_settings) {
+        Ok(()) => Ok(Redirect::to("/settings?saved=true").into_response()),
 
-        Err(
-            error,
-        ) => render_settings(
-            &state,
-            inventory_settings,
-            false,
-            error.to_string(),
-        )
-        .map(
-            axum::response::IntoResponse::into_response,
-        ),
+        Err(error) => render_settings(&state, inventory_settings, false, error.to_string())
+            .map(axum::response::IntoResponse::into_response),
     }
 }
 
@@ -1023,48 +862,32 @@ fn render_settings(
     let template = SettingsTemplate {
         title: "Settings - BOREAL",
         active_page: "settings",
-        alerts: build_alerts(
-            &rclone_state,
-            &google_client_state,
-        ),
+        alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
             &metadata_state,
             configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(&state),
         ),
-        poll_rclone: should_poll_ui(
-            &rclone_state,
-            &google_remotes_state,
-            &metadata_state,
-        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
         settings: inventory_settings,
         saved,
         error,
     };
 
-    render_template(
-        &template,
-    )
+    render_template(&template)
 }
 
-async fn about(
-    State(state): State<Arc<AppState>>,
-) -> Result<Html<String>, StatusCode> {
+async fn about(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
     let rclone_state = state.rclone_state();
 
-    let google_client_state =
-        state.google_client_state();
-    let google_remotes_state =
-        state.google_remotes_state();
-    let metadata_state =
-        state.metadata_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
 
-    let alerts = build_alerts(
-        &rclone_state,
-        &google_client_state,
-    );
+    let alerts = build_alerts(&rclone_state, &google_client_state);
 
     let status_items = build_status_items(
         &rclone_state,
@@ -1072,13 +895,10 @@ async fn about(
         &google_remotes_state,
         &metadata_state,
         configured_remote_count(&state.runtime, &rclone_state),
+        authenticated_google_email(&state),
     );
 
-    let poll_rclone = should_poll_ui(
-        &rclone_state,
-        &google_remotes_state,
-        &metadata_state,
-    );
+    let poll_rclone = should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state);
 
     let template = AboutTemplate {
         title: "About BOREAL",
@@ -1088,57 +908,55 @@ async fn about(
         poll_rclone,
     };
 
-    render_template(
-        &template,
-    )
+    render_template(&template)
 }
 
 async fn status() -> StatusCode {
     StatusCode::NO_CONTENT
 }
 
-async fn remotes_page(
-    State(state): State<Arc<AppState>>,
-) -> Result<Html<String>, StatusCode> {
+async fn remotes_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
     let metadata_state = state.metadata_state();
 
     let listed = match &rclone_state {
-        RcloneState::Ready(status) => rclone::remotes::list_configured(
-            &state.runtime,
-            &status.path,
-        ),
+        RcloneState::Ready(status) => {
+            rclone::remotes::list_configured(&state.runtime, &status.path)
+        }
         _ => Err("Rclone is not ready".into()),
     };
     let (remotes, error) = match listed {
         Ok(remotes) => (
-            remotes.into_iter().map(|remote| {
-                let (access, purpose, status, status_class) = match remote.name.as_str() {
-                    "my-drive-ro" => (
-                        "Read only",
-                        "Metadata inventory",
-                        remote_state_label(&google_remotes_state.ro),
-                        remote_state_class(&google_remotes_state.ro),
-                    ),
-                    "my-drive-rw" => (
-                        "Read/write",
-                        "Migration operations",
-                        remote_state_label(&google_remotes_state.rw),
-                        remote_state_class(&google_remotes_state.rw),
-                    ),
-                    _ => ("Remote-defined", "General", "Configured", "text-bg-success"),
-                };
-                RemoteView {
-                    name: remote.name,
-                    backend: remote.backend,
-                    access,
-                    purpose,
-                    status,
-                    status_class,
-                }
-            }).collect(),
+            remotes
+                .into_iter()
+                .map(|remote| {
+                    let (access, purpose, status, status_class) = match remote.name.as_str() {
+                        "my-drive-ro" => (
+                            "Read only",
+                            "Metadata inventory",
+                            remote_state_label(&google_remotes_state.ro),
+                            remote_state_class(&google_remotes_state.ro),
+                        ),
+                        "my-drive-rw" => (
+                            "Read/write",
+                            "Migration operations",
+                            remote_state_label(&google_remotes_state.rw),
+                            remote_state_class(&google_remotes_state.rw),
+                        ),
+                        _ => ("Remote-defined", "General", "Configured", "text-bg-success"),
+                    };
+                    RemoteView {
+                        name: remote.name,
+                        backend: remote.backend,
+                        access,
+                        purpose,
+                        status,
+                        status_class,
+                    }
+                })
+                .collect(),
             String::new(),
         ),
         Err(error) => {
@@ -1157,6 +975,7 @@ async fn remotes_page(
             &google_remotes_state,
             &metadata_state,
             remotes.len(),
+            authenticated_google_email(&state),
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
         remotes,
@@ -1170,9 +989,15 @@ async fn my_drive_page(
     Query(query): Query<DrivePathQuery>,
 ) -> Result<Html<String>, StatusCode> {
     render_drive_explorer(
-        &state, query, database::inventory::MY_DRIVE_SCOPE, "my-drive",
-        "My Drive Explorer", "Browse the latest local My Drive metadata inventory and open items in Google Drive.",
-        "My Drive", "/my-drive", "/my-drive/tags",
+        &state,
+        query,
+        database::inventory::MY_DRIVE_SCOPE,
+        "my-drive",
+        "My Drive Explorer",
+        "Browse the latest local My Drive metadata inventory and open items in Google Drive.",
+        "My Drive",
+        "/my-drive",
+        "/my-drive/tags",
     )
 }
 
@@ -1181,9 +1006,15 @@ async fn shared_with_me_page(
     Query(query): Query<DrivePathQuery>,
 ) -> Result<Html<String>, StatusCode> {
     render_drive_explorer(
-        &state, query, database::inventory::SHARED_WITH_ME_SCOPE, "shared-with-me",
-        "Shared with me Explorer", "Browse content other people have shared with the authenticated Google account.",
-        "Shared with me", "/shared-with-me", "/shared-with-me/tags",
+        &state,
+        query,
+        database::inventory::SHARED_WITH_ME_SCOPE,
+        "shared-with-me",
+        "Shared with me Explorer",
+        "Browse content other people have shared with the authenticated Google account.",
+        "Shared with me",
+        "/shared-with-me",
+        "/shared-with-me/tags",
     )
 }
 
@@ -1239,44 +1070,69 @@ fn render_drive_explorer(
             (Vec::new(), error.to_string())
         }
     };
-    let rows = items.into_iter().map(|item| DriveExplorerRow {
-        drive_url: if item.is_directory {
-            format!("https://drive.google.com/drive/folders/{}", item.item_id)
-        } else {
-            format!("https://drive.google.com/open?id={}", item.item_id)
-        },
-        item_id: item.item_id.clone(),
-        name: item.name,
-        name_url: if item.is_directory {
-            explorer_url(
-                explorer_path, &item.relative_path, "", &query.tag, &query.type_filter,
-                &query.size_filter, &query.modified_filter, &query.owner_filter,
-                &query.permission_filter, sort, if descending { "desc" } else { "asc" },
-                query.include_deleted,
-            )
-        } else {
-            format!("https://drive.google.com/open?id={}", item.item_id)
-        },
-        name_new_tab: !item.is_directory,
-        is_directory: item.is_directory,
-        type_icon: mime_icon(item.is_directory, item.mime_type.as_deref()),
-        mime_type: if item.is_directory { "Folder".to_string() } else { item.mime_type.unwrap_or_else(|| "Unknown file type".to_string()) },
-        tags: item.tags.into_iter().map(|tag| TagPill {
-            text_color: tag_text_color(&tag.color),
-            name: tag.name,
-            color: tag.color,
-        }).collect(),
-        permissions: if item.permissions.is_empty() {
-            "—".to_string()
-        } else {
-            item.permissions.join(", ")
-        },
-        size: item.size_bytes.map(format_bytes).unwrap_or_else(|| "—".to_string()),
-        modified_at: item.modified_at.unwrap_or_else(|| "—".to_string()),
-        owner_email: item.owner_email.unwrap_or_else(|| "—".to_string()),
-        is_deleted: item.is_deleted,
-    }).collect();
-    let parent_path = query.path.rsplit_once('/')
+    let rows = items
+        .into_iter()
+        .map(|item| DriveExplorerRow {
+            drive_url: if item.is_directory {
+                format!("https://drive.google.com/drive/folders/{}", item.item_id)
+            } else {
+                format!("https://drive.google.com/open?id={}", item.item_id)
+            },
+            item_id: item.item_id.clone(),
+            name: item.name,
+            name_url: if item.is_directory {
+                explorer_url(
+                    explorer_path,
+                    &item.relative_path,
+                    "",
+                    &query.tag,
+                    &query.type_filter,
+                    &query.size_filter,
+                    &query.modified_filter,
+                    &query.owner_filter,
+                    &query.permission_filter,
+                    sort,
+                    if descending { "desc" } else { "asc" },
+                    query.include_deleted,
+                )
+            } else {
+                format!("https://drive.google.com/open?id={}", item.item_id)
+            },
+            name_new_tab: !item.is_directory,
+            is_directory: item.is_directory,
+            type_icon: mime_icon(item.is_directory, item.mime_type.as_deref()),
+            mime_type: if item.is_directory {
+                "Folder".to_string()
+            } else {
+                item.mime_type
+                    .unwrap_or_else(|| "Unknown file type".to_string())
+            },
+            tags: item
+                .tags
+                .into_iter()
+                .map(|tag| TagPill {
+                    text_color: tag_text_color(&tag.color),
+                    name: tag.name,
+                    color: tag.color,
+                })
+                .collect(),
+            permissions: if item.permissions.is_empty() {
+                "—".to_string()
+            } else {
+                item.permissions.join(", ")
+            },
+            size: item
+                .size_bytes
+                .map(format_bytes)
+                .unwrap_or_else(|| "—".to_string()),
+            modified_at: item.modified_at.unwrap_or_else(|| "—".to_string()),
+            owner_email: item.owner_email.unwrap_or_else(|| "—".to_string()),
+            is_deleted: item.is_deleted,
+        })
+        .collect();
+    let parent_path = query
+        .path
+        .rsplit_once('/')
         .map(|(parent, _)| parent.to_string())
         .unwrap_or_default();
     let tags = database::inventory::list_tags(&database).map_err(|error| {
@@ -1294,16 +1150,25 @@ fn render_drive_explorer(
             &google_remotes_state,
             &metadata_state,
             configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(&state),
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
-        current_path: if query.path.is_empty() { root_label.to_string() } else { query.path.clone() },
+        current_path: if query.path.is_empty() {
+            root_label.to_string()
+        } else {
+            query.path.clone()
+        },
         parent_path,
         has_parent,
         rows,
         error,
         search: query.q.clone(),
         sort: sort.to_string(),
-        direction: if descending { "desc".to_string() } else { "asc".to_string() },
+        direction: if descending {
+            "desc".to_string()
+        } else {
+            "asc".to_string()
+        },
         name_sort_url: sort_url(explorer_path, &query, sort, descending, "name"),
         type_sort_url: sort_url(explorer_path, &query, sort, descending, "type"),
         size_sort_url: sort_url(explorer_path, &query, sort, descending, "size"),
@@ -1313,7 +1178,12 @@ fn render_drive_explorer(
             explorer_path,
             &query.path,
             "",
-            "", "", "", "", "", "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
             sort,
             if descending { "desc" } else { "asc" },
             false,
@@ -1341,9 +1211,19 @@ fn mime_icon(is_directory: bool, mime_type: Option<&str>) -> &'static str {
         "bi-folder-fill"
     } else {
         match mime_type.unwrap_or("") {
-            value if value.contains("spreadsheet") || value.contains("excel") => "bi-file-earmark-spreadsheet",
-            value if value.contains("presentation") || value.contains("powerpoint") => "bi-file-earmark-slides",
-            value if value.contains("document") || value.contains("word") || value.starts_with("text/") => "bi-file-earmark-text",
+            value if value.contains("spreadsheet") || value.contains("excel") => {
+                "bi-file-earmark-spreadsheet"
+            }
+            value if value.contains("presentation") || value.contains("powerpoint") => {
+                "bi-file-earmark-slides"
+            }
+            value
+                if value.contains("document")
+                    || value.contains("word")
+                    || value.starts_with("text/") =>
+            {
+                "bi-file-earmark-text"
+            }
             value if value == "application/pdf" => "bi-file-earmark-pdf",
             value if value.starts_with("image/") => "bi-file-earmark-image",
             value if value.starts_with("audio/") => "bi-file-earmark-music",
@@ -1367,17 +1247,28 @@ fn encode_query_value(value: &str) -> String {
 }
 
 fn explorer_url(
-    explorer_path: &str, path: &str, search: &str, tag: &str, type_filter: &str, size_filter: &str,
-    modified_filter: &str, owner_filter: &str, permission_filter: &str,
-    sort: &str, direction: &str, include_deleted: bool,
+    explorer_path: &str,
+    path: &str,
+    search: &str,
+    tag: &str,
+    type_filter: &str,
+    size_filter: &str,
+    modified_filter: &str,
+    owner_filter: &str,
+    permission_filter: &str,
+    sort: &str,
+    direction: &str,
+    include_deleted: bool,
 ) -> String {
     format!(
         "{explorer_path}?path={}&q={}&tag={}&type_filter={}&size_filter={}&modified_filter={}&owner_filter={}&permission_filter={}&sort={}&direction={}&include_deleted={include_deleted}",
         encode_query_value(path),
         encode_query_value(search),
         encode_query_value(tag),
-        encode_query_value(type_filter), encode_query_value(size_filter),
-        encode_query_value(modified_filter), encode_query_value(owner_filter),
+        encode_query_value(type_filter),
+        encode_query_value(size_filter),
+        encode_query_value(modified_filter),
+        encode_query_value(owner_filter),
         encode_query_value(permission_filter),
         encode_query_value(sort),
         encode_query_value(direction),
@@ -1397,9 +1288,17 @@ fn sort_url(
         "asc"
     };
     explorer_url(
-        explorer_path, &query.path, &query.q, &query.tag, &query.type_filter, &query.size_filter,
-        &query.modified_filter, &query.owner_filter, &query.permission_filter,
-        requested_sort, next_direction,
+        explorer_path,
+        &query.path,
+        &query.q,
+        &query.tag,
+        &query.type_filter,
+        &query.size_filter,
+        &query.modified_filter,
+        &query.owner_filter,
+        &query.permission_filter,
+        requested_sort,
+        next_direction,
         query.include_deleted,
     )
 }
@@ -1408,7 +1307,12 @@ async fn apply_my_drive_tag(
     State(state): State<Arc<AppState>>,
     Form(form): Form<ApplyTagForm>,
 ) -> Result<Redirect, StatusCode> {
-    apply_drive_tag(&state, form, database::inventory::MY_DRIVE_SCOPE, "/my-drive")
+    apply_drive_tag(
+        &state,
+        form,
+        database::inventory::MY_DRIVE_SCOPE,
+        "/my-drive",
+    )
 }
 
 async fn apply_shared_with_me_tag(
@@ -1416,7 +1320,10 @@ async fn apply_shared_with_me_tag(
     Form(form): Form<ApplyTagForm>,
 ) -> Result<Redirect, StatusCode> {
     apply_drive_tag(
-        &state, form, database::inventory::SHARED_WITH_ME_SCOPE, "/shared-with-me",
+        &state,
+        form,
+        database::inventory::SHARED_WITH_ME_SCOPE,
+        "/shared-with-me",
     )
 }
 
@@ -1426,8 +1333,11 @@ fn apply_drive_tag(
     inventory_scope: &str,
     explorer_path: &str,
 ) -> Result<Redirect, StatusCode> {
-    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let selected_items: Vec<String> = form.selected_item_ids
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let selected_items: Vec<String> = form
+        .selected_item_ids
         .split(',')
         .map(str::trim)
         .filter(|item_id| !item_id.is_empty())
@@ -1438,7 +1348,8 @@ fn apply_drive_tag(
         inventory_scope,
         &selected_items,
         &form.tag,
-    ).map_err(|error| {
+    )
+    .map_err(|error| {
         eprintln!("Unable to apply My Drive tag: {error}");
         StatusCode::BAD_REQUEST
     })?;
@@ -1469,9 +1380,11 @@ async fn tags_page(
     State(state): State<Arc<AppState>>,
     Query(query): Query<SettingsQuery>,
 ) -> Result<Html<String>, StatusCode> {
-    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let tags = database::inventory::list_tags(&database)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let tags =
+        database::inventory::list_tags(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
@@ -1481,8 +1394,12 @@ async fn tags_page(
         active_page: "tags",
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
-            &rclone_state, &google_client_state, &google_remotes_state,
-            &metadata_state, configured_remote_count(&state.runtime, &rclone_state),
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(&state),
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
         tags,
@@ -1490,16 +1407,172 @@ async fn tags_page(
     })
 }
 
+async fn directory_page(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<DirectoryQuery>,
+) -> Result<Html<String>, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let summary = database::directory::summary(&database).map_err(|error| {
+        log::error!("Unable to load directory summary: {error}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    let principals = database::directory::list_principals_filtered(
+        &database,
+        &query.name_filter,
+        &query.email_filter,
+        &query.type_filter,
+        &query.status_filter,
+        &query.departure_filter,
+        &query.organization_filter,
+    )
+    .map_err(|error| {
+        log::error!("Unable to load directory principals: {error}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    let organizations = database::directory::list_organizations(&database).map_err(|error| {
+        log::error!("Unable to load directory organizations: {error}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    let remote_accounts =
+        database::directory::list_remote_accounts(&database).map_err(|error| {
+            log::error!("Unable to load authenticated accounts: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    render_template(&DirectoryTemplate {
+        title: "Directory - BOREAL",
+        active_page: "directory",
+        alerts: build_alerts(&rclone_state, &google_client_state),
+        status_items: build_status_items(
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(&state),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+        summary,
+        principals,
+        organizations,
+        remote_accounts,
+        import_complete: query.imported,
+        imported_created: query.created,
+        imported_updated: query.updated,
+        imported_rejected: query.rejected,
+        name_filter: query.name_filter,
+        email_filter: query.email_filter,
+        type_filter: query.type_filter,
+        status_filter: query.status_filter,
+        departure_filter: query.departure_filter,
+        organization_filter: query.organization_filter,
+    })
+}
+
+async fn import_directory_csv(
+    State(state): State<Arc<AppState>>,
+    mut multipart: Multipart,
+) -> Result<Redirect, StatusCode> {
+    const MAX_DIRECTORY_CSV_BYTES: usize = 10 * 1024 * 1024;
+    let mut upload: Option<(String, Vec<u8>)> = None;
+    while let Some(field) = multipart.next_field().await.map_err(|error| {
+        log::error!("Unable to read directory CSV upload: {error}");
+        StatusCode::BAD_REQUEST
+    })? {
+        if field.name() != Some("directory_csv") {
+            continue;
+        }
+        let filename = field.file_name().unwrap_or("directory.csv").to_string();
+        let data = field.bytes().await.map_err(|error| {
+            log::error!("Unable to read directory CSV file: {error}");
+            StatusCode::BAD_REQUEST
+        })?;
+        if data.len() > MAX_DIRECTORY_CSV_BYTES {
+            log::warn!("Rejected directory CSV larger than 10 MiB");
+            return Err(StatusCode::PAYLOAD_TOO_LARGE);
+        }
+        upload = Some((filename, data.to_vec()));
+        break;
+    }
+    let (filename, data) = upload.ok_or(StatusCode::BAD_REQUEST)?;
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let summary =
+        database::directory::import_csv(&database, &filename, &data).map_err(|error| {
+            log::error!("Directory CSV import failed: filename={filename}, error={error}");
+            StatusCode::BAD_REQUEST
+        })?;
+    log::info!(
+        "Directory CSV imported: filename={filename}, rows={}, created={}, updated={}, rejected={}",
+        summary.rows_seen,
+        summary.rows_created,
+        summary.rows_updated,
+        summary.rows_rejected,
+    );
+    let url = format!(
+        "/directory?imported=true&created={}&updated={}&rejected={}",
+        summary.rows_created, summary.rows_updated, summary.rows_rejected,
+    );
+    Ok(Redirect::to(&url))
+}
+
+async fn principal_page(
+    State(state): State<Arc<AppState>>,
+    Path(principal_id): Path<i64>,
+) -> Result<Html<String>, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let principal = database::directory::get_principal(&database, principal_id)
+        .map_err(|error| {
+            log::error!("Unable to load directory principal: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let associations = database::directory::list_principal_associations(&database, principal_id)
+        .map_err(|error| {
+            log::error!("Unable to load principal Drive associations: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    render_template(&PrincipalTemplate {
+        title: format!("{} - Directory - BOREAL", principal.display_name),
+        active_page: "directory",
+        alerts: build_alerts(&rclone_state, &google_client_state),
+        status_items: build_status_items(
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(&state),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+        principal,
+        associations,
+    })
+}
+
 async fn create_tag(
     State(state): State<Arc<AppState>>,
     Form(form): Form<TagForm>,
 ) -> Result<Redirect, StatusCode> {
-    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    database::inventory::create_tag(&database, &form.name, &form.color)
-        .map_err(|error| {
-            eprintln!("Unable to create tag: {error}");
-            StatusCode::BAD_REQUEST
-        })?;
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::inventory::create_tag(&database, &form.name, &form.color).map_err(|error| {
+        eprintln!("Unable to create tag: {error}");
+        StatusCode::BAD_REQUEST
+    })?;
     println!("Tag created: name={}", form.name.trim());
     Ok(Redirect::to("/tags?saved=true"))
 }
@@ -1508,12 +1581,15 @@ async fn update_tag(
     State(state): State<Arc<AppState>>,
     Form(form): Form<TagForm>,
 ) -> Result<Redirect, StatusCode> {
-    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    database::inventory::update_tag(&database, &form.slug, &form.name, &form.color)
-        .map_err(|error| {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::inventory::update_tag(&database, &form.slug, &form.name, &form.color).map_err(
+        |error| {
             eprintln!("Unable to update tag: {error}");
             StatusCode::BAD_REQUEST
-        })?;
+        },
+    )?;
     println!("Tag updated: slug={}", form.slug);
     Ok(Redirect::to("/tags?saved=true"))
 }
@@ -1523,76 +1599,51 @@ fn tag_text_color(color: &str) -> &'static str {
     let red = (value >> 16) & 0xff;
     let green = (value >> 8) & 0xff;
     let blue = value & 0xff;
-    if red * 299 + green * 587 + blue * 114 > 150_000 { "#212529" } else { "#ffffff" }
+    if red * 299 + green * 587 + blue * 114 > 150_000 {
+        "#212529"
+    } else {
+        "#ffffff"
+    }
 }
 
-async fn open_rclone_gui(
-    State(state): State<Arc<AppState>>,
-) -> Result<Redirect, StatusCode> {
-    let url = rclone_gui_url(
-        &state.rclone_state(),
-    );
+async fn open_rclone_gui(State(state): State<Arc<AppState>>) -> Result<Redirect, StatusCode> {
+    let url = rclone_gui_url(&state.rclone_state());
 
     if url.is_empty() {
-        return Err(
-            StatusCode::SERVICE_UNAVAILABLE,
-        );
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
 
-    Ok(
-        Redirect::to(
-            &url,
-        ),
-    )
+    Ok(Redirect::to(&url))
 }
 
-async fn quit(
-    State(state): State<Arc<AppState>>,
-) -> StatusCode {
-    println!(
-        "Quit requested from WebUI."
-    );
+async fn quit(State(state): State<Arc<AppState>>) -> StatusCode {
+    println!("Quit requested from WebUI.");
 
     state.request_shutdown();
 
     StatusCode::ACCEPTED
 }
 
-async fn ui_alerts(
-    State(state): State<Arc<AppState>>,
-) -> Result<Html<String>, StatusCode> {
+async fn ui_alerts(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
     let rclone_state = state.rclone_state();
 
-    let google_client_state =
-        state.google_client_state();
+    let google_client_state = state.google_client_state();
 
     let template = AlertsTemplate {
-        alerts: build_alerts(
-            &rclone_state,
-            &google_client_state,
-        ),
+        alerts: build_alerts(&rclone_state, &google_client_state),
 
-        poll_rclone: should_poll_rclone(
-            &rclone_state,
-        ),
+        poll_rclone: should_poll_rclone(&rclone_state),
     };
 
-    render_template(
-        &template,
-    )
+    render_template(&template)
 }
 
-async fn ui_status(
-    State(state): State<Arc<AppState>>,
-) -> Result<Html<String>, StatusCode> {
+async fn ui_status(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
     let rclone_state = state.rclone_state();
 
-    let google_client_state =
-        state.google_client_state();
-    let google_remotes_state =
-        state.google_remotes_state();
-    let metadata_state =
-        state.metadata_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
 
     let template = StatusTemplate {
         status_items: build_status_items(
@@ -1601,51 +1652,31 @@ async fn ui_status(
             &google_remotes_state,
             &metadata_state,
             configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(&state),
         ),
 
-        poll_rclone: should_poll_ui(
-            &rclone_state,
-            &google_remotes_state,
-            &metadata_state,
-        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
     };
 
-    render_template(
-        &template,
-    )
+    render_template(&template)
 }
 
-async fn ui_setup_progress(
-    State(state): State<Arc<AppState>>,
-) -> Result<Html<String>, StatusCode> {
+async fn ui_setup_progress(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
     let rclone_state = state.rclone_state();
 
-    let google_client_state =
-        state.google_client_state();
-    let google_remotes_state =
-        state.google_remotes_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
 
-    let (
-        setup_steps,
-        setup_percent,
-    ) = build_setup_progress(
-        &rclone_state,
-        &google_client_state,
-        &google_remotes_state,
-    );
+    let (setup_steps, setup_percent) =
+        build_setup_progress(&rclone_state, &google_client_state, &google_remotes_state);
 
     let template = SetupProgressTemplate {
         setup_steps,
         setup_percent,
-        poll_rclone: should_poll_setup(
-            &rclone_state,
-            &google_remotes_state,
-        ),
+        poll_rclone: should_poll_setup(&rclone_state, &google_remotes_state),
     };
 
-    render_template(
-        &template,
-    )
+    render_template(&template)
 }
 
 async fn ui_drive_summaries(
@@ -1654,12 +1685,7 @@ async fn ui_drive_summaries(
     let metadata_state = state.metadata_state();
     let shared_summary = latest_shared_summary(&state);
     let template = DriveSummariesTemplate {
-        metadata: build_metadata_view(
-            &metadata_state,
-            true,
-            false,
-            shared_summary.as_ref(),
-        ),
+        metadata: build_metadata_view(&metadata_state, true, false, shared_summary.as_ref()),
     };
     render_template(&template)
 }
@@ -1669,29 +1695,55 @@ async fn ui_metadata_progress(
 ) -> Result<Html<String>, StatusCode> {
     let remotes = state.google_remotes_state();
     let rclone_state = state.rclone_state();
-    let available = matches!(
-        remotes.rw,
-        RemoteState::Ready
-    ) && matches!(
-        remotes.ro,
-        RemoteState::Ready
-    );
+    let available =
+        matches!(remotes.rw, RemoteState::Ready) && matches!(remotes.ro, RemoteState::Ready);
     let metadata_state = state.metadata_state();
     let shared_summary = latest_shared_summary(&state);
 
-    render_template(
-        &MetadataProgressTemplate {
-            metadata: build_metadata_view(
-                &metadata_state,
-                available,
-                should_poll_setup(
-                    &rclone_state,
-                    &remotes,
-                ),
-                shared_summary.as_ref(),
-            ),
+    render_template(&MetadataProgressTemplate {
+        metadata: build_metadata_view(
+            &metadata_state,
+            available,
+            should_poll_setup(&rclone_state, &remotes),
+            shared_summary.as_ref(),
+        ),
+    })
+}
+
+async fn ui_metadata_update_modal(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
+    let remotes = state.google_remotes_state();
+    let rclone_state = state.rclone_state();
+    let metadata_state = state.metadata_state();
+    let shared_summary = latest_shared_summary(&state);
+    let available = matches!(remotes.ro, RemoteState::Ready);
+    let progress_percent = metadata_progress_percent(&metadata_state);
+
+    render_template(&MetadataUpdateModalTemplate {
+        metadata: build_metadata_view(
+            &metadata_state,
+            available,
+            should_poll_setup(&rclone_state, &remotes),
+            shared_summary.as_ref(),
+        ),
+        progress_percent,
+    })
+}
+
+fn metadata_progress_percent(state: &MetadataState) -> u8 {
+    match state {
+        MetadataState::Updating(progress) => match progress.phase {
+            "Connecting" => 5,
+            "Fetching My Drive metadata" => 15,
+            "Fetching Shared with me metadata" => 45,
+            "Saving My Drive metadata" => 65,
+            "Saving Shared with me metadata" => 85,
+            _ => 10,
         },
-    )
+        MetadataState::Synchronized(_) => 100,
+        _ => 0,
+    }
 }
 
 fn latest_shared_summary(state: &AppState) -> Option<database::inventory::InventorySummary> {
@@ -1705,172 +1757,90 @@ async fn import_google_client(
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> Result<Redirect, StatusCode> {
-    let mut credentials: Option<Vec<u8>> =
-        None;
+    let mut credentials: Option<Vec<u8>> = None;
 
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(
-            |error| {
-                eprintln!(
-                    "Unable to read Google Client ID upload: {error}"
-                );
+    while let Some(field) = multipart.next_field().await.map_err(|error| {
+        eprintln!("Unable to read Google Client ID upload: {error}");
 
-                StatusCode::BAD_REQUEST
-            },
-        )?
-    {
-        if field.name() != Some(
-            "credentials",
-        ) {
+        StatusCode::BAD_REQUEST
+    })? {
+        if field.name() != Some("credentials") {
             continue;
         }
 
-        let data = field
-            .bytes()
-            .await
-            .map_err(
-                |error| {
-                    eprintln!(
-                        "Unable to read uploaded Google Client ID file: {error}"
-                    );
+        let data = field.bytes().await.map_err(|error| {
+            eprintln!("Unable to read uploaded Google Client ID file: {error}");
 
-                    StatusCode::BAD_REQUEST
-                },
-            )?;
+            StatusCode::BAD_REQUEST
+        })?;
 
-        credentials = Some(
-            data.to_vec(),
-        );
+        credentials = Some(data.to_vec());
 
         break;
     }
 
-    let data = credentials
-        .ok_or(
-            StatusCode::BAD_REQUEST,
-        )?;
+    let data = credentials.ok_or(StatusCode::BAD_REQUEST)?;
 
-    match google::client::import(
-        &state.runtime,
-        &data,
-    ) {
-        Ok(
-            config,
-        ) => {
-            println!(
-                "Google Client ID imported: {}",
-                config.client_id
-            );
+    match google::client::import(&state.runtime, &data) {
+        Ok(config) => {
+            println!("Google Client ID imported: {}", config.client_id);
 
-            state.set_google_client_state(
-                GoogleClientState::Ready(
-                    config,
-                ),
-            );
+            state.set_google_client_state(GoogleClientState::Ready(config));
 
             state.refresh_google_remotes_if_ready();
 
-            Ok(
-                Redirect::to(
-                    "/",
-                ),
-            )
+            Ok(Redirect::to("/"))
         }
 
-        Err(
-            error,
-        ) => {
+        Err(error) => {
             let message = error.to_string();
 
-            eprintln!(
-                "Google Client ID import failed: {message}"
-            );
+            eprintln!("Google Client ID import failed: {message}");
 
-            state.set_google_client_state(
-                GoogleClientState::Error(
-                    message,
-                ),
-            );
+            state.set_google_client_state(GoogleClientState::Error(message));
 
-            Ok(
-                Redirect::to(
-                    "/",
-                ),
-            )
+            Ok(Redirect::to("/"))
         }
     }
 }
 
-async fn setup_my_drive_rw(
-    State(state): State<Arc<AppState>>,
-) -> Result<Redirect, StatusCode> {
+async fn setup_my_drive_rw(State(state): State<Arc<AppState>>) -> Result<Redirect, StatusCode> {
     start_remote_setup(state, RemoteKind::MyDriveRw)
 }
 
-async fn setup_my_drive_ro(
-    State(state): State<Arc<AppState>>,
-) -> Result<Redirect, StatusCode> {
+async fn setup_my_drive_ro(State(state): State<Arc<AppState>>) -> Result<Redirect, StatusCode> {
     start_remote_setup(state, RemoteKind::MyDriveRo)
 }
 
-fn start_remote_setup(
-    state: Arc<AppState>,
-    kind: RemoteKind,
-) -> Result<Redirect, StatusCode> {
-    AppState::configure_google_remote(state, kind)
-        .map_err(|error| {
-            eprintln!("Unable to start {} setup: {error}", kind.label());
-            StatusCode::CONFLICT
-        })?;
+fn start_remote_setup(state: Arc<AppState>, kind: RemoteKind) -> Result<Redirect, StatusCode> {
+    AppState::configure_google_remote(state, kind).map_err(|error| {
+        eprintln!("Unable to start {} setup: {error}", kind.label());
+        StatusCode::CONFLICT
+    })?;
 
     Ok(Redirect::to("/"))
 }
 
-async fn start_metadata_update(
-    State(state): State<Arc<AppState>>,
-) -> Result<Redirect, StatusCode> {
+async fn start_metadata_update(State(state): State<Arc<AppState>>) -> Result<Redirect, StatusCode> {
     let remotes = state.google_remotes_state();
 
     if !matches!(remotes.ro, RemoteState::Ready) {
-        return Err(
-            StatusCode::PRECONDITION_FAILED,
-        );
+        return Err(StatusCode::PRECONDITION_FAILED);
     }
 
-    AppState::start_metadata_update(
-        state,
-    )
-    .map_err(
-        |error| {
-            eprintln!(
-                "Unable to start metadata update: {error}"
-            );
-            StatusCode::CONFLICT
-        },
-    )?;
+    AppState::start_metadata_update(state).map_err(|error| {
+        eprintln!("Unable to start metadata update: {error}");
+        StatusCode::CONFLICT
+    })?;
 
-    Ok(
-        Redirect::to(
-            "/",
-        ),
-    )
+    Ok(Redirect::to("/"))
 }
 
-fn should_poll_rclone(
-    rclone_state: &RcloneState,
-) -> bool {
-    matches!(
-        rclone_state,
-        RcloneState::Initializing
-    )
+fn should_poll_rclone(rclone_state: &RcloneState) -> bool {
+    matches!(rclone_state, RcloneState::Initializing)
 }
 
-fn should_poll_setup(
-    rclone_state: &RcloneState,
-    remotes_state: &GoogleRemotesState,
-) -> bool {
+fn should_poll_setup(rclone_state: &RcloneState, remotes_state: &GoogleRemotesState) -> bool {
     should_poll_rclone(rclone_state)
         || matches!(remotes_state.rw, RemoteState::Configuring)
         || matches!(remotes_state.ro, RemoteState::Configuring)
@@ -1881,25 +1851,13 @@ fn should_poll_ui(
     remotes_state: &GoogleRemotesState,
     metadata_state: &MetadataState,
 ) -> bool {
-    should_poll_setup(
-        rclone_state,
-        remotes_state,
-    ) || matches!(
-        metadata_state,
-        MetadataState::Updating(_)
-    )
+    should_poll_setup(rclone_state, remotes_state)
+        || matches!(metadata_state, MetadataState::Updating(_))
 }
 
-fn rclone_gui_url(
-    rclone_state: &RcloneState,
-) -> String {
+fn rclone_gui_url(rclone_state: &RcloneState) -> String {
     match rclone_state {
-        RcloneState::Ready(
-            status,
-        ) => status
-            .gui_url
-            .clone()
-            .unwrap_or_default(),
+        RcloneState::Ready(status) => status.gui_url.clone().unwrap_or_default(),
 
         _ => String::new(),
     }
@@ -1913,75 +1871,61 @@ fn build_alerts(
 
     match rclone_state {
         RcloneState::Initializing => {
-            alerts.push(
-                AlertItem {
-                    level: "warning",
-                    icon: "bi-hourglass-split",
-                    message:
-                        "BOREAL is initializing Rclone..."
-                            .to_string(),
-                    modal_target: "",
-                },
-            );
+            alerts.push(AlertItem {
+                level: "warning",
+                icon: "bi-hourglass-split",
+                message: "BOREAL is initializing Rclone...".to_string(),
+                modal_target: "",
+            });
         }
 
-        RcloneState::Ready(
-            _,
-        ) => {}
+        RcloneState::Ready(_) => {}
 
-        RcloneState::Error(
-            error,
-        ) => {
-            alerts.push(
-                AlertItem {
-                    level: "danger",
-                    icon: "bi-exclamation-triangle",
-                    message: format!(
-                        "Rclone initialization failed: {error}"
-                    ),
-                    modal_target: "",
-                },
-            );
+        RcloneState::Error(error) => {
+            alerts.push(AlertItem {
+                level: "danger",
+                icon: "bi-exclamation-triangle",
+                message: format!("Rclone initialization failed: {error}"),
+                modal_target: "",
+            });
         }
     }
 
     match google_client_state {
         GoogleClientState::NotConfigured => {
-            alerts.push(
-                AlertItem {
-                    level: "warning",
-                    icon: "bi-key",
-                    message:
-                        "Google Client ID is not configured"
-                            .to_string(),
-                    modal_target:
-                        "googleClientSetupModal",
-                },
-            );
+            alerts.push(AlertItem {
+                level: "warning",
+                icon: "bi-key",
+                message: "Google Client ID is not configured".to_string(),
+                modal_target: "googleClientSetupModal",
+            });
         }
 
-        GoogleClientState::Ready(
-            _,
-        ) => {}
+        GoogleClientState::Ready(_) => {}
 
-        GoogleClientState::Error(
-            error,
-        ) => {
-            alerts.push(
-                AlertItem {
-                    level: "danger",
-                    icon: "bi-key",
-                    message: format!(
-                        "Google Client ID configuration is invalid: {error}"
-                    ),
-                    modal_target:
-                        "googleClientSetupModal",
-                },
-            );
+        GoogleClientState::Error(error) => {
+            alerts.push(AlertItem {
+                level: "danger",
+                icon: "bi-key",
+                message: format!("Google Client ID configuration is invalid: {error}"),
+                modal_target: "googleClientSetupModal",
+            });
         }
     }
 
     alerts
+}
+
+fn authenticated_google_email(state: &AppState) -> String {
+    state
+        .database()
+        .ok()
+        .and_then(|database| {
+            database::directory::remote_account_email(&database, RemoteKind::MyDriveRo.name())
+                .ok()
+                .flatten()
+        })
+        .unwrap_or_default()
 }
 
 fn build_status_items(
@@ -1990,113 +1934,55 @@ fn build_status_items(
     _google_remotes_state: &GoogleRemotesState,
     metadata_state: &MetadataState,
     configured_remote_count: usize,
+    google_account_email: String,
 ) -> Vec<StatusItem> {
-    let (
-        rclone_value,
-        rclone_value_class,
-    ) = match rclone_state {
-        RcloneState::Initializing => {
-            (
-                "Initializing...".to_string(),
-                "text-warning",
-            )
-        }
+    let (rclone_value, rclone_value_class) = match rclone_state {
+        RcloneState::Initializing => ("Initializing...".to_string(), "text-warning"),
 
-        RcloneState::Ready(
-            status,
-        ) => {
-            (
-                status
-                    .version
-                    .strip_prefix(
-                        "rclone ",
-                    )
-                    .unwrap_or(
-                        &status.version,
-                    )
-                    .to_string(),
-                "text-success",
-            )
-        }
+        RcloneState::Ready(status) => (
+            status
+                .version
+                .strip_prefix("rclone ")
+                .unwrap_or(&status.version)
+                .to_string(),
+            "text-success",
+        ),
 
-        RcloneState::Error(
-            _,
-        ) => {
-            (
-                "Unavailable".to_string(),
-                "text-danger",
-            )
-        }
+        RcloneState::Error(_) => ("Unavailable".to_string(), "text-danger"),
     };
 
-    let (
-        client_id_value,
-        client_id_value_class,
-    ) =
-        match google_client_state {
-            GoogleClientState::NotConfigured => {
-                (
-                    "Not configured".to_string(),
-                    "text-warning",
-                )
-            }
+    let (client_id_value, client_id_value_class) = match google_client_state {
+        GoogleClientState::NotConfigured => ("Not configured".to_string(), "text-warning"),
 
-            GoogleClientState::Ready(
-                _,
-            ) => {
-                (
-                    "Configured".to_string(),
-                    "text-success",
-                )
-            }
+        GoogleClientState::Ready(_) => ("Configured".to_string(), "text-success"),
 
-            GoogleClientState::Error(
-                _,
-            ) => {
-                (
-                    "Invalid".to_string(),
-                    "text-danger",
-                )
-            }
-        };
+        GoogleClientState::Error(_) => ("Invalid".to_string(), "text-danger"),
+    };
 
     let (remote_value, remote_class) = if configured_remote_count == 0 {
         ("0 configured".to_string(), "text-warning")
     } else {
-        (format!("{configured_remote_count} configured"), "text-success")
+        (
+            format!("{configured_remote_count} configured"),
+            "text-success",
+        )
     };
 
-    let (
-        metadata_value,
-        metadata_class,
-        metadata_spinner,
-    ) = match metadata_state {
-        MetadataState::NotSynchronized => (
-            "Not synchronized".to_string(),
-            "text-warning",
-            false,
-        ),
-        MetadataState::Updating(
-            progress,
-        ) => (
-            progress.phase.to_string(),
-            "text-primary",
-            true,
-        ),
-        MetadataState::Synchronized(
-            _,
-        ) => (
+    let (google_account_value, google_account_class) = if google_account_email.is_empty() {
+        ("Not verified".to_string(), "text-warning")
+    } else {
+        (google_account_email, "text-success")
+    };
+
+    let (metadata_value, metadata_class, metadata_spinner) = match metadata_state {
+        MetadataState::NotSynchronized => ("Not synchronized".to_string(), "text-warning", false),
+        MetadataState::Updating(progress) => (progress.phase.to_string(), "text-primary", true),
+        MetadataState::Synchronized(_) => (
             "00:00:00".to_string(),
             "boreal-metadata-age text-success",
             false,
         ),
-        MetadataState::Error(
-            _,
-        ) => (
-            "Update failed".to_string(),
-            "text-danger",
-            false,
-        ),
+        MetadataState::Error(_) => ("Update failed".to_string(), "text-danger", false),
     };
 
     vec![
@@ -2105,13 +1991,19 @@ fn build_status_items(
             label: "Rclone",
             value: rclone_value,
             value_class: rclone_value_class,
-            value_url: rclone_gui_url(
-                rclone_state,
-            ),
+            value_url: rclone_gui_url(rclone_state),
             spinner: false,
             age_timestamp: String::new(),
         },
-
+        StatusItem {
+            icon: "bi-google",
+            label: "GDrive",
+            value: google_account_value,
+            value_class: google_account_class,
+            value_url: String::new(),
+            spinner: false,
+            age_timestamp: String::new(),
+        },
         StatusItem {
             icon: "bi-key",
             label: "ClientID",
@@ -2121,7 +2013,6 @@ fn build_status_items(
             spinner: false,
             age_timestamp: String::new(),
         },
-
         StatusItem {
             icon: "bi-cloud",
             label: "Remotes",
@@ -2131,7 +2022,6 @@ fn build_status_items(
             spinner: false,
             age_timestamp: String::new(),
         },
-
         StatusItem {
             icon: "bi-database",
             label: "Metadata",
@@ -2144,16 +2034,10 @@ fn build_status_items(
                 _ => String::new(),
             },
         },
-
         StatusItem {
             icon: "bi-info-circle",
             label: "BOREAL",
-            value: format!(
-                "v{}",
-                env!(
-                    "CARGO_PKG_VERSION"
-                ),
-            ),
+            value: format!("v{}", env!("CARGO_PKG_VERSION"),),
             value_class: "text-success",
             value_url: String::new(),
             spinner: false,
@@ -2162,24 +2046,13 @@ fn build_status_items(
     ]
 }
 
-fn render_template<T>(
-    template: &T,
-) -> Result<Html<String>, StatusCode>
+fn render_template<T>(template: &T) -> Result<Html<String>, StatusCode>
 where
     T: Template,
 {
-    template
-        .render()
-        .map(
-            Html,
-        )
-        .map_err(
-            |error| {
-                eprintln!(
-                    "Unable to render HTML template: {error}"
-                );
+    template.render().map(Html).map_err(|error| {
+        eprintln!("Unable to render HTML template: {error}");
 
-                StatusCode::INTERNAL_SERVER_ERROR
-            },
-        )
+        StatusCode::INTERNAL_SERVER_ERROR
+    })
 }

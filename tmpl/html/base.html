@@ -54,6 +54,12 @@
             color: #a15c00 !important;
         }
 
+        #boreal-status {
+            position: sticky;
+            bottom: 0;
+            z-index: 1030;
+        }
+
         .boreal-explorer-table {
             height: 100%;
             overflow: auto;
@@ -186,6 +192,17 @@
                             title="Explore Shared with me"
                         >
                             Shared with me
+                        </a>
+                    </li>
+
+                    <li class="nav-item">
+                        <a
+                            class="nav-link{% if active_page == "directory" %} active{% endif %}"
+                            {% if active_page == "directory" %}aria-current="page"{% endif %}
+                            href="/directory"
+                            title="People, groups, organizations, and accounts"
+                        >
+                            Directory
                         </a>
                     </li>
 
@@ -324,6 +341,7 @@
     >
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
+                <div id="metadata-update-modal-content" data-updating="false">
                 <div class="modal-header">
                     <h2 class="modal-title fs-5" id="metadataUpdateModalLabel">
                         <i class="bi bi-database-down me-2"></i>
@@ -347,6 +365,7 @@
                             Start update
                         </button>
                     </form>
+                </div>
                 </div>
             </div>
         </div>
@@ -491,6 +510,83 @@
             });
             window.setInterval(refreshDataAges, 60000);
             window.setInterval(refreshMetadataStatusAge, 1000);
+
+            const metadataModalElement = document.getElementById("metadataUpdateModal");
+            const metadataModal = metadataModalElement
+                ? bootstrap.Modal.getOrCreateInstance(metadataModalElement)
+                : null;
+            let metadataModalDismissed = false;
+
+            async function refreshMetadataModal(autoShow = false) {
+                if (!metadataModalElement) return;
+                try {
+                    const response = await fetch("/ui/metadata-update-modal", { cache: "no-store" });
+                    if (!response.ok) return;
+                    const modalContent = metadataModalElement.querySelector(".modal-content");
+                    const wasUpdating = modalContent
+                        .querySelector("#metadata-update-modal-content")
+                        ?.dataset.updating === "true";
+                    const responseHtml = await response.text();
+                    const parsed = document.createElement("div");
+                    parsed.innerHTML = responseHtml;
+                    const isUpdating = parsed
+                        .querySelector("#metadata-update-modal-content")
+                        ?.dataset.updating === "true";
+                    const completed = parsed
+                        .querySelector("#metadata-update-modal-content")
+                        ?.dataset.complete === "true";
+                    modalContent.innerHTML = responseHtml;
+                    if (wasUpdating && !isUpdating && completed) {
+                        modalContent.innerHTML = `
+                            <div class="modal-header">
+                                <h2 class="modal-title fs-5"><i class="bi bi-check-circle-fill text-success me-2"></i>Metadata update complete</h2>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">The local metadata inventory has finished updating.</div>
+                            <div class="modal-footer"><button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button></div>`;
+                        return;
+                    }
+                    const updating = metadataModalElement
+                        .querySelector("#metadata-update-modal-content")
+                        ?.dataset.updating === "true";
+                    if (updating && autoShow && !metadataModalDismissed) metadataModal.show();
+                } catch (_error) {
+                    // The footer heartbeat reports application connectivity failures.
+                }
+            }
+
+            if (metadataModalElement) {
+                metadataModalElement.addEventListener("hide.bs.modal", () => {
+                    metadataModalDismissed = true;
+                });
+                metadataModalElement.addEventListener("show.bs.modal", () => {
+                    metadataModalDismissed = false;
+                    refreshMetadataModal(false);
+                });
+                metadataModalElement.addEventListener("submit", async (event) => {
+                    if (event.target.id !== "metadata-update-form") return;
+                    event.preventDefault();
+                    const button = event.target.querySelector("button[type=submit]");
+                    button.disabled = true;
+                    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Starting…';
+                    try {
+                        const response = await fetch(event.target.action, { method: "POST" });
+                        if (!response.ok) throw new Error("Unable to start metadata update");
+                        metadataModalDismissed = false;
+                        await refreshMetadataModal(false);
+                    } catch (_error) {
+                        button.disabled = false;
+                        button.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Try again';
+                    }
+                });
+                refreshMetadataModal(true);
+                window.setInterval(() => {
+                    const updating = metadataModalElement
+                        .querySelector("#metadata-update-modal-content")
+                        ?.dataset.updating === "true";
+                    if (updating) refreshMetadataModal(false);
+                }, 1000);
+            }
 
             const quitButton =
                 document.getElementById("boreal-quit");

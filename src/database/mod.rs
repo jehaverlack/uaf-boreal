@@ -1,4 +1,5 @@
 mod migrations;
+pub mod directory;
 pub mod inventory;
 pub mod settings;
 
@@ -258,7 +259,7 @@ mod tests {
 
         assert_eq!(
             migration_count,
-            5,
+            7,
         );
 
         fs::remove_dir_all(
@@ -291,6 +292,14 @@ mod tests {
             "drive_permissions",
             "tags",
             "drive_item_tags",
+            "organizations",
+            "principals",
+            "principal_emails",
+            "organization_memberships",
+            "principal_memberships",
+            "directory_sources",
+            "directory_import_runs",
+            "remote_accounts",
         ] {
             let exists: bool = connection.query_row(
                 "SELECT EXISTS(
@@ -382,6 +391,27 @@ mod tests {
         .expect(
             "temporary database directory should be removable",
         );
+    }
+
+    #[test]
+    fn directory_csv_import_is_idempotent() {
+        let root = temporary_directory();
+        let database = Database::initialize(&runtime(&root)).expect("database should initialize");
+        let csv = b"email,name,status,type,organization\nformer@example.edu,Former User,former,person,ACEP\ngroup@example.edu,ACEP Staff,active,google group,ACEP\n";
+        let first = directory::import_csv(&database, "directory.csv", csv)
+            .expect("directory CSV should import");
+        assert_eq!(first.rows_created, 2);
+        assert_eq!(first.rows_rejected, 0);
+        let second = directory::import_csv(&database, "directory.csv", csv)
+            .expect("directory CSV should reimport");
+        assert_eq!(second.rows_created, 0);
+        assert_eq!(second.rows_updated, 2);
+        let summary = directory::summary(&database).expect("summary should load");
+        assert_eq!(summary.principals, 2);
+        assert_eq!(summary.organizations, 1);
+        assert_eq!(summary.groups, 1);
+        assert_eq!(summary.former_or_departing, 1);
+        fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
 
     #[test]
