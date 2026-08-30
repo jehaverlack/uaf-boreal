@@ -704,6 +704,10 @@ impl AppState {
             }
         };
 
+        println!(
+            "Metadata update started: scan_id={scan_id}, remote=my-drive-ro, permissions={permission_scanning}"
+        );
+
         state.set_metadata_state(
             MetadataState::Updating(
                 MetadataProgress {
@@ -731,6 +735,9 @@ impl AppState {
                     let files = items.iter().filter(|item| !item.is_dir).count() as u64;
                     let folders = items.iter().filter(|item| item.is_dir).count() as u64;
                     let bytes = items.iter().filter_map(|item| (item.size >= 0).then_some(item.size as u64)).sum();
+                    println!(
+                        "Metadata fetch completed: scan_id={scan_id}, files={files}, folders={folders}, bytes={bytes}"
+                    );
                     worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
                         phase: "Saving My Drive metadata",
                         files_scanned: files,
@@ -749,6 +756,14 @@ impl AppState {
 
                 match result {
                     Ok(Ok(summary)) => {
+                        println!(
+                            "Metadata update completed: scan_id={scan_id}, files={}, folders={}, permissions={}, bytes={}, deleted_items={}",
+                            summary.files_scanned,
+                            summary.folders_scanned,
+                            summary.permissions_scanned,
+                            summary.bytes_discovered,
+                            summary.deleted_items,
+                        );
                         state.set_metadata_state(
                             MetadataState::Synchronized(
                                 MetadataSummary {
@@ -763,10 +778,17 @@ impl AppState {
                     }
                     Ok(Err(error)) => {
                         let message = error.to_string();
-                        let _ = failure_database.fail_scan_run(
+                        eprintln!(
+                            "Metadata update failed: scan_id={scan_id}, error={message}"
+                        );
+                        if let Err(database_error) = failure_database.fail_scan_run(
                             scan_id,
                             &message,
-                        );
+                        ) {
+                            eprintln!(
+                                "Unable to record metadata failure: scan_id={scan_id}, error={database_error}"
+                            );
+                        }
 
                         state.set_metadata_state(
                             MetadataState::Error(
@@ -776,7 +798,14 @@ impl AppState {
                     }
                     Err(error) => {
                         let message = format!("Metadata worker failed: {error}");
-                        let _ = failure_database.fail_scan_run(scan_id, &message);
+                        eprintln!(
+                            "Metadata update failed: scan_id={scan_id}, error={message}"
+                        );
+                        if let Err(database_error) = failure_database.fail_scan_run(scan_id, &message) {
+                            eprintln!(
+                                "Unable to record metadata failure: scan_id={scan_id}, error={database_error}"
+                            );
+                        }
                         state.set_metadata_state(MetadataState::Error(message));
                     }
                 }

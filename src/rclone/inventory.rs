@@ -16,6 +16,7 @@ use super::{config, remotes::RemoteKind, RcloneError};
 #[serde(rename_all = "PascalCase")]
 pub struct DriveItem {
     #[serde(default)]
+    #[serde(rename = "ID")]
     pub id: String,
     pub name: String,
     pub path: String,
@@ -73,7 +74,11 @@ pub fn fetch_my_drive(
     }
 
     let result = parse(&cache_path);
-    let _ = fs::remove_file(&cache_path);
+    if let Err(error) = fs::remove_file(&cache_path) {
+        log::warn!(
+            "Unable to remove metadata cache file for scan_id={scan_id}: {error}"
+        );
+    }
     result
 }
 
@@ -82,8 +87,34 @@ fn parse(path: &PathBuf) -> Result<Vec<DriveItem>, RcloneError> {
     let items: Vec<DriveItem> = serde_json::from_reader(BufReader::new(file))
         .map_err(|error| format!("Unable to parse Rclone inventory: {error}"))?;
 
-    if let Some(item) = items.iter().find(|item| item.id.trim().is_empty()) {
-        return Err(format!("Rclone returned an item without a Drive ID: {}", item.path).into());
+    if let Some(index) = items.iter().position(|item| item.id.trim().is_empty()) {
+        return Err(format!("Rclone returned an item without a Drive ID at response index {index}").into());
     }
     Ok(items)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DriveItem;
+
+    #[test]
+    fn parses_rclone_uppercase_drive_id() {
+        let item: DriveItem = serde_json::from_str(
+            r#"{
+                "ID":"1AbCdEf",
+                "Name":"Report.docx",
+                "Path":"2026-08-27/Report.docx",
+                "IsDir":false,
+                "Size":42,
+                "MimeType":"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "ModTime":"2026-08-27T12:00:00Z",
+                "Metadata":{"owner":"owner@example.edu"}
+            }"#,
+        )
+        .expect("rclone item should parse");
+
+        assert_eq!(item.id, "1AbCdEf");
+        assert_eq!(item.path, "2026-08-27/Report.docx");
+        assert!(!item.is_dir);
+    }
 }

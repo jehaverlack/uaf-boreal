@@ -150,7 +150,7 @@ pub fn latest_summary(database: &Database) -> Result<Option<InventorySummary>, D
 fn permissions(item: &DriveItem) -> Result<Vec<Value>, DatabaseError> {
     let Some(raw) = item.metadata.get("permissions") else { return Ok(Vec::new()); };
     let value: Value = serde_json::from_str(raw)
-        .map_err(|error| format!("Invalid permissions metadata for {}: {error}", item.path))?;
+        .map_err(|error| format!("Invalid permissions metadata in the rclone response: {error}"))?;
     Ok(match value {
         Value::Array(values) => values,
         Value::Null => Vec::new(),
