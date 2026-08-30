@@ -257,7 +257,7 @@ mod tests {
 
         assert_eq!(
             migration_count,
-            3,
+            5,
         );
 
         fs::remove_dir_all(
@@ -288,6 +288,8 @@ mod tests {
             "scan_runs",
             "drive_items",
             "drive_permissions",
+            "tags",
+            "drive_item_tags",
         ] {
             let exists: bool = connection.query_row(
                 "SELECT EXISTS(
@@ -425,20 +427,50 @@ mod tests {
         assert_eq!(first_summary.folders_scanned, 1);
         assert_eq!(first_summary.bytes_discovered, 42);
         assert_eq!(first_summary.permissions_scanned, 1);
-        let root_items = inventory::list_my_drive_directory(&database, None, "", "name", false)
+        let root_items = inventory::list_my_drive_directory(&database, None, "", "", "name", false)
             .expect("explorer root should be readable");
         assert_eq!(root_items.len(), 1);
         assert_eq!(root_items[0].size_bytes, Some(42));
         assert_eq!(
-            inventory::list_my_drive_directory(&database, None, "report", "size", true)
+            inventory::list_my_drive_directory(&database, None, "report", "", "size", true)
                 .expect("filtered explorer root should be readable")
                 .len(),
             1,
         );
         assert!(
-            inventory::list_my_drive_directory(&database, None, "missing", "name", false)
+            inventory::list_my_drive_directory(&database, None, "missing", "", "name", false)
                 .expect("empty explorer search should be readable")
                 .is_empty(),
+        );
+        assert_eq!(
+            inventory::apply_tag_recursively(
+                &database,
+                &["folder-id-1".to_string()],
+                "to-migrate",
+            ).expect("recursive tag should apply"),
+            2,
+        );
+        inventory::create_tag(&database, "Needs Review", "#abcdef")
+            .expect("custom tag should be created");
+        inventory::update_tag(&database, "needs-review", "Review Soon", "#123456")
+            .expect("custom tag should be editable");
+        let custom_tag = inventory::list_tags(&database)
+            .expect("tags should be readable")
+            .into_iter()
+            .find(|tag| tag.slug == "needs-review")
+            .expect("custom tag should remain available");
+        assert_eq!(custom_tag.name, "Review Soon");
+        assert_eq!(custom_tag.color, "#123456");
+        assert_eq!(
+            inventory::list_my_drive_directory(
+                &database,
+                Some("Reports"),
+                "",
+                "to-migrate",
+                "name",
+                false,
+            ).expect("tagged folder contents should be readable").len(),
+            1,
         );
         let second_scan = database.start_scan_run("my-drive").expect("scan should start");
         let summary = inventory::synchronize_my_drive(&database, second_scan, &[], true)
@@ -448,7 +480,7 @@ mod tests {
         assert_eq!(summary.files_scanned, 0);
         assert_eq!(summary.bytes_discovered, 0);
         assert!(
-            inventory::list_my_drive_directory(&database, Some("Reports"), "", "name", false)
+            inventory::list_my_drive_directory(&database, Some("Reports"), "", "", "name", false)
                 .expect("explorer directory should be readable")
                 .is_empty(),
             "soft-deleted items must not appear in the explorer",
@@ -463,6 +495,12 @@ mod tests {
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         ).expect("soft-deleted item and permission should remain queryable");
         assert_eq!(values, (1, 42, "reader@example.edu".to_string()));
+        let retained_tags: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM drive_item_tags",
+            [],
+            |row| row.get(0),
+        ).expect("tags should remain queryable");
+        assert_eq!(retained_tags, 2);
 
         drop(connection);
         fs::remove_dir_all(root).expect("temporary database directory should be removable");

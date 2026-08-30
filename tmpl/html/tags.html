@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="row">
+    <div class="col-xl-9 col-xxl-7">
+        <h1 class="h3 mb-1">Tags</h1>
+        <p class="text-body-secondary">Create and edit local BOREAL tags used to organize Drive inventory items.</p>
+
+        {% if saved %}<div class="alert alert-success py-2" role="status"><i class="bi bi-check-circle me-2"></i>Tag changes saved.</div>{% endif %}
+
+        <div class="card mb-4">
+            <div class="card-header fw-semibold">Add custom tag</div>
+            <div class="card-body">
+                <form method="post" action="/tags/create" class="row g-3 align-items-end">
+                    <div class="col-sm-7"><label class="form-label" for="new-tag-name">Name</label><input class="form-control" id="new-tag-name" name="name" maxlength="40" required></div>
+                    <div class="col-sm-3"><label class="form-label" for="new-tag-color">Color</label><input class="form-control form-control-color" id="new-tag-color" type="color" name="color" value="#6f42c1" title="Choose tag color"></div>
+                    <div class="col-sm-2"><button class="btn btn-primary w-100" type="submit"><i class="bi bi-plus-circle me-1"></i>Add</button></div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header fw-semibold">Edit tags</div>
+            <div class="list-group list-group-flush">
+                {% for tag in tags %}
+                <form method="post" action="/tags/update" class="list-group-item row g-3 align-items-center m-0">
+                    <input type="hidden" name="slug" value="{{ tag.slug }}">
+                    <div class="col-auto"><span class="badge rounded-pill" style="background-color: {{ tag.color }};">&nbsp;&nbsp;&nbsp;</span></div>
+                    <div class="col"><label class="visually-hidden" for="tag-name-{{ loop.index }}">Tag name</label><input class="form-control" id="tag-name-{{ loop.index }}" name="name" value="{{ tag.name }}" maxlength="40" required></div>
+                    <div class="col-auto"><label class="visually-hidden" for="tag-color-{{ loop.index }}">Tag color</label><input class="form-control form-control-color" id="tag-color-{{ loop.index }}" type="color" name="color" value="{{ tag.color }}"></div>
+                    <div class="col-auto"><button class="btn btn-sm btn-outline-primary" type="submit">Save</button></div>
+                </form>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

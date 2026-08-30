@@ -218,10 +218,19 @@ pub struct DriveExplorerRow {
     pub name_new_tab: bool,
     pub mime_type: String,
     pub type_icon: &'static str,
+    pub tags: Vec<TagPill>,
+    pub permissions: String,
     pub size: String,
     pub modified_at: String,
     pub owner_email: String,
     pub drive_url: String,
+}
+
+#[allow(dead_code)]
+pub struct TagPill {
+    pub name: String,
+    pub color: String,
+    pub text_color: &'static str,
 }
 
 #[allow(dead_code)]
@@ -250,6 +259,22 @@ struct MyDriveTemplate {
     modified_sort_url: String,
     owner_sort_url: String,
     clear_search_url: String,
+    tags: Vec<database::inventory::Tag>,
+    tag_filter: String,
+    tagged_count: usize,
+}
+
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(path = "tags.html", config = "askama.toml")]
+struct TagsTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+    tags: Vec<database::inventory::Tag>,
+    saved: bool,
 }
 
 #[allow(dead_code)]
@@ -322,6 +347,30 @@ struct DrivePathQuery {
     sort: String,
     #[serde(default)]
     direction: String,
+    #[serde(default)]
+    tag: String,
+    #[serde(default)]
+    tagged: usize,
+}
+
+#[derive(serde::Deserialize)]
+struct ApplyTagForm {
+    #[serde(default)]
+    selected_item_ids: String,
+    tag: String,
+    path: String,
+    q: String,
+    sort: String,
+    direction: String,
+    tag_filter: String,
+}
+
+#[derive(serde::Deserialize)]
+struct TagForm {
+    #[serde(default)]
+    slug: String,
+    name: String,
+    color: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -353,6 +402,22 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/my-drive",
             get(my_drive_page),
+        )
+        .route(
+            "/my-drive/tags",
+            post(apply_my_drive_tag),
+        )
+        .route(
+            "/tags",
+            get(tags_page),
+        )
+        .route(
+            "/tags/create",
+            post(create_tag),
+        )
+        .route(
+            "/tags/update",
+            post(update_tag),
         )
         .route(
             "/settings",
@@ -1015,6 +1080,7 @@ async fn my_drive_page(
         &database,
         parent_filter,
         &query.q,
+        &query.tag,
         sort,
         descending,
     ) {
@@ -1033,7 +1099,7 @@ async fn my_drive_page(
         item_id: item.item_id.clone(),
         name: item.name,
         name_url: if item.is_directory {
-            explorer_url(&item.relative_path, "", sort, if descending { "desc" } else { "asc" })
+            explorer_url(&item.relative_path, "", &query.tag, sort, if descending { "desc" } else { "asc" })
         } else {
             format!("https://drive.google.com/open?id={}", item.item_id)
         },
@@ -1041,6 +1107,16 @@ async fn my_drive_page(
         is_directory: item.is_directory,
         type_icon: mime_icon(item.is_directory, item.mime_type.as_deref()),
         mime_type: if item.is_directory { "Folder".to_string() } else { item.mime_type.unwrap_or_else(|| "Unknown file type".to_string()) },
+        tags: item.tags.into_iter().map(|tag| TagPill {
+            text_color: tag_text_color(&tag.color),
+            name: tag.name,
+            color: tag.color,
+        }).collect(),
+        permissions: if item.permissions.is_empty() {
+            "—".to_string()
+        } else {
+            item.permissions.join(", ")
+        },
         size: item.size_bytes.map(format_bytes).unwrap_or_else(|| "—".to_string()),
         modified_at: item.modified_at.unwrap_or_else(|| "—".to_string()),
         owner_email: item.owner_email.unwrap_or_else(|| "—".to_string()),
@@ -1048,6 +1124,10 @@ async fn my_drive_page(
     let parent_path = query.path.rsplit_once('/')
         .map(|(parent, _)| parent.to_string())
         .unwrap_or_default();
+    let tags = database::inventory::list_tags(&database).map_err(|error| {
+        eprintln!("Unable to load My Drive tags: {error}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     let template = MyDriveTemplate {
         title: "My Drive - BOREAL",
@@ -1069,17 +1149,21 @@ async fn my_drive_page(
         search: query.q.clone(),
         sort: sort.to_string(),
         direction: if descending { "desc".to_string() } else { "asc".to_string() },
-        name_sort_url: sort_url(&query.path, &query.q, sort, descending, "name"),
-        type_sort_url: sort_url(&query.path, &query.q, sort, descending, "type"),
-        size_sort_url: sort_url(&query.path, &query.q, sort, descending, "size"),
-        modified_sort_url: sort_url(&query.path, &query.q, sort, descending, "modified"),
-        owner_sort_url: sort_url(&query.path, &query.q, sort, descending, "owner"),
+        name_sort_url: sort_url(&query.path, &query.q, &query.tag, sort, descending, "name"),
+        type_sort_url: sort_url(&query.path, &query.q, &query.tag, sort, descending, "type"),
+        size_sort_url: sort_url(&query.path, &query.q, &query.tag, sort, descending, "size"),
+        modified_sort_url: sort_url(&query.path, &query.q, &query.tag, sort, descending, "modified"),
+        owner_sort_url: sort_url(&query.path, &query.q, &query.tag, sort, descending, "owner"),
         clear_search_url: explorer_url(
             &query.path,
             "",
+            &query.tag,
             sort,
             if descending { "desc" } else { "asc" },
         ),
+        tags,
+        tag_filter: query.tag,
+        tagged_count: query.tagged,
     };
     render_template(&template)
 }
@@ -1114,11 +1198,12 @@ fn encode_query_value(value: &str) -> String {
     encoded
 }
 
-fn explorer_url(path: &str, search: &str, sort: &str, direction: &str) -> String {
+fn explorer_url(path: &str, search: &str, tag: &str, sort: &str, direction: &str) -> String {
     format!(
-        "/my-drive?path={}&q={}&sort={}&direction={}",
+        "/my-drive?path={}&q={}&tag={}&sort={}&direction={}",
         encode_query_value(path),
         encode_query_value(search),
+        encode_query_value(tag),
         encode_query_value(sort),
         encode_query_value(direction),
     )
@@ -1127,6 +1212,7 @@ fn explorer_url(path: &str, search: &str, sort: &str, direction: &str) -> String
 fn sort_url(
     path: &str,
     search: &str,
+    tag: &str,
     current_sort: &str,
     descending: bool,
     requested_sort: &str,
@@ -1136,7 +1222,103 @@ fn sort_url(
     } else {
         "asc"
     };
-    explorer_url(path, search, requested_sort, next_direction)
+    explorer_url(path, search, tag, requested_sort, next_direction)
+}
+
+async fn apply_my_drive_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<ApplyTagForm>,
+) -> Result<Redirect, StatusCode> {
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let selected_items: Vec<String> = form.selected_item_ids
+        .split(',')
+        .map(str::trim)
+        .filter(|item_id| !item_id.is_empty())
+        .map(str::to_string)
+        .collect();
+    let applied = database::inventory::apply_tag_recursively(
+        &database,
+        &selected_items,
+        &form.tag,
+    ).map_err(|error| {
+        eprintln!("Unable to apply My Drive tag: {error}");
+        StatusCode::BAD_REQUEST
+    })?;
+    println!(
+        "My Drive tag applied: tag={}, selected_items={}, applied_items={applied}",
+        form.tag,
+        selected_items.len(),
+    );
+    let mut url = explorer_url(
+        &form.path,
+        &form.q,
+        &form.tag_filter,
+        &form.sort,
+        &form.direction,
+    );
+    url.push_str(&format!("&tagged={applied}"));
+    Ok(Redirect::to(&url))
+}
+
+async fn tags_page(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<SettingsQuery>,
+) -> Result<Html<String>, StatusCode> {
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let tags = database::inventory::list_tags(&database)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    render_template(&TagsTemplate {
+        title: "Tags - BOREAL",
+        active_page: "tags",
+        alerts: build_alerts(&rclone_state, &google_client_state),
+        status_items: build_status_items(
+            &rclone_state, &google_client_state, &google_remotes_state,
+            &metadata_state, configured_remote_count(&state.runtime, &rclone_state),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+        tags,
+        saved: query.saved,
+    })
+}
+
+async fn create_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<TagForm>,
+) -> Result<Redirect, StatusCode> {
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::inventory::create_tag(&database, &form.name, &form.color)
+        .map_err(|error| {
+            eprintln!("Unable to create tag: {error}");
+            StatusCode::BAD_REQUEST
+        })?;
+    println!("Tag created: name={}", form.name.trim());
+    Ok(Redirect::to("/tags?saved=true"))
+}
+
+async fn update_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<TagForm>,
+) -> Result<Redirect, StatusCode> {
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::inventory::update_tag(&database, &form.slug, &form.name, &form.color)
+        .map_err(|error| {
+            eprintln!("Unable to update tag: {error}");
+            StatusCode::BAD_REQUEST
+        })?;
+    println!("Tag updated: slug={}", form.slug);
+    Ok(Redirect::to("/tags?saved=true"))
+}
+
+fn tag_text_color(color: &str) -> &'static str {
+    let value = u32::from_str_radix(color.trim_start_matches('#'), 16).unwrap_or(0x6c757d);
+    let red = (value >> 16) & 0xff;
+    let green = (value >> 8) & 0xff;
+    let blue = value & 0xff;
+    if red * 299 + green * 587 + blue * 114 > 150_000 { "#212529" } else { "#ffffff" }
 }
 
 async fn open_rclone_gui(

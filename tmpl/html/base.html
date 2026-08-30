@@ -70,12 +70,21 @@
         .boreal-col-name { width: 30%; }
         .boreal-col-size { width: 7rem; }
         .boreal-col-modified { width: 12rem; }
+        .boreal-col-owner { width: 11rem; }
+        .boreal-col-permissions { width: 14rem; }
 
-        .boreal-name-cell a {
-            display: block;
+        .boreal-name-cell {
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
+        .boreal-name-cell .boreal-name-link {
+            display: inline-block;
+            max-width: 65%;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            vertical-align: middle;
         }
 
         .boreal-explorer-table thead th {
@@ -197,7 +206,7 @@
                     <li class="nav-item dropdown">
 
                         <a
-                            class="nav-link dropdown-toggle{% if active_page == "about" || active_page == "settings" %} active{% endif %}"
+                            class="nav-link dropdown-toggle{% if active_page == "about" || active_page == "settings" || active_page == "tags" %} active{% endif %}"
                             href="#"
                             role="button"
                             data-bs-toggle="dropdown"
@@ -210,6 +219,18 @@
                         <ul
                             class="dropdown-menu dropdown-menu-end"
                         >
+
+                            <li>
+
+                                <a
+                                    class="dropdown-item{% if active_page == "tags" %} active{% endif %}"
+                                    href="/tags"
+                                >
+                                    <i class="bi bi-tags me-2"></i>
+                                    Tags
+                                </a>
+
+                            </li>
 
                             <li>
 

@@ -33,6 +33,20 @@ const MIGRATIONS: &[Migration] = &[
             "migrations/0003_folder_sizes.sql"
         ),
     },
+    Migration {
+        version: 4,
+        name: "tags",
+        sql: include_str!(
+            "migrations/0004_tags.sql"
+        ),
+    },
+    Migration {
+        version: 5,
+        name: "tag_colors",
+        sql: include_str!(
+            "migrations/0005_tag_colors.sql"
+        ),
+    },
 ];
 
 pub fn apply(

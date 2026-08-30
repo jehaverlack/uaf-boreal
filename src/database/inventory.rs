@@ -27,12 +27,22 @@ pub struct DriveExplorerItem {
     pub size_bytes: Option<u64>,
     pub modified_at: Option<String>,
     pub owner_email: Option<String>,
+    pub tags: Vec<Tag>,
+    pub permissions: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Tag {
+    pub slug: String,
+    pub name: String,
+    pub color: String,
 }
 
 pub fn list_my_drive_directory(
     database: &Database,
     parent_path: Option<&str>,
     search: &str,
+    tag_filter: &str,
     sort: &str,
     descending: bool,
 ) -> Result<Vec<DriveExplorerItem>, DatabaseError> {
@@ -49,17 +59,37 @@ pub fn list_my_drive_directory(
     let sql = format!(
         "SELECT item_id, name, relative_path, is_directory, mime_type,
                 CASE WHEN is_directory THEN cumulative_size_bytes ELSE size_bytes END,
-                modified_at, owner_email
+                modified_at, owner_email,
+                (SELECT group_concat(t.name || char(30) || t.color, char(31))
+                 FROM drive_item_tags dit JOIN tags t ON t.id = dit.tag_id
+                 WHERE dit.remote_name = drive_items.remote_name
+                   AND dit.item_id = drive_items.item_id),
+                (SELECT group_concat(label, char(31)) FROM (
+                    SELECT DISTINCT COALESCE(
+                        NULLIF(p.email_address, ''), NULLIF(p.domain, ''),
+                        NULLIF(p.display_name, ''), NULLIF(p.permission_type, ''), 'Unknown'
+                    ) AS label
+                    FROM drive_permissions p
+                    WHERE p.remote_name = drive_items.remote_name
+                      AND p.item_id = drive_items.item_id
+                      AND COALESCE(p.email_address, '') <> COALESCE(drive_items.owner_email, '')
+                    ORDER BY label COLLATE NOCASE
+                ))
          FROM drive_items
          WHERE remote_name = ?1
            AND is_deleted = 0
            AND ((?2 IS NULL AND parent_path IS NULL) OR parent_path = ?2)
            AND (?3 = '' OR instr(lower(name), lower(?3)) > 0)
+           AND (?4 = '' OR EXISTS (
+                SELECT 1 FROM drive_item_tags dit JOIN tags t ON t.id = dit.tag_id
+                WHERE dit.remote_name = drive_items.remote_name
+                  AND dit.item_id = drive_items.item_id AND t.slug = ?4
+           ))
          ORDER BY is_directory DESC, {sort_expression} {direction}, name COLLATE NOCASE, item_id"
     );
     let mut statement = connection.prepare(&sql)?;
     let rows = statement.query_map(
-        params![remote, parent_path, search.trim()],
+        params![remote, parent_path, search.trim(), tag_filter],
         |row| {
             let size: Option<i64> = row.get(5)?;
             Ok(DriveExplorerItem {
@@ -71,11 +101,134 @@ pub fn list_my_drive_directory(
                 size_bytes: size.map(|value| value as u64),
                 modified_at: row.get(6)?,
                 owner_email: row.get(7)?,
+                tags: row.get::<_, Option<String>>(8)?
+                    .map(|tags| tags.split('\u{1f}').filter_map(|tag| {
+                        let (name, color) = tag.split_once('\u{1e}')?;
+                        Some(Tag { slug: String::new(), name: name.to_string(), color: color.to_string() })
+                    }).collect())
+                    .unwrap_or_default(),
+                permissions: row.get::<_, Option<String>>(9)?
+                    .map(|permissions| permissions.split('\u{1f}').map(str::to_string).collect())
+                    .unwrap_or_default(),
             })
         },
     )?;
 
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+pub fn list_tags(database: &Database) -> Result<Vec<Tag>, DatabaseError> {
+    let connection = database.connect()?;
+    let mut statement = connection.prepare(
+        "SELECT slug, name, color FROM tags ORDER BY name COLLATE NOCASE",
+    )?;
+    let rows = statement.query_map([], |row| Ok(Tag {
+        slug: row.get(0)?,
+        name: row.get(1)?,
+        color: row.get(2)?,
+    }))?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+pub fn create_tag(
+    database: &Database,
+    name: &str,
+    color: &str,
+) -> Result<(), DatabaseError> {
+    validate_tag(name, color)?;
+    let slug = tag_slug(name);
+    if slug.is_empty() {
+        return Err("Tag name must contain letters or numbers".into());
+    }
+    let connection = database.connect()?;
+    connection.execute(
+        "INSERT INTO tags (slug, name, color) VALUES (?1, ?2, ?3)",
+        params![slug, name.trim(), color],
+    )?;
+    Ok(())
+}
+
+pub fn update_tag(
+    database: &Database,
+    slug: &str,
+    name: &str,
+    color: &str,
+) -> Result<(), DatabaseError> {
+    validate_tag(name, color)?;
+    let connection = database.connect()?;
+    let updated = connection.execute(
+        "UPDATE tags SET name = ?2, color = ?3 WHERE slug = ?1",
+        params![slug, name.trim(), color],
+    )?;
+    if updated == 0 {
+        return Err(format!("Unknown tag: {slug}").into());
+    }
+    Ok(())
+}
+
+fn validate_tag(name: &str, color: &str) -> Result<(), DatabaseError> {
+    if name.trim().is_empty() || name.trim().len() > 40 {
+        return Err("Tag name must be between 1 and 40 characters".into());
+    }
+    if color.len() != 7 || !color.starts_with('#')
+        || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("Tag color must use #RRGGBB format".into());
+    }
+    Ok(())
+}
+
+fn tag_slug(name: &str) -> String {
+    name.trim().to_ascii_lowercase().chars().fold(String::new(), |mut slug, character| {
+        if character.is_ascii_alphanumeric() {
+            slug.push(character);
+        } else if !slug.is_empty() && !slug.ends_with('-') {
+            slug.push('-');
+        }
+        slug
+    }).trim_end_matches('-').to_string()
+}
+
+pub fn apply_tag_recursively(
+    database: &Database,
+    item_ids: &[String],
+    tag_slug: &str,
+) -> Result<usize, DatabaseError> {
+    if item_ids.is_empty() {
+        return Err("Select at least one My Drive item".into());
+    }
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    let tag_id: i64 = transaction.query_row(
+        "SELECT id FROM tags WHERE slug = ?1",
+        [tag_slug],
+        |row| row.get(0),
+    ).optional()?.ok_or_else(|| format!("Unknown tag: {tag_slug}"))?;
+    let remote = RemoteKind::MyDriveRo.name();
+    let mut applied = 0;
+
+    for item_id in item_ids {
+        applied += transaction.execute(
+            "INSERT OR IGNORE INTO drive_item_tags (remote_name, item_id, tag_id)
+             SELECT descendant.remote_name, descendant.item_id, ?3
+             FROM drive_items selected
+             JOIN drive_items descendant
+               ON descendant.remote_name = selected.remote_name
+              AND descendant.is_deleted = 0
+              AND (
+                   descendant.item_id = selected.item_id
+                   OR (selected.is_directory = 1 AND
+                       substr(descendant.relative_path, 1, length(selected.relative_path) + 1)
+                           = selected.relative_path || '/')
+              )
+             WHERE selected.remote_name = ?1
+               AND selected.item_id = ?2
+               AND selected.is_deleted = 0",
+            params![remote, item_id, tag_id],
+        )?;
+    }
+    transaction.commit()?;
+    Ok(applied)
 }
 
 pub fn synchronize_my_drive(

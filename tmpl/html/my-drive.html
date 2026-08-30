@@ -22,6 +22,7 @@
         <input type="hidden" name="path" value="{{ parent_path }}">
         <input type="hidden" name="sort" value="{{ sort }}">
         <input type="hidden" name="direction" value="{{ direction }}">
+        <input type="hidden" name="tag" value="{{ tag_filter }}">
         <button class="btn btn-sm btn-outline-secondary" type="submit" title="Browse parent folder"><i class="bi bi-arrow-up"></i></button>
     </form>
     {% endif %}
@@ -41,10 +42,44 @@
             <button class="btn btn-primary" type="submit">Search</button>
         </div>
     </div>
+    <div class="col-sm-4 col-lg-3">
+        <label class="visually-hidden" for="my-drive-tag-filter">Filter by tag</label>
+        <select id="my-drive-tag-filter" class="form-select form-select-sm" name="tag">
+            <option value="">All tags</option>
+            {% for tag in tags %}
+            <option value="{{ tag.slug }}" {% if tag_filter == tag.slug %}selected{% endif %}>{{ tag.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
     {% if search.len() > 0 %}
     <div class="col-auto"><a class="btn btn-sm btn-outline-secondary" href="{{ clear_search_url }}">Clear</a></div>
     {% endif %}
 </form>
+
+{% if tagged_count > 0 %}
+<div class="alert alert-success py-2" role="status">
+    <i class="bi bi-tags-fill me-2"></i>Tag applied to {{ tagged_count }} item(s).
+</div>
+{% endif %}
+
+<form method="post" action="/my-drive/tags" class="d-flex flex-column flex-grow-1 overflow-hidden">
+    <input type="hidden" name="path" value="{% if has_parent %}{{ current_path }}{% endif %}">
+    <input type="hidden" name="q" value="{{ search }}">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="direction" value="{{ direction }}">
+    <input type="hidden" name="tag_filter" value="{{ tag_filter }}">
+    <input type="hidden" id="my-drive-selected-item-ids" name="selected_item_ids" value="">
+    <div class="d-flex align-items-center gap-2 mb-2">
+        <label class="small fw-semibold" for="my-drive-apply-tag">Apply tag to selected:</label>
+        <select id="my-drive-apply-tag" class="form-select form-select-sm w-auto" name="tag" required>
+            {% for tag in tags %}<option value="{{ tag.slug }}">{{ tag.name }}</option>{% endfor %}
+        </select>
+        <button id="my-drive-apply-tag-button" class="btn btn-sm btn-outline-primary" type="submit" disabled>
+            <i class="bi bi-tag me-1"></i>Apply
+        </button>
+        <span id="my-drive-selection-count" class="small text-body-secondary">0 selected</span>
+        <a class="btn btn-sm btn-link ms-auto" href="/tags"><i class="bi bi-gear me-1"></i>Manage tags</a>
+    </div>
 
 <div class="card boreal-explorer-card flex-grow-1 overflow-hidden">
     <div class="table-responsive boreal-explorer-table">
@@ -57,6 +92,7 @@
                 <col class="boreal-col-size">
                 <col class="boreal-col-modified">
                 <col class="boreal-col-owner">
+                <col class="boreal-col-permissions">
             </colgroup>
             <thead class="table-light">
                 <tr>
@@ -69,13 +105,14 @@
                     <th scope="col"><a class="text-body text-decoration-none" href="{{ size_sort_url }}">Size {% if sort == "size" %}<i class="bi {% if direction == "desc" %}bi-sort-numeric-down-alt{% else %}bi-sort-numeric-down{% endif %}"></i>{% endif %}</a></th>
                     <th scope="col"><a class="text-body text-decoration-none" href="{{ modified_sort_url }}">Modified {% if sort == "modified" %}<i class="bi {% if direction == "desc" %}bi-sort-down-alt{% else %}bi-sort-down{% endif %}"></i>{% endif %}</a></th>
                     <th scope="col"><a class="text-body text-decoration-none" href="{{ owner_sort_url }}">Owner {% if sort == "owner" %}<i class="bi {% if direction == "desc" %}bi-sort-alpha-down-alt{% else %}bi-sort-alpha-down{% endif %}"></i>{% endif %}</a></th>
+                    <th scope="col">Permissions</th>
                 </tr>
             </thead>
             <tbody>
                 {% for row in rows %}
                 <tr>
                     <td class="text-center">
-                        <input class="form-check-input my-drive-item-select" type="checkbox" name="selected_items" value="{{ row.item_id }}" aria-label="Select {{ row.name }}">
+                        <input class="form-check-input my-drive-item-select" type="checkbox" value="{{ row.item_id }}" aria-label="Select {{ row.name }}">
                     </td>
                     <td class="text-center">
                         <a href="{{ row.drive_url }}" target="_blank" rel="noopener noreferrer" title="Open in Google Drive" aria-label="Open {{ row.name }} in Google Drive">
@@ -91,22 +128,26 @@
                     </td>
                     <td class="text-center"><i class="bi {{ row.type_icon }} fs-5 text-primary" title="{{ row.mime_type }}" aria-label="{{ row.mime_type }}"></i></td>
                     <th scope="row" class="boreal-name-cell">
-                        <a href="{{ row.name_url }}" {% if row.name_new_tab %}target="_blank" rel="noopener noreferrer"{% endif %} class="text-decoration-none" title="{% if row.is_directory %}Browse folder in BOREAL{% else %}Open in Google Drive{% endif %}">
+                        <a href="{{ row.name_url }}" {% if row.name_new_tab %}target="_blank" rel="noopener noreferrer"{% endif %} class="text-decoration-none boreal-name-link" title="{% if row.is_directory %}Browse folder in BOREAL{% else %}Open in Google Drive{% endif %}">
                             {{ row.name }}
                         </a>
+                        <span class="boreal-item-tags">{% for tag in row.tags %}<span class="badge rounded-pill ms-1" style="background-color: {{ tag.color }}; color: {{ tag.text_color }};">{{ tag.name }}</span>{% endfor %}</span>
                     </th>
                     <td class="text-nowrap">{{ row.size }}</td>
                     <td class="text-nowrap small">{{ row.modified_at }}</td>
                     <td class="small text-truncate" title="{{ row.owner_email }}">{{ row.owner_email }}</td>
+                    <td class="small text-truncate" title="{{ row.permissions }}">{{ row.permissions }}</td>
                 </tr>
                 {% endfor %}
                 {% if rows.is_empty() %}
-                <tr><td colspan="7" class="text-center text-body-secondary py-4">This folder contains no indexed items.</td></tr>
+                <tr><td colspan="8" class="text-center text-body-secondary py-4">This folder contains no indexed items.</td></tr>
                 {% endif %}
             </tbody>
         </table>
     </div>
 </div>
+
+</form>
 
 </div>
 
@@ -116,6 +157,9 @@
         const itemCheckboxes = Array.from(
             document.querySelectorAll(".my-drive-item-select"),
         );
+        const applyButton = document.getElementById("my-drive-apply-tag-button");
+        const selectionCount = document.getElementById("my-drive-selection-count");
+        const selectedItemIds = document.getElementById("my-drive-selected-item-ids");
 
         if (!selectAll) {
             return;
@@ -125,6 +169,12 @@
             const selected = itemCheckboxes.filter((checkbox) => checkbox.checked).length;
             selectAll.checked = itemCheckboxes.length > 0 && selected === itemCheckboxes.length;
             selectAll.indeterminate = selected > 0 && selected < itemCheckboxes.length;
+            applyButton.disabled = selected === 0;
+            selectionCount.textContent = `${selected} selected`;
+            selectedItemIds.value = itemCheckboxes
+                .filter((checkbox) => checkbox.checked)
+                .map((checkbox) => checkbox.value)
+                .join(",");
         }
 
         selectAll.addEventListener("change", () => {
