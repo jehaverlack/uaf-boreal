@@ -211,6 +211,7 @@ struct RemotesTemplate {
 
 #[allow(dead_code)]
 pub struct DriveExplorerRow {
+    pub item_id: String,
     pub name: String,
     pub is_directory: bool,
     pub name_url: String,
@@ -1029,6 +1030,7 @@ async fn my_drive_page(
         } else {
             format!("https://drive.google.com/open?id={}", item.item_id)
         },
+        item_id: item.item_id.clone(),
         name: item.name,
         name_url: if item.is_directory {
             explorer_url(&item.relative_path, "", sort, if descending { "desc" } else { "asc" })

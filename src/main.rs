@@ -71,6 +71,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ),
     );
 
+    state.wait_for_initialization().await;
+
+    println!(
+        "BOREAL initialization checks completed."
+    );
+
     let web_result = web::run(
         Arc::clone(
             &state,

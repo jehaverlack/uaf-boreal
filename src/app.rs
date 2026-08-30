@@ -439,6 +439,29 @@ impl AppState {
         }
     }
 
+    /// Wait until the asynchronous startup check has produced a final Rclone
+    /// state. The WebUI uses this boundary before opening the dashboard so the
+    /// first page never races the initialization sequence.
+    pub async fn wait_for_initialization(
+        &self,
+    ) {
+        loop {
+            if !matches!(
+                self.rclone_state(),
+                RcloneState::Initializing
+            ) {
+                return;
+            }
+
+            tokio::time::sleep(
+                std::time::Duration::from_millis(
+                    50,
+                ),
+            )
+            .await;
+        }
+    }
+
     pub fn google_client_state(
         &self,
     ) -> GoogleClientState {
