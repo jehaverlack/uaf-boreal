@@ -32,6 +32,7 @@ pub struct PrincipalRow {
     pub owned_items: u64,
     pub permitted_items: u64,
     pub tags: Vec<IdentityTag>,
+    pub notes: String,
 }
 
 #[derive(Debug, Clone)]
@@ -172,7 +173,8 @@ pub fn list_principals_filtered(
          SELECT p.id, COALESCE(p.display_name, ''), COALESCE(p.primary_email, ''),
                 p.principal_type, p.status, COALESCE(p.departure_date, ''),
                 COALESCE(po.names, ''), COALESCE(m.member_count, 0),
-                COALESCE(owned.item_count, 0), COALESCE(permitted.item_count, 0)
+                COALESCE(owned.item_count, 0), COALESCE(permitted.item_count, 0),
+                COALESCE(p.notes, '')
          FROM principals p
          LEFT JOIN principal_organizations po ON po.principal_id = p.id
          LEFT JOIN memberships m ON m.principal_id = p.id
@@ -219,6 +221,7 @@ pub fn list_principals_filtered(
                 owned_items: row.get::<_, i64>(8)? as u64,
                 permitted_items: row.get::<_, i64>(9)? as u64,
                 tags: Vec::new(),
+                notes: row.get(10)?,
             })
         },
     )?;
@@ -262,6 +265,105 @@ pub fn apply_principal_tag(
     }
     transaction.commit()?;
     Ok(applied)
+}
+
+pub fn remove_principal_tag(
+    database: &Database,
+    principal_ids: &[i64],
+    tag_slug: &str,
+) -> Result<usize, DatabaseError> {
+    if principal_ids.is_empty() {
+        return Err("Select at least one directory identity".into());
+    }
+    let connection = database.connect()?;
+    let mut removed = 0;
+    for principal_id in principal_ids {
+        removed += connection.execute(
+            "DELETE FROM principal_tags
+             WHERE principal_id = ?1 AND tag_id = (SELECT id FROM tags WHERE slug = ?2)",
+            params![principal_id, tag_slug],
+        )?;
+    }
+    Ok(removed)
+}
+
+pub fn save_manual_principal(
+    database: &Database,
+    principal_id: Option<i64>,
+    email: &str,
+    display_name: &str,
+    principal_type: &str,
+    status: &str,
+    departure_date: &str,
+    organization: &str,
+    notes: &str,
+) -> Result<i64, DatabaseError> {
+    let email = email.trim().to_ascii_lowercase();
+    if !valid_email(&email) {
+        return Err("A valid primary email address is required".into());
+    }
+    let principal_type = canonical_principal_type(principal_type);
+    let status = if status.trim().is_empty() { "unknown".to_string() } else { normalize_value(status) };
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    let email_owner: Option<i64> = transaction.query_row(
+        "SELECT principal_id FROM principal_emails WHERE lower(email) = lower(?1)",
+        [&email], |row| row.get(0),
+    ).optional()?;
+    if email_owner.is_some() && email_owner != principal_id {
+        return Err("That email address already belongs to another directory identity".into());
+    }
+    let id = if let Some(id) = principal_id {
+        let updated = transaction.execute(
+            "UPDATE principals SET principal_type = ?2, primary_email = ?3,
+                    display_name = NULLIF(?4, ''), status = ?5,
+                    departure_date = NULLIF(?6, ''), notes = NULLIF(?7, ''),
+                    source = 'manual', updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?1",
+            params![id, principal_type, email, display_name.trim(), status,
+                    departure_date.trim(), notes.trim()],
+        )?;
+        if updated == 0 { return Err("Directory identity was not found".into()); }
+        id
+    } else {
+        transaction.execute(
+            "INSERT INTO principals (
+                principal_type, primary_email, display_name, status,
+                departure_date, notes, source
+             ) VALUES (?1, ?2, NULLIF(?3, ''), ?4, NULLIF(?5, ''), NULLIF(?6, ''), 'manual')",
+            params![principal_type, email, display_name.trim(), status,
+                    departure_date.trim(), notes.trim()],
+        )?;
+        transaction.last_insert_rowid()
+    };
+    transaction.execute("UPDATE principal_emails SET is_primary = 0 WHERE principal_id = ?1", [id])?;
+    transaction.execute(
+        "INSERT INTO principal_emails (principal_id, email, is_primary) VALUES (?1, ?2, 1)
+         ON CONFLICT(email) DO UPDATE SET is_primary = 1",
+        params![id, email],
+    )?;
+    transaction.execute("DELETE FROM organization_memberships WHERE principal_id = ?1", [id])?;
+    for organization in organization
+        .split(',')
+        .map(str::trim)
+        .filter(|organization| !organization.is_empty())
+    {
+        transaction.execute(
+            "INSERT INTO organizations (name) VALUES (?1) ON CONFLICT(name) DO NOTHING",
+            [organization],
+        )?;
+        let organization_id: i64 = transaction.query_row(
+            "SELECT id FROM organizations WHERE name = ?1 COLLATE NOCASE",
+            [organization], |row| row.get(0),
+        )?;
+        transaction.execute(
+            "INSERT INTO organization_memberships (organization_id, principal_id, status, source)
+             VALUES (?1, ?2, ?3, 'manual')",
+            params![organization_id, id, status],
+        )?;
+    }
+    transaction.commit()?;
+    Ok(id)
 }
 
 fn parse_date_filter(filter: &str) -> Result<(i64, String), DatabaseError> {

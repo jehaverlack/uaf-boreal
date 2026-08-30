@@ -417,6 +417,45 @@ mod tests {
     }
 
     #[test]
+    fn manual_directory_entries_can_be_created_and_edited() {
+        let root = temporary_directory();
+        let database = Database::initialize(&runtime(&root)).expect("database should initialize");
+        let principal_id = directory::save_manual_principal(
+            &database,
+            None,
+            "new.user@example.edu",
+            "New User",
+            "person",
+            "active",
+            "",
+            "ACEP, UAF",
+            "Created manually",
+        )
+        .expect("manual identity should be created");
+        directory::save_manual_principal(
+            &database,
+            Some(principal_id),
+            "new.user@example.edu",
+            "Updated User",
+            "person",
+            "departing",
+            "2026-12-31",
+            "ACEP",
+            "Updated manually",
+        )
+        .expect("manual identity should be updated");
+        let principal = directory::get_principal(&database, principal_id)
+            .expect("identity should load")
+            .expect("identity should exist");
+        assert_eq!(principal.display_name, "Updated User");
+        assert_eq!(principal.status, "departing");
+        assert_eq!(principal.departure_date, "2026-12-31");
+        assert_eq!(principal.organizations, "ACEP");
+        assert_eq!(principal.notes, "Updated manually");
+        fs::remove_dir_all(root).expect("temporary database directory should be removable");
+    }
+
+    #[test]
     fn inventory_upserts_and_soft_deletes_missing_items() {
         let root = temporary_directory();
         let database = Database::initialize(&runtime(&root))
@@ -547,6 +586,22 @@ mod tests {
             ).expect("recursive tag should apply"),
             2,
         );
+        assert_eq!(
+            inventory::remove_tag_recursively_for_scope(
+                &database,
+                inventory::MY_DRIVE_SCOPE,
+                &["folder-id-1".to_string()],
+                "to-migrate",
+            )
+            .expect("recursive tag should be removed"),
+            2,
+        );
+        inventory::apply_tag_recursively(
+            &database,
+            &["folder-id-1".to_string()],
+            "to-migrate",
+        )
+        .expect("recursive tag should reapply");
         inventory::create_tag(&database, "Needs Review", "#abcdef")
             .expect("custom tag should be created");
         inventory::update_tag(&database, "needs-review", "Review Soon", "#123456")
@@ -570,6 +625,13 @@ mod tests {
             .expect("owner identity should exist");
         directory::apply_principal_tag(&database, &[owner.id], "needs-review")
             .expect("identity tag should apply");
+        assert_eq!(
+            directory::remove_principal_tag(&database, &[owner.id], "needs-review")
+                .expect("identity tag should be removable"),
+            1,
+        );
+        directory::apply_principal_tag(&database, &[owner.id], "needs-review")
+            .expect("identity tag should reapply");
         assert_eq!(
             inventory::list_my_drive_directory(
                 &database, Some("Reports"), "", "", "", "", "", "", false, "",

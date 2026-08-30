@@ -7,11 +7,14 @@
         <h1 class="h3 mb-1"><i class="bi bi-person-vcard text-primary me-2"></i>Directory</h1>
         <p class="text-body-secondary mb-0">Organizations, people, groups, accounts, and their Drive associations.</p>
     </div>
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+    <a class="btn btn-sm btn-outline-primary text-nowrap" href="/directory/new"><i class="bi bi-person-plus me-1"></i>Add entry</a>
     <form id="directory-import-form" method="post" action="/directory/import/csv" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
         <label class="visually-hidden" for="directory-csv">Directory CSV</label>
         <input class="form-control form-control-sm" id="directory-csv" name="directory_csv" type="file" accept=".csv,text/csv" required>
         <button id="directory-import-button" class="btn btn-sm btn-primary text-nowrap" type="submit"><i class="bi bi-upload me-1"></i>Import CSV</button>
     </form>
+    </div>
 </div>
 
 {% if import_complete %}
@@ -90,11 +93,12 @@
             {% for tag in tags %}<option value="{{ tag.slug }}">{{ tag.name }}</option>{% endfor %}
         </select>
         <button id="directory-apply-tag-button" class="btn btn-sm btn-outline-primary" type="submit" disabled><i class="bi bi-tag me-1"></i>Apply</button>
+        <button id="directory-remove-tag-button" class="btn btn-sm btn-outline-danger" type="submit" formaction="/directory/tags/remove" disabled><i class="bi bi-tag-fill me-1"></i>Remove</button>
         <span id="directory-selection-count" class="small text-body-secondary">0 selected</span>
     </form>
     <div class="card"><div class="table-responsive"><table class="table table-hover align-middle mb-0">
         <thead class="table-light">
-            <tr><th><input class="form-check-input" type="checkbox" id="directory-select-all" aria-label="Select all visible identities"></th><th>Name</th><th>Email</th><th>Type</th><th>Status</th><th>Departure</th><th>Organizations</th><th>Members</th><th>Owned items</th><th>Permitted items</th></tr>
+            <tr><th><input class="form-check-input" type="checkbox" id="directory-select-all" aria-label="Select all visible identities"></th><th>Name</th><th>Email</th><th>Type</th><th>Status</th><th>Departure</th><th>Organizations</th><th>Members</th><th>Owned items</th><th>Permitted items</th><th>Actions</th></tr>
             <tr>
                 <th></th>
                 <th><input class="form-control form-control-sm" form="directory-filter-form" name="name_filter" value="{{ name_filter }}" placeholder="Search name" aria-label="Filter name"></th>
@@ -103,7 +107,7 @@
                 <th><input class="form-control form-control-sm" form="directory-filter-form" name="status_filter" value="{{ status_filter }}" placeholder="Status" aria-label="Filter status"></th>
                 <th><input class="form-control form-control-sm" form="directory-filter-form" name="departure_filter" value="{{ departure_filter }}" placeholder="&lt;2026-12-31" title="Examples: &lt;2026-12-31, &gt;=2026-09-01" aria-label="Filter departure date"></th>
                 <th><input class="form-control form-control-sm" form="directory-filter-form" name="organization_filter" value="{{ organization_filter }}" placeholder="Organization" aria-label="Filter organization"></th>
-                <th></th><th></th><th></th>
+                <th></th><th></th><th></th><th></th>
             </tr>
         </thead>
         <tbody>
@@ -115,9 +119,10 @@
                 <td><span class="badge {% if principal.status == "former" %}text-bg-danger{% else if principal.status == "departing" %}text-bg-warning{% else if principal.status == "active" %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ principal.status }}</span></td>
                 <td>{{ principal.departure_date }}</td><td>{{ principal.organizations }}</td>
                 <td>{{ principal.members }}</td><td>{{ principal.owned_items }}</td><td>{{ principal.permitted_items }}</td>
+                <td><a class="btn btn-sm btn-outline-secondary" href="/directory/principals/{{ principal.id }}/edit" aria-label="Edit {{ principal.display_name }}"><i class="bi bi-pencil me-1"></i>Edit</a></td>
             </tr>
             {% endfor %}
-            {% if principals.is_empty() %}<tr><td colspan="10" class="text-body-secondary text-center py-4">No directory identities have been imported yet.</td></tr>{% endif %}
+            {% if principals.is_empty() %}<tr><td colspan="11" class="text-body-secondary text-center py-4">No directory identities have been imported yet. Add one manually or import a CSV.</td></tr>{% endif %}
         </tbody>
     </table></div></div>
 </section>
@@ -168,6 +173,7 @@
         const selectAll = document.getElementById("directory-select-all");
         const identityCheckboxes = Array.from(document.querySelectorAll(".directory-principal-select"));
         const tagButton = document.getElementById("directory-apply-tag-button");
+        const removeTagButton = document.getElementById("directory-remove-tag-button");
         const selectedIds = document.getElementById("directory-selected-principal-ids");
         const selectionCount = document.getElementById("directory-selection-count");
         const updateIdentitySelection = () => {
@@ -175,6 +181,7 @@
             selectAll.checked = identityCheckboxes.length > 0 && selected.length === identityCheckboxes.length;
             selectAll.indeterminate = selected.length > 0 && selected.length < identityCheckboxes.length;
             tagButton.disabled = selected.length === 0;
+            removeTagButton.disabled = selected.length === 0;
             selectedIds.value = selected.map((checkbox) => checkbox.value).join(",");
             selectionCount.textContent = `${selected.length} selected`;
         };

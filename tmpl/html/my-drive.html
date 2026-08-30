@@ -96,6 +96,11 @@
     <i class="bi bi-tags-fill me-2"></i>Tag applied to {{ tagged_count }} item(s).
 </div>
 {% endif %}
+{% if untagged_count > 0 %}
+<div class="alert alert-success py-2" role="status">
+    <i class="bi bi-tag me-2"></i>Tag removed from {{ untagged_count }} item(s).
+</div>
+{% endif %}
 
 <form method="post" action="{{ tag_action }}" class="d-flex flex-column flex-grow-1 overflow-hidden">
     <input type="hidden" name="path" value="{% if has_parent %}{{ current_path }}{% endif %}">
@@ -119,6 +124,9 @@
         </select>
         <button id="my-drive-apply-tag-button" class="btn btn-sm btn-outline-primary" type="submit" disabled>
             <i class="bi bi-tag me-1"></i>Apply
+        </button>
+        <button id="my-drive-remove-tag-button" class="btn btn-sm btn-outline-danger" type="submit" formaction="{{ tag_remove_action }}" disabled>
+            <i class="bi bi-tag-fill me-1"></i>Remove
         </button>
         <span id="my-drive-selection-count" class="small text-body-secondary">0 selected</span>
         <a class="btn btn-sm btn-link ms-auto" href="/tags"><i class="bi bi-gear me-1"></i>Manage tags</a>
@@ -217,6 +225,7 @@
         );
         const visibleRows = Array.from(document.querySelectorAll("tbody tr[data-size-bytes]"));
         const applyButton = document.getElementById("my-drive-apply-tag-button");
+        const removeButton = document.getElementById("my-drive-remove-tag-button");
         const selectionCount = document.getElementById("my-drive-selection-count");
         const selectedItemIds = document.getElementById("my-drive-selected-item-ids");
 
@@ -230,6 +239,7 @@
             selectAll.checked = itemCheckboxes.length > 0 && selected === itemCheckboxes.length;
             selectAll.indeterminate = selected > 0 && selected < itemCheckboxes.length;
             applyButton.disabled = selected === 0;
+            removeButton.disabled = selected === 0;
             selectionCount.textContent = `${selected} selected`;
             selectedItemIds.value = itemCheckboxes
                 .filter((checkbox) => checkbox.checked)

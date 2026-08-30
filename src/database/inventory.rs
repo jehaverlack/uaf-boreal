@@ -447,6 +447,42 @@ pub fn apply_tag_recursively_for_scope(
     Ok(applied)
 }
 
+pub fn remove_tag_recursively_for_scope(
+    database: &Database,
+    inventory_scope: &str,
+    item_ids: &[String],
+    tag_slug: &str,
+) -> Result<usize, DatabaseError> {
+    if item_ids.is_empty() {
+        return Err("Select at least one Drive item".into());
+    }
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    let tag_id: i64 = transaction.query_row(
+        "SELECT id FROM tags WHERE slug = ?1", [tag_slug], |row| row.get(0),
+    ).optional()?.ok_or_else(|| format!("Unknown tag: {tag_slug}"))?;
+    let mut removed = 0;
+    for item_id in item_ids {
+        removed += transaction.execute(
+            "DELETE FROM drive_item_tags
+             WHERE tag_id = ?3 AND remote_name = ?1 AND item_id IN (
+                SELECT descendant.item_id
+                FROM drive_items selected
+                JOIN drive_items descendant
+                  ON descendant.remote_name = selected.remote_name
+                 AND (descendant.item_id = selected.item_id
+                      OR (selected.is_directory = 1 AND
+                          substr(descendant.relative_path, 1, length(selected.relative_path) + 1)
+                              = selected.relative_path || '/'))
+                WHERE selected.remote_name = ?1 AND selected.item_id = ?2
+             )",
+            params![inventory_scope, item_id, tag_id],
+        )?;
+    }
+    transaction.commit()?;
+    Ok(removed)
+}
+
 pub fn synchronize_my_drive(
     database: &Database,
     scan_id: i64,

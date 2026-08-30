@@ -253,6 +253,7 @@ struct MyDriveTemplate {
     tags: Vec<database::inventory::Tag>,
     tag_filter: String,
     tagged_count: usize,
+    untagged_count: usize,
     type_filter: String,
     size_filter: String,
     modified_filter: String,
@@ -266,6 +267,7 @@ struct MyDriveTemplate {
     root_label: &'static str,
     explorer_path: &'static str,
     tag_action: &'static str,
+    tag_remove_action: &'static str,
     summary: ExplorerSummary,
 }
 
@@ -320,6 +322,28 @@ struct PrincipalTemplate {
     principal: database::directory::PrincipalRow,
     associations: Vec<database::directory::PrincipalAssociationRow>,
     tags: Vec<database::inventory::Tag>,
+}
+
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(path = "directory-edit.html", config = "askama.toml")]
+struct DirectoryEditTemplate {
+    title: String,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+    heading: &'static str,
+    action: String,
+    principal_id: i64,
+    email: String,
+    display_name: String,
+    principal_type: String,
+    status: String,
+    departure_date: String,
+    organization: String,
+    notes: String,
+    error: String,
 }
 
 #[allow(dead_code)]
@@ -419,6 +443,8 @@ struct DrivePathQuery {
     #[serde(default)]
     tagged: usize,
     #[serde(default)]
+    untagged: usize,
+    #[serde(default)]
     type_filter: String,
     #[serde(default)]
     size_filter: String,
@@ -465,6 +491,20 @@ struct ApplyPrincipalTagForm {
 }
 
 #[derive(serde::Deserialize)]
+struct PrincipalEditForm {
+    email: String,
+    display_name: String,
+    principal_type: String,
+    status: String,
+    #[serde(default)]
+    departure_date: String,
+    #[serde(default)]
+    organization: String,
+    #[serde(default)]
+    notes: String,
+}
+
+#[derive(serde::Deserialize)]
 struct TagForm {
     #[serde(default)]
     slug: String,
@@ -497,13 +537,19 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/remotes", get(remotes_page))
         .route("/my-drive", get(my_drive_page))
         .route("/my-drive/tags", post(apply_my_drive_tag))
+        .route("/my-drive/tags/remove", post(remove_my_drive_tag))
         .route("/shared-with-me", get(shared_with_me_page))
         .route("/shared-with-me/tags", post(apply_shared_with_me_tag))
+        .route("/shared-with-me/tags/remove", post(remove_shared_with_me_tag))
         .route("/tags", get(tags_page))
         .route("/directory", get(directory_page))
+        .route("/directory/new", get(new_principal_page).post(create_manual_principal))
         .route("/directory/principals/{principal_id}", get(principal_page))
+        .route("/directory/principals/{principal_id}/edit", get(edit_principal_page).post(update_manual_principal))
         .route("/directory/tags", post(apply_directory_tag))
+        .route("/directory/tags/remove", post(remove_directory_tag))
         .route("/directory/principals/{principal_id}/tags", post(apply_principal_tag))
+        .route("/directory/principals/{principal_id}/tags/remove", post(remove_principal_tag))
         .route("/directory/import/csv", post(import_directory_csv))
         .route("/tags/create", post(create_tag))
         .route("/tags/update", post(update_tag))
@@ -1126,6 +1172,7 @@ async fn my_drive_page(
         "My Drive",
         "/my-drive",
         "/my-drive/tags",
+        "/my-drive/tags/remove",
     )
 }
 
@@ -1143,6 +1190,7 @@ async fn shared_with_me_page(
         "Shared with me",
         "/shared-with-me",
         "/shared-with-me/tags",
+        "/shared-with-me/tags/remove",
     )
 }
 
@@ -1156,6 +1204,7 @@ fn render_drive_explorer(
     root_label: &'static str,
     explorer_path: &'static str,
     tag_action: &'static str,
+    tag_remove_action: &'static str,
 ) -> Result<Html<String>, StatusCode> {
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
@@ -1342,6 +1391,7 @@ fn render_drive_explorer(
         tags,
         tag_filter: query.tag,
         tagged_count: query.tagged,
+        untagged_count: query.untagged,
         type_filter: query.type_filter,
         size_filter: query.size_filter,
         modified_filter: query.modified_filter,
@@ -1355,6 +1405,7 @@ fn render_drive_explorer(
         root_label,
         explorer_path,
         tag_action,
+        tag_remove_action,
         summary,
     };
     render_template(&template)
@@ -1482,11 +1533,12 @@ async fn apply_my_drive_tag(
     State(state): State<Arc<AppState>>,
     Form(form): Form<ApplyTagForm>,
 ) -> Result<Redirect, StatusCode> {
-    apply_drive_tag(
+    change_drive_tag(
         &state,
         form,
         database::inventory::MY_DRIVE_SCOPE,
         "/my-drive",
+        false,
     )
 }
 
@@ -1494,19 +1546,35 @@ async fn apply_shared_with_me_tag(
     State(state): State<Arc<AppState>>,
     Form(form): Form<ApplyTagForm>,
 ) -> Result<Redirect, StatusCode> {
-    apply_drive_tag(
+    change_drive_tag(
         &state,
         form,
         database::inventory::SHARED_WITH_ME_SCOPE,
         "/shared-with-me",
+        false,
     )
 }
 
-fn apply_drive_tag(
+async fn remove_my_drive_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<ApplyTagForm>,
+) -> Result<Redirect, StatusCode> {
+    change_drive_tag(&state, form, database::inventory::MY_DRIVE_SCOPE, "/my-drive", true)
+}
+
+async fn remove_shared_with_me_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<ApplyTagForm>,
+) -> Result<Redirect, StatusCode> {
+    change_drive_tag(&state, form, database::inventory::SHARED_WITH_ME_SCOPE, "/shared-with-me", true)
+}
+
+fn change_drive_tag(
     state: &AppState,
     form: ApplyTagForm,
     inventory_scope: &str,
     explorer_path: &str,
+    remove: bool,
 ) -> Result<Redirect, StatusCode> {
     let database = state
         .database()
@@ -1518,18 +1586,22 @@ fn apply_drive_tag(
         .filter(|item_id| !item_id.is_empty())
         .map(str::to_string)
         .collect();
-    let applied = database::inventory::apply_tag_recursively_for_scope(
-        &database,
-        inventory_scope,
-        &selected_items,
-        &form.tag,
-    )
+    let changed = if remove {
+        database::inventory::remove_tag_recursively_for_scope(
+            &database, inventory_scope, &selected_items, &form.tag,
+        )
+    } else {
+        database::inventory::apply_tag_recursively_for_scope(
+            &database, inventory_scope, &selected_items, &form.tag,
+        )
+    }
     .map_err(|error| {
-        eprintln!("Unable to apply My Drive tag: {error}");
+        eprintln!("Unable to change Drive tag: {error}");
         StatusCode::BAD_REQUEST
     })?;
     println!(
-        "My Drive tag applied: tag={}, selected_items={}, applied_items={applied}",
+        "Drive tag {}: tag={}, selected_items={}, changed_items={changed}",
+        if remove { "removed" } else { "applied" },
         form.tag,
         selected_items.len(),
     );
@@ -1549,7 +1621,10 @@ fn apply_drive_tag(
         &form.direction,
         form.include_deleted,
     );
-    url.push_str(&format!("&tagged={applied}"));
+    url.push_str(&format!(
+        "&{}={changed}",
+        if remove { "untagged" } else { "tagged" }
+    ));
     Ok(Redirect::to(&url))
 }
 
@@ -1671,6 +1746,18 @@ async fn apply_directory_tag(
     Ok(Redirect::to("/directory"))
 }
 
+async fn remove_directory_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<ApplyPrincipalTagForm>,
+) -> Result<Redirect, StatusCode> {
+    let principal_ids = form.selected_principal_ids.split(',')
+        .filter_map(|value| value.trim().parse::<i64>().ok()).collect::<Vec<_>>();
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::directory::remove_principal_tag(&database, &principal_ids, &form.tag)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    Ok(Redirect::to("/directory"))
+}
+
 async fn apply_principal_tag(
     State(state): State<Arc<AppState>>,
     Path(principal_id): Path<i64>,
@@ -1683,6 +1770,105 @@ async fn apply_principal_tag(
             StatusCode::BAD_REQUEST
         })?;
     Ok(Redirect::to(&format!("/directory/principals/{principal_id}")))
+}
+
+async fn remove_principal_tag(
+    State(state): State<Arc<AppState>>,
+    Path(principal_id): Path<i64>,
+    Form(form): Form<ApplyPrincipalTagForm>,
+) -> Result<Redirect, StatusCode> {
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::directory::remove_principal_tag(&database, &[principal_id], &form.tag)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    Ok(Redirect::to(&format!("/directory/principals/{principal_id}")))
+}
+
+async fn new_principal_page(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
+    render_principal_editor(&state, None, None, String::new())
+}
+
+async fn edit_principal_page(
+    State(state): State<Arc<AppState>>,
+    Path(principal_id): Path<i64>,
+) -> Result<Html<String>, StatusCode> {
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let principal = database::directory::get_principal(&database, principal_id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    render_principal_editor(&state, Some(principal), None, String::new())
+}
+
+async fn create_manual_principal(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<PrincipalEditForm>,
+) -> Result<axum::response::Response, StatusCode> {
+    save_principal_editor(&state, None, form)
+}
+
+async fn update_manual_principal(
+    State(state): State<Arc<AppState>>,
+    Path(principal_id): Path<i64>,
+    Form(form): Form<PrincipalEditForm>,
+) -> Result<axum::response::Response, StatusCode> {
+    save_principal_editor(&state, Some(principal_id), form)
+}
+
+fn save_principal_editor(
+    state: &AppState,
+    principal_id: Option<i64>,
+    form: PrincipalEditForm,
+) -> Result<axum::response::Response, StatusCode> {
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    match database::directory::save_manual_principal(
+        &database, principal_id, &form.email, &form.display_name, &form.principal_type,
+        &form.status, &form.departure_date, &form.organization, &form.notes,
+    ) {
+        Ok(id) => Ok(Redirect::to(&format!("/directory/principals/{id}")).into_response()),
+        Err(error) => render_principal_editor(state, None, Some((principal_id, form)), error.to_string())
+            .map(axum::response::IntoResponse::into_response),
+    }
+}
+
+fn render_principal_editor(
+    state: &AppState,
+    principal: Option<database::directory::PrincipalRow>,
+    submitted: Option<(Option<i64>, PrincipalEditForm)>,
+    error: String,
+) -> Result<Html<String>, StatusCode> {
+    let principal_id = submitted.as_ref().and_then(|value| value.0)
+        .or_else(|| principal.as_ref().map(|value| value.id)).unwrap_or(0);
+    let is_new = principal_id == 0;
+    let (email, display_name, principal_type, status, departure_date, organization, notes) =
+        if let Some((_, form)) = submitted {
+            (form.email, form.display_name, form.principal_type, form.status,
+             form.departure_date, form.organization, form.notes)
+        } else if let Some(principal) = principal {
+            (principal.primary_email, principal.display_name, principal.principal_type,
+             principal.status, principal.departure_date, principal.organizations, principal.notes)
+        } else {
+            (String::new(), String::new(), "person".to_string(), "active".to_string(),
+             String::new(), String::new(), String::new())
+        };
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    render_template(&DirectoryEditTemplate {
+        title: if is_new { "New Directory Entry - BOREAL".to_string() } else { "Edit Directory Entry - BOREAL".to_string() },
+        active_page: "directory",
+        alerts: build_alerts(&rclone_state, &google_client_state),
+        status_items: build_status_items(
+            &rclone_state, &google_client_state, &google_remotes_state, &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state), authenticated_google_email(state),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+        heading: if is_new { "Add directory entry" } else { "Edit directory entry" },
+        action: if is_new { "/directory/new".to_string() } else { format!("/directory/principals/{principal_id}/edit") },
+        principal_id, email, display_name, principal_type, status, departure_date,
+        organization, notes, error,
+    })
 }
 
 async fn import_directory_csv(

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="mb-3"><a href="/directory" class="text-decoration-none"><i class="bi bi-arrow-left me-1"></i>Directory</a></div>
+
+<div class="row justify-content-center">
+    <div class="col-xl-8">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <h1 class="h3 mb-1">{{ heading }}</h1>
+                <p class="text-body-secondary mb-0">Maintain an identity used to analyze Drive ownership and permissions.</p>
+            </div>
+        </div>
+
+        {% if error.len() > 0 %}
+        <div class="alert alert-danger" role="alert"><i class="bi bi-exclamation-triangle-fill me-2"></i>{{ error }}</div>
+        {% endif %}
+
+        <form method="post" action="{{ action }}" class="card">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label" for="directory-email">Primary email</label>
+                        <input class="form-control" id="directory-email" name="email" type="email" value="{{ email }}" required autocomplete="email">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="directory-name">Display name</label>
+                        <input class="form-control" id="directory-name" name="display_name" value="{{ display_name }}" autocomplete="name">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label" for="directory-type">Type</label>
+                        <select class="form-select" id="directory-type" name="principal_type">
+                            <option value="person" {% if principal_type == "person" %}selected{% endif %}>Person</option>
+                            <option value="group" {% if principal_type == "group" %}selected{% endif %}>Google group</option>
+                            <option value="service_acct" {% if principal_type == "service_acct" %}selected{% endif %}>Service account</option>
+                            <option value="dept_acct" {% if principal_type == "dept_acct" %}selected{% endif %}>Department account</option>
+                            <option value="other" {% if principal_type == "other" %}selected{% endif %}>Other</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label" for="directory-status">Status</label>
+                        <select class="form-select" id="directory-status" name="status">
+                            <option value="active" {% if status == "active" %}selected{% endif %}>Active</option>
+                            <option value="departing" {% if status == "departing" %}selected{% endif %}>Departing</option>
+                            <option value="former" {% if status == "former" %}selected{% endif %}>Former</option>
+                            <option value="unknown" {% if status == "unknown" %}selected{% endif %}>Unknown</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label" for="directory-departure">Departure date</label>
+                        <input class="form-control" id="directory-departure" name="departure_date" type="date" value="{{ departure_date }}">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label" for="directory-organization">Organizations</label>
+                        <input class="form-control" id="directory-organization" name="organization" value="{{ organization }}" placeholder="ACEP, University of Alaska Fairbanks">
+                        <div class="form-text">Separate multiple organizations with commas.</div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label" for="directory-notes">Notes</label>
+                        <textarea class="form-control" id="directory-notes" name="notes" rows="4">{{ notes }}</textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer d-flex justify-content-end gap-2">
+                <a class="btn btn-outline-secondary" href="{% if principal_id > 0 %}/directory/principals/{{ principal_id }}{% else %}/directory{% endif %}">Cancel</a>
+                <button class="btn btn-primary" type="submit"><i class="bi bi-check-lg me-1"></i>Save entry</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
