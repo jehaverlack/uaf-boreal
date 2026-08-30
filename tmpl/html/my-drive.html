@@ -28,7 +28,8 @@
         <input type="hidden" name="modified_filter" value="{{ modified_filter }}">
         <input type="hidden" name="owner_filter" value="{{ owner_filter }}">
         <input type="hidden" name="permission_filter" value="{{ permission_filter }}">
-        <input type="hidden" name="identity_tag" value="{{ identity_tag_filter }}">
+        <input type="hidden" name="owner_identity_tag" value="{{ owner_identity_tag_filter }}">
+        <input type="hidden" name="permission_identity_tag" value="{{ permission_identity_tag_filter }}">
         <input type="hidden" name="include_deleted" value="{{ include_deleted }}">
         <button class="btn btn-sm btn-outline-secondary" type="submit" title="Browse parent folder"><i class="bi bi-arrow-up"></i></button>
     </form>
@@ -51,11 +52,20 @@
         </select>
     </div>
     <div class="col-sm-4 col-lg-3">
-        <label class="visually-hidden" for="my-drive-identity-tag-filter">Filter by identity tag</label>
-        <select id="my-drive-identity-tag-filter" class="form-select form-select-sm" name="identity_tag">
-            <option value="">All identity tags</option>
+        <label class="visually-hidden" for="my-drive-owner-identity-tag-filter">Filter by owner identity tag</label>
+        <select id="my-drive-owner-identity-tag-filter" class="form-select form-select-sm" name="owner_identity_tag">
+            <option value="">Any owner identity tag</option>
             {% for tag in tags %}
-            <option value="{{ tag.slug }}" {% if identity_tag_filter == tag.slug %}selected{% endif %}>Identity: {{ tag.name }}</option>
+            <option value="{{ tag.slug }}" {% if owner_identity_tag_filter == tag.slug %}selected{% endif %}>Owner: {{ tag.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-sm-4 col-lg-3">
+        <label class="visually-hidden" for="my-drive-permission-identity-tag-filter">Filter by permission identity tag</label>
+        <select id="my-drive-permission-identity-tag-filter" class="form-select form-select-sm" name="permission_identity_tag">
+            <option value="">Any permission identity tag</option>
+            {% for tag in tags %}
+            <option value="{{ tag.slug }}" {% if permission_identity_tag_filter == tag.slug %}selected{% endif %}>Shared with: {{ tag.name }}</option>
             {% endfor %}
         </select>
     </div>
@@ -98,7 +108,8 @@
     <input type="hidden" name="modified_filter" value="{{ modified_filter }}">
     <input type="hidden" name="owner_filter" value="{{ owner_filter }}">
     <input type="hidden" name="permission_filter" value="{{ permission_filter }}">
-    <input type="hidden" name="identity_tag_filter" value="{{ identity_tag_filter }}">
+    <input type="hidden" name="owner_identity_tag_filter" value="{{ owner_identity_tag_filter }}">
+    <input type="hidden" name="permission_identity_tag_filter" value="{{ permission_identity_tag_filter }}">
     <input type="hidden" name="include_deleted" value="{{ include_deleted }}">
     <input type="hidden" id="my-drive-selected-item-ids" name="selected_item_ids" value="">
     <div class="d-flex align-items-center gap-2 mb-2">
