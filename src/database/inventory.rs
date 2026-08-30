@@ -37,9 +37,16 @@ pub struct DriveExplorerItem {
     pub size_bytes: Option<u64>,
     pub modified_at: Option<String>,
     pub owner_email: Option<String>,
+    pub owner_tags: Vec<Tag>,
     pub tags: Vec<Tag>,
-    pub permissions: Vec<String>,
+    pub permissions: Vec<PermissionIdentity>,
     pub is_deleted: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct PermissionIdentity {
+    pub label: String,
+    pub tags: Vec<Tag>,
 }
 
 #[derive(Debug, Clone)]
@@ -208,6 +215,7 @@ pub fn list_drive_directory(
                 size_bytes: size.map(|value| value as u64),
                 modified_at: row.get(6)?,
                 owner_email: row.get(7)?,
+                owner_tags: Vec::new(),
                 tags: row.get::<_, Option<String>>(8)?
                     .map(|tags| tags.split('\u{1f}').filter_map(|tag| {
                         let (name, color) = tag.split_once('\u{1e}')?;
@@ -215,14 +223,44 @@ pub fn list_drive_directory(
                     }).collect())
                     .unwrap_or_default(),
                 permissions: row.get::<_, Option<String>>(9)?
-                    .map(|permissions| permissions.split('\u{1f}').map(str::to_string).collect())
+                    .map(|permissions| permissions.split('\u{1f}').map(|label| PermissionIdentity {
+                        label: label.to_string(), tags: Vec::new(),
+                    }).collect())
                     .unwrap_or_default(),
                 is_deleted: row.get(10)?,
             })
         },
     )?;
 
-    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    let mut items = rows.collect::<Result<Vec<_>, _>>()?;
+    drop(statement);
+    let mut identity_tags: HashMap<String, Vec<Tag>> = HashMap::new();
+    let mut tag_statement = connection.prepare(
+        "SELECT lower(pe.email), t.slug, t.name, t.color
+         FROM principal_emails pe
+         JOIN principal_tags pt ON pt.principal_id = pe.principal_id
+         JOIN tags t ON t.id = pt.tag_id
+         ORDER BY t.name COLLATE NOCASE",
+    )?;
+    for row in tag_statement.query_map([], |row| Ok((
+        row.get::<_, String>(0)?,
+        Tag { slug: row.get(1)?, name: row.get(2)?, color: row.get(3)? },
+    )))? {
+        let (email, tag) = row?;
+        identity_tags.entry(email).or_default().push(tag);
+    }
+    for item in &mut items {
+        if let Some(owner) = item.owner_email.as_ref() {
+            item.owner_tags = identity_tags.get(&owner.to_ascii_lowercase()).cloned().unwrap_or_default();
+        }
+        for permission in &mut item.permissions {
+            permission.tags = identity_tags
+                .get(&permission.label.to_ascii_lowercase())
+                .cloned()
+                .unwrap_or_default();
+        }
+    }
+    Ok(items)
 }
 
 fn comparison_prefix(value: &str) -> (i64, &str) {

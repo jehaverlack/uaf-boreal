@@ -191,14 +191,23 @@ pub struct DriveExplorerRow {
     pub mime_type: String,
     pub type_icon: &'static str,
     pub tags: Vec<TagPill>,
-    pub permissions: String,
+    pub permissions: Vec<IdentityDisplay>,
     pub size: String,
     pub modified_at: String,
-    pub owner_email: String,
+    pub owner: IdentityDisplay,
     pub drive_url: String,
     pub is_deleted: bool,
     pub size_bytes: u64,
     pub permission_count: usize,
+}
+
+#[allow(dead_code)]
+pub struct IdentityDisplay {
+    pub label: String,
+    pub tagged: bool,
+    pub color: String,
+    pub text_color: &'static str,
+    pub tag_details: String,
 }
 
 #[allow(dead_code)]
@@ -1205,6 +1214,13 @@ fn render_drive_explorer(
         .map(|item| {
             let size_bytes = item.size_bytes.unwrap_or(0);
             let permission_count = item.permissions.len();
+            let owner = identity_display(
+                item.owner_email.clone().unwrap_or_else(|| "—".to_string()),
+                &item.owner_tags,
+            );
+            let permissions = item.permissions.iter()
+                .map(|permission| identity_display(permission.label.clone(), &permission.tags))
+                .collect();
             DriveExplorerRow {
             drive_url: if item.is_directory {
                 format!("https://drive.google.com/drive/folders/{}", item.item_id)
@@ -1251,17 +1267,13 @@ fn render_drive_explorer(
                     color: tag.color,
                 })
                 .collect(),
-            permissions: if item.permissions.is_empty() {
-                "—".to_string()
-            } else {
-                item.permissions.join(", ")
-            },
+            permissions,
             size: item
                 .size_bytes
                 .map(format_bytes)
                 .unwrap_or_else(|| "—".to_string()),
             modified_at: item.modified_at.unwrap_or_else(|| "—".to_string()),
-            owner_email: item.owner_email.unwrap_or_else(|| "—".to_string()),
+            owner,
             is_deleted: item.is_deleted,
             size_bytes,
             permission_count,
@@ -1346,6 +1358,21 @@ fn render_drive_explorer(
         summary,
     };
     render_template(&template)
+}
+
+fn identity_display(label: String, tags: &[database::inventory::Tag]) -> IdentityDisplay {
+    let first = tags.first();
+    IdentityDisplay {
+        label,
+        tagged: first.is_some(),
+        color: first.map(|tag| tag.color.clone()).unwrap_or_default(),
+        text_color: first.map(|tag| tag_text_color(&tag.color)).unwrap_or("#212529"),
+        tag_details: if tags.is_empty() {
+            "No identity tags".to_string()
+        } else {
+            format!("Identity tags: {}", tags.iter().map(|tag| tag.name.as_str()).collect::<Vec<_>>().join(", "))
+        },
+    }
 }
 
 fn mime_icon(is_directory: bool, mime_type: Option<&str>) -> &'static str {
