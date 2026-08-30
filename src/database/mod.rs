@@ -419,6 +419,8 @@ mod tests {
             .expect("empty authoritative inventory should synchronize");
 
         assert_eq!(summary.deleted_items, 1);
+        assert_eq!(summary.files_scanned, 0);
+        assert_eq!(summary.bytes_discovered, 0);
         let connection = database.connect().expect("database should connect");
         let values: (i64, i64, String) = connection.query_row(
             "SELECT i.is_deleted, i.size_bytes, p.email_address

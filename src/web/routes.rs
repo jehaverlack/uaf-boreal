@@ -250,6 +250,16 @@ struct MetadataProgressTemplate {
     metadata: MetadataView,
 }
 
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(
+    path = "partials/drive-summaries.html",
+    config = "askama.toml"
+)]
+struct DriveSummariesTemplate {
+    metadata: MetadataView,
+}
+
 #[derive(serde::Deserialize)]
 struct SettingsQuery {
     #[serde(default)]
@@ -309,6 +319,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/ui/metadata-progress",
             get(ui_metadata_progress),
+        )
+        .route(
+            "/ui/drive-summaries",
+            get(ui_drive_summaries),
         )
         .route(
             "/setup/google-client/import",
@@ -1036,6 +1050,20 @@ async fn ui_setup_progress(
     render_template(
         &template,
     )
+}
+
+async fn ui_drive_summaries(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
+    let metadata_state = state.metadata_state();
+    let template = DriveSummariesTemplate {
+        metadata: build_metadata_view(
+            &metadata_state,
+            true,
+            false,
+        ),
+    };
+    render_template(&template)
 }
 
 async fn ui_metadata_progress(

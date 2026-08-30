@@ -100,6 +100,7 @@
                             aria-current="page"
                             {% endif %}
                             href="/"
+                            title="Dashboard"
                         >
                             Dashboard
                         </a>
@@ -125,6 +126,7 @@
                             class="nav-link{% if active_page == "remotes" %} active{% endif %}"
                             {% if active_page == "remotes" %}aria-current="page"{% endif %}
                             href="/remotes"
+                            title="View Remotes"
                         >
                             Remotes
                         </a>
@@ -136,6 +138,7 @@
                             type="button"
                             data-bs-toggle="modal"
                             data-bs-target="#metadataUpdateModal"
+                            title="Update Metadata"
                         >
                             Update
                         </button>
@@ -153,6 +156,7 @@
                             role="button"
                             data-bs-toggle="dropdown"
                             aria-expanded="false"
+                            title="Application Menu"
                         >
                             App
                         </a>
