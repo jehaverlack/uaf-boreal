@@ -188,17 +188,23 @@
                     <td class="text-nowrap">{{ row.size }}</td>
                     <td class="text-nowrap small">{{ row.modified_at }}</td>
                     <td class="small">
+                        {% if row.owner.directory_url.len() > 0 %}<a href="{{ row.owner.directory_url }}" class="badge rounded-pill boreal-unknown-identity text-decoration-none"
+                              title="{{ row.owner.label }} — {{ row.owner.tag_details }}. Click to add to the directory"><i class="bi bi-person-question me-1" aria-hidden="true"></i>{{ row.owner.label }}</a>{% else %}
                         <span class="badge rounded-pill {% if row.owner.unknown %}boreal-unknown-identity{% else if !row.owner.tagged %}text-bg-light border text-body{% endif %}"
                               {% if row.owner.tagged %}style="background-color: {{ row.owner.color }}; color: {{ row.owner.text_color }}"{% endif %}
                               title="{{ row.owner.label }} — {{ row.owner.tag_details }}">{% if row.owner.unknown %}<i class="bi bi-person-question me-1" aria-hidden="true"></i>{% endif %}{{ row.owner.label }}</span>
+                        {% endif %}
                     </td>
                     <td class="small">
                         {% if row.permissions.is_empty() %}&mdash;{% else %}
                         <div class="d-flex flex-wrap gap-1">
                             {% for permission in row.permissions %}
+                            {% if permission.directory_url.len() > 0 %}<a href="{{ permission.directory_url }}" class="badge rounded-pill boreal-unknown-identity text-decoration-none"
+                                  title="{{ permission.label }} — {{ permission.tag_details }}. Click to add to the directory"><i class="bi bi-person-question me-1" aria-hidden="true"></i>{{ permission.label }}</a>{% else %}
                             <span class="badge rounded-pill {% if permission.unknown %}boreal-unknown-identity{% else if !permission.tagged %}text-bg-light border text-body{% endif %}"
                                   {% if permission.tagged %}style="background-color: {{ permission.color }}; color: {{ permission.text_color }}"{% endif %}
                                   title="{{ permission.label }} — {{ permission.tag_details }}">{% if permission.unknown %}<i class="bi bi-person-question me-1" aria-hidden="true"></i>{% endif %}{{ permission.label }}</span>
+                            {% endif %}
                             {% endfor %}
                         </div>
                         {% endif %}

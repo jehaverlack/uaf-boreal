@@ -209,6 +209,7 @@ pub struct IdentityDisplay {
     pub color: String,
     pub text_color: &'static str,
     pub tag_details: String,
+    pub directory_url: String,
 }
 
 #[allow(dead_code)]
@@ -503,6 +504,12 @@ struct PrincipalEditForm {
     organization: String,
     #[serde(default)]
     notes: String,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct NewPrincipalQuery {
+    #[serde(default)]
+    email: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -1421,6 +1428,11 @@ fn identity_display(
     let first = tags.first();
     let unknown = !known && label != "—" && !label.trim().is_empty();
     IdentityDisplay {
+        directory_url: if unknown && label.contains('@') {
+            format!("/directory/new?email={}", encode_query_value(&label))
+        } else {
+            String::new()
+        },
         label,
         tagged: first.is_some(),
         unknown,
@@ -1795,8 +1807,23 @@ async fn remove_principal_tag(
 
 async fn new_principal_page(
     State(state): State<Arc<AppState>>,
+    Query(query): Query<NewPrincipalQuery>,
 ) -> Result<Html<String>, StatusCode> {
-    render_principal_editor(&state, None, None, String::new())
+    let submitted = (!query.email.trim().is_empty()).then(|| {
+        (
+            None,
+            PrincipalEditForm {
+                email: query.email.trim().to_string(),
+                display_name: String::new(),
+                principal_type: "person".to_string(),
+                status: "active".to_string(),
+                departure_date: String::new(),
+                organization: String::new(),
+                notes: String::new(),
+            },
+        )
+    });
+    render_principal_editor(&state, None, submitted, String::new())
 }
 
 async fn edit_principal_page(
