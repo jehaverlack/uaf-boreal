@@ -21,7 +21,14 @@
         <div class="progress mb-2" role="progressbar" aria-label="Approximate metadata update progress" aria-valuenow="{{ progress_percent }}" aria-valuemin="0" aria-valuemax="100">
             <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: {{ progress_percent }}%">{{ progress_percent }}%</div>
         </div>
-        <div class="small text-body-secondary mb-3">Approximate progress based on the current update phase.</div>
+        {% if timing_available %}
+        <div class="small text-body-secondary mb-3">
+            {{ elapsed_label }} elapsed &middot; about {{ remaining_label }} remaining &middot;
+            {{ estimated_total_label }} average from {{ timing_samples }} previous update{% if timing_samples != 1 %}s{% endif %}.
+        </div>
+        {% else %}
+        <div class="small text-body-secondary mb-3">Approximate progress based on the current update phase. A time estimate will appear after one update completes.</div>
+        {% endif %}
         <div class="row g-2 small">
             <div class="col-6"><strong>{{ metadata.files_scanned }}</strong> files scanned</div>
             <div class="col-6"><strong>{{ metadata.folders_scanned }}</strong> folders scanned</div>

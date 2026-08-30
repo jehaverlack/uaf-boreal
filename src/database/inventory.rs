@@ -20,6 +20,13 @@ pub struct InventorySummary {
     pub deleted_items: u64,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ScanTimingEstimate {
+    pub elapsed_seconds: u64,
+    pub average_seconds: u64,
+    pub sample_count: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct DriveExplorerItem {
     pub item_id: String,
@@ -550,6 +557,47 @@ pub fn latest_summary_for(
             deleted_items: row.get::<_, i64>(5)? as u64,
         }),
     ).optional().map_err(Into::into)
+}
+
+pub fn scan_timing_estimate(
+    database: &Database,
+    scan_type: &str,
+) -> Result<Option<ScanTimingEstimate>, DatabaseError> {
+    let connection = database.connect()?;
+    let active_started_at: Option<String> = connection
+        .query_row(
+            "SELECT started_at FROM scan_runs
+             WHERE scan_type = ?1 AND status = 'running'
+             ORDER BY id DESC LIMIT 1",
+            [scan_type],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(active_started_at) = active_started_at else {
+        return Ok(None);
+    };
+
+    let elapsed_seconds = connection.query_row(
+        "SELECT MAX(0, CAST((julianday('now') - julianday(?1)) * 86400 AS INTEGER))",
+        [&active_started_at],
+        |row| row.get::<_, i64>(0),
+    )? as u64;
+    let (average_seconds, sample_count) = connection.query_row(
+        "SELECT COALESCE(AVG(duration_seconds), 0), COUNT(*) FROM (
+             SELECT (julianday(completed_at) - julianday(started_at)) * 86400 AS duration_seconds
+             FROM scan_runs
+             WHERE scan_type = ?1 AND status = 'complete' AND completed_at IS NOT NULL
+             ORDER BY id DESC LIMIT 5
+         )",
+        [scan_type],
+        |row| Ok((row.get::<_, f64>(0)?.round() as u64, row.get::<_, i64>(1)? as u64)),
+    )?;
+
+    Ok((sample_count > 0 && average_seconds > 0).then_some(ScanTimingEstimate {
+        elapsed_seconds,
+        average_seconds,
+        sample_count,
+    }))
 }
 
 fn permissions(item: &DriveItem) -> Result<Vec<Value>, DatabaseError> {

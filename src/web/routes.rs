@@ -332,6 +332,11 @@ struct MetadataProgressTemplate {
 struct MetadataUpdateModalTemplate {
     metadata: MetadataView,
     progress_percent: u8,
+    timing_available: bool,
+    elapsed_label: String,
+    estimated_total_label: String,
+    remaining_label: String,
+    timing_samples: u64,
 }
 
 #[allow(dead_code)]
@@ -1718,7 +1723,16 @@ async fn ui_metadata_update_modal(
     let metadata_state = state.metadata_state();
     let shared_summary = latest_shared_summary(&state);
     let available = matches!(remotes.ro, RemoteState::Ready);
-    let progress_percent = metadata_progress_percent(&metadata_state);
+    let timing = if matches!(metadata_state, MetadataState::Updating(_)) {
+        state.database().ok().and_then(|database| {
+            database::inventory::scan_timing_estimate(&database, "shared-with-me")
+                .ok()
+                .flatten()
+        })
+    } else {
+        None
+    };
+    let progress_percent = metadata_progress_percent(&metadata_state, timing.as_ref());
 
     render_template(&MetadataUpdateModalTemplate {
         metadata: build_metadata_view(
@@ -1728,11 +1742,25 @@ async fn ui_metadata_update_modal(
             shared_summary.as_ref(),
         ),
         progress_percent,
+        timing_available: timing.is_some(),
+        elapsed_label: format_duration(timing.map(|value| value.elapsed_seconds).unwrap_or(0)),
+        estimated_total_label: format_duration(
+            timing.map(|value| value.average_seconds).unwrap_or(0),
+        ),
+        remaining_label: format_duration(
+            timing
+                .map(|value| value.average_seconds.saturating_sub(value.elapsed_seconds))
+                .unwrap_or(0),
+        ),
+        timing_samples: timing.map(|value| value.sample_count).unwrap_or(0),
     })
 }
 
-fn metadata_progress_percent(state: &MetadataState) -> u8 {
-    match state {
+fn metadata_progress_percent(
+    state: &MetadataState,
+    timing: Option<&database::inventory::ScanTimingEstimate>,
+) -> u8 {
+    let phase_percent = match state {
         MetadataState::Updating(progress) => match progress.phase {
             "Connecting" => 5,
             "Fetching My Drive metadata" => 15,
@@ -1743,6 +1771,23 @@ fn metadata_progress_percent(state: &MetadataState) -> u8 {
         },
         MetadataState::Synchronized(_) => 100,
         _ => 0,
+    };
+    let elapsed_percent = timing
+        .map(|value| {
+            ((value.elapsed_seconds.saturating_mul(100) / value.average_seconds).min(95)) as u8
+        })
+        .unwrap_or(0);
+    phase_percent.max(elapsed_percent)
+}
+
+fn format_duration(seconds: u64) -> String {
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+    let seconds = seconds % 60;
+    if hours > 0 {
+        format!("{hours}h {minutes:02}m {seconds:02}s")
+    } else {
+        format!("{minutes}m {seconds:02}s")
     }
 }
 
