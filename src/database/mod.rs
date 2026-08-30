@@ -564,6 +564,12 @@ mod tests {
             .expect("permission identity should exist");
         directory::apply_principal_tag(&database, &[reader.id], "former-staff")
             .expect("permission identity tag should apply");
+        let identity_state_items = inventory::list_my_drive_directory(
+            &database, Some("Reports"), "", "", "", "", "", "", false, "", "", "", false,
+            "name", false,
+        ).expect("explorer identity states should be readable");
+        assert!(!identity_state_items[0].owner_known);
+        assert!(identity_state_items[0].permissions[0].known);
         assert!(inventory::list_my_drive_directory(
             &database, Some("Reports"), "", "", "", "", "", "", false, "",
             "former-staff", "", false, "name", false,
@@ -637,6 +643,10 @@ mod tests {
             .into_iter()
             .find(|principal| principal.primary_email == "owner@example.edu")
             .expect("owner identity should exist");
+        assert!(inventory::list_my_drive_directory(
+            &database, Some("Reports"), "", "", "", "", "", "", false, "", "", "", false,
+            "name", false,
+        ).expect("known owner state should be readable")[0].owner_known);
         directory::apply_principal_tag(&database, &[owner.id], "needs-review")
             .expect("identity tag should apply");
         assert_eq!(

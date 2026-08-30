@@ -37,6 +37,7 @@ pub struct DriveExplorerItem {
     pub size_bytes: Option<u64>,
     pub modified_at: Option<String>,
     pub owner_email: Option<String>,
+    pub owner_known: bool,
     pub owner_tags: Vec<Tag>,
     pub tags: Vec<Tag>,
     pub permissions: Vec<PermissionIdentity>,
@@ -46,6 +47,7 @@ pub struct DriveExplorerItem {
 #[derive(Debug, Clone)]
 pub struct PermissionIdentity {
     pub label: String,
+    pub known: bool,
     pub tags: Vec<Tag>,
 }
 
@@ -215,6 +217,7 @@ pub fn list_drive_directory(
                 size_bytes: size.map(|value| value as u64),
                 modified_at: row.get(6)?,
                 owner_email: row.get(7)?,
+                owner_known: false,
                 owner_tags: Vec::new(),
                 tags: row.get::<_, Option<String>>(8)?
                     .map(|tags| tags.split('\u{1f}').filter_map(|tag| {
@@ -224,7 +227,7 @@ pub fn list_drive_directory(
                     .unwrap_or_default(),
                 permissions: row.get::<_, Option<String>>(9)?
                     .map(|permissions| permissions.split('\u{1f}').map(|label| PermissionIdentity {
-                        label: label.to_string(), tags: Vec::new(),
+                        label: label.to_string(), known: false, tags: Vec::new(),
                     }).collect())
                     .unwrap_or_default(),
                 is_deleted: row.get(10)?,
@@ -235,6 +238,13 @@ pub fn list_drive_directory(
     let mut items = rows.collect::<Result<Vec<_>, _>>()?;
     drop(statement);
     let mut identity_tags: HashMap<String, Vec<Tag>> = HashMap::new();
+    let known_identities = connection
+        .prepare(
+            "SELECT lower(email) FROM principal_emails
+             UNION SELECT lower(primary_email) FROM principals WHERE primary_email IS NOT NULL",
+        )?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<HashSet<_>, _>>()?;
     let mut tag_statement = connection.prepare(
         "SELECT lower(pe.email), t.slug, t.name, t.color
          FROM principal_emails pe
@@ -251,11 +261,15 @@ pub fn list_drive_directory(
     }
     for item in &mut items {
         if let Some(owner) = item.owner_email.as_ref() {
-            item.owner_tags = identity_tags.get(&owner.to_ascii_lowercase()).cloned().unwrap_or_default();
+            let owner = owner.to_ascii_lowercase();
+            item.owner_known = known_identities.contains(&owner);
+            item.owner_tags = identity_tags.get(&owner).cloned().unwrap_or_default();
         }
         for permission in &mut item.permissions {
+            let label = permission.label.to_ascii_lowercase();
+            permission.known = known_identities.contains(&label);
             permission.tags = identity_tags
-                .get(&permission.label.to_ascii_lowercase())
+                .get(&label)
                 .cloned()
                 .unwrap_or_default();
         }

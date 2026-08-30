@@ -205,6 +205,7 @@ pub struct DriveExplorerRow {
 pub struct IdentityDisplay {
     pub label: String,
     pub tagged: bool,
+    pub unknown: bool,
     pub color: String,
     pub text_color: &'static str,
     pub tag_details: String,
@@ -1265,10 +1266,11 @@ fn render_drive_explorer(
             let permission_count = item.permissions.len();
             let owner = identity_display(
                 item.owner_email.clone().unwrap_or_else(|| "—".to_string()),
+                item.owner_known,
                 &item.owner_tags,
             );
             let permissions = item.permissions.iter()
-                .map(|permission| identity_display(permission.label.clone(), &permission.tags))
+                .map(|permission| identity_display(permission.label.clone(), permission.known, &permission.tags))
                 .collect();
             DriveExplorerRow {
             drive_url: if item.is_directory {
@@ -1411,14 +1413,22 @@ fn render_drive_explorer(
     render_template(&template)
 }
 
-fn identity_display(label: String, tags: &[database::inventory::Tag]) -> IdentityDisplay {
+fn identity_display(
+    label: String,
+    known: bool,
+    tags: &[database::inventory::Tag],
+) -> IdentityDisplay {
     let first = tags.first();
+    let unknown = !known && label != "—" && !label.trim().is_empty();
     IdentityDisplay {
         label,
         tagged: first.is_some(),
+        unknown,
         color: first.map(|tag| tag.color.clone()).unwrap_or_default(),
         text_color: first.map(|tag| tag_text_color(&tag.color)).unwrap_or("#212529"),
-        tag_details: if tags.is_empty() {
+        tag_details: if unknown {
+            "Unknown identity — not found in the BOREAL directory".to_string()
+        } else if tags.is_empty() {
             "No identity tags".to_string()
         } else {
             format!("Identity tags: {}", tags.iter().map(|tag| tag.name.as_str()).collect::<Vec<_>>().join(", "))
