@@ -35,6 +35,22 @@
         rel="stylesheet"
     >
 
+    <style>
+        main .text-body-secondary {
+            color: #495057 !important;
+        }
+
+        .navbar .nav-link:not(.disabled) {
+            color: #495057;
+        }
+
+        .navbar .nav-link.active,
+        .navbar .nav-link:hover,
+        .navbar .nav-link:focus {
+            color: #212529;
+        }
+    </style>
+
 </head>
 
 <body class="d-flex flex-column min-vh-100">
@@ -288,6 +304,51 @@
 
     <script>
         (() => {
+            function formatDataAge(seconds) {
+                if (seconds < 60) {
+                    return "just now";
+                }
+
+                const units = [
+                    [86400, "day"],
+                    [3600, "hour"],
+                    [60, "minute"],
+                ];
+
+                for (const [unitSeconds, label] of units) {
+                    if (seconds >= unitSeconds) {
+                        const value = Math.floor(seconds / unitSeconds);
+                        return `${value} ${label}${value === 1 ? "" : "s"}`;
+                    }
+                }
+
+                return "just now";
+            }
+
+            function refreshDataAges() {
+                for (const element of document.querySelectorAll(".boreal-data-age")) {
+                    const timestamp = element.dataset.synchronizedAt;
+                    const synchronizedAt = Date.parse(
+                        timestamp.replace(" ", "T") + "Z",
+                    );
+
+                    if (Number.isNaN(synchronizedAt)) {
+                        element.textContent = "unknown";
+                        continue;
+                    }
+
+                    const seconds = Math.max(
+                        0,
+                        Math.floor((Date.now() - synchronizedAt) / 1000),
+                    );
+                    element.textContent = formatDataAge(seconds);
+                }
+            }
+
+            refreshDataAges();
+            document.body.addEventListener("htmx:afterSwap", refreshDataAges);
+            window.setInterval(refreshDataAges, 60000);
+
             const quitButton =
                 document.getElementById("boreal-quit");
 

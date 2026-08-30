@@ -62,8 +62,17 @@
                 <div class="d-flex flex-wrap gap-3 small mt-3">
                     <span><strong>{{ metadata.files_scanned }}</strong> files</span>
                     <span><strong>{{ metadata.folders_scanned }}</strong> folders</span>
+                    {% if metadata.completed_at.len() > 0 %}
+                    <span>
+                        <strong
+                            class="boreal-data-age"
+                            data-synchronized-at="{{ metadata.completed_at }}"
+                        >just now</strong>
+                        data age
+                    </span>
+                    {% endif %}
                     <span><strong>{{ metadata.permissions_scanned }}</strong> permissions</span>
-                    <span><strong>{{ metadata.size_label }}</strong> discovered</span>
+                    <span><strong>{{ metadata.size_label }}</strong> total size</span>
                     <span><strong>{{ metadata.errors }}</strong> errors</span>
                 </div>
 
