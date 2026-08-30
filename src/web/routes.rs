@@ -30,9 +30,12 @@ use crate::{
         MetadataState,
         RcloneState,
     },
-    database::settings::{
+    database::{
         self,
-        InventorySettings,
+        settings::{
+            self,
+            InventorySettings,
+        },
     },
     google,
     rclone::{
@@ -207,6 +210,37 @@ struct RemotesTemplate {
 }
 
 #[allow(dead_code)]
+pub struct DriveExplorerRow {
+    pub name: String,
+    pub relative_path: String,
+    pub is_directory: bool,
+    pub kind: String,
+    pub size: String,
+    pub modified_at: String,
+    pub owner_email: String,
+    pub drive_url: String,
+}
+
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(
+    path = "my-drive.html",
+    config = "askama.toml"
+)]
+struct MyDriveTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+    current_path: String,
+    parent_path: String,
+    has_parent: bool,
+    rows: Vec<DriveExplorerRow>,
+    error: String,
+}
+
+#[allow(dead_code)]
 #[derive(Template)]
 #[template(
     path = "partials/alerts.html",
@@ -266,6 +300,12 @@ struct SettingsQuery {
     saved: bool,
 }
 
+#[derive(serde::Deserialize, Default)]
+struct DrivePathQuery {
+    #[serde(default)]
+    path: String,
+}
+
 #[derive(serde::Deserialize)]
 struct SettingsForm {
     #[serde(default)]
@@ -291,6 +331,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/remotes",
             get(remotes_page),
+        )
+        .route(
+            "/my-drive",
+            get(my_drive_page),
         )
         .route(
             "/settings",
@@ -925,6 +969,75 @@ async fn remotes_page(
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
         remotes,
+        error,
+    };
+    render_template(&template)
+}
+
+async fn my_drive_page(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<DrivePathQuery>,
+) -> Result<Html<String>, StatusCode> {
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    let database = state.database().map_err(|error| {
+        eprintln!("Unable to open My Drive explorer: {error}");
+        StatusCode::SERVICE_UNAVAILABLE
+    })?;
+    let has_parent = !query.path.is_empty();
+    let parent_filter = has_parent.then_some(query.path.as_str());
+    let (items, error) = match database::inventory::list_my_drive_directory(
+        &database,
+        parent_filter,
+    ) {
+        Ok(items) => (items, String::new()),
+        Err(error) => {
+            eprintln!("Unable to list My Drive explorer directory: {error}");
+            (Vec::new(), error.to_string())
+        }
+    };
+    let rows = items.into_iter().map(|item| DriveExplorerRow {
+        drive_url: if item.is_directory {
+            format!("https://drive.google.com/drive/folders/{}", item.item_id)
+        } else {
+            format!("https://drive.google.com/open?id={}", item.item_id)
+        },
+        name: item.name,
+        relative_path: item.relative_path,
+        is_directory: item.is_directory,
+        kind: if item.is_directory {
+            "Folder".to_string()
+        } else if let Some(mime_type) = item.mime_type {
+            mime_type
+        } else {
+            "File".to_string()
+        },
+        size: item.size_bytes.map(format_bytes).unwrap_or_else(|| "—".to_string()),
+        modified_at: item.modified_at.unwrap_or_else(|| "—".to_string()),
+        owner_email: item.owner_email.unwrap_or_else(|| "—".to_string()),
+    }).collect();
+    let parent_path = query.path.rsplit_once('/')
+        .map(|(parent, _)| parent.to_string())
+        .unwrap_or_default();
+
+    let template = MyDriveTemplate {
+        title: "My Drive - BOREAL",
+        active_page: "my-drive",
+        alerts: build_alerts(&rclone_state, &google_client_state),
+        status_items: build_status_items(
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+        current_path: if query.path.is_empty() { "My Drive".to_string() } else { query.path.clone() },
+        parent_path,
+        has_parent,
+        rows,
         error,
     };
     render_template(&template)

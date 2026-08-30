@@ -17,6 +17,53 @@ pub struct InventorySummary {
     pub deleted_items: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct DriveExplorerItem {
+    pub item_id: String,
+    pub name: String,
+    pub relative_path: String,
+    pub is_directory: bool,
+    pub mime_type: Option<String>,
+    pub size_bytes: Option<u64>,
+    pub modified_at: Option<String>,
+    pub owner_email: Option<String>,
+}
+
+pub fn list_my_drive_directory(
+    database: &Database,
+    parent_path: Option<&str>,
+) -> Result<Vec<DriveExplorerItem>, DatabaseError> {
+    let connection = database.connect()?;
+    let remote = RemoteKind::MyDriveRo.name();
+    let mut statement = connection.prepare(
+        "SELECT item_id, name, relative_path, is_directory, mime_type,
+                size_bytes, modified_at, owner_email
+         FROM drive_items
+         WHERE remote_name = ?1
+           AND is_deleted = 0
+           AND ((?2 IS NULL AND parent_path IS NULL) OR parent_path = ?2)
+         ORDER BY is_directory DESC, name COLLATE NOCASE, item_id",
+    )?;
+    let rows = statement.query_map(
+        params![remote, parent_path],
+        |row| {
+            let size: Option<i64> = row.get(5)?;
+            Ok(DriveExplorerItem {
+                item_id: row.get(0)?,
+                name: row.get(1)?,
+                relative_path: row.get(2)?,
+                is_directory: row.get(3)?,
+                mime_type: row.get(4)?,
+                size_bytes: size.map(|value| value as u64),
+                modified_at: row.get(6)?,
+                owner_email: row.get(7)?,
+            })
+        },
+    )?;
+
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
 pub fn synchronize_my_drive(
     database: &Database,
     scan_id: i64,

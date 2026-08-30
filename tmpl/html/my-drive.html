@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+        <h1 class="h3 mb-1"><i class="bi bi-folder2-open text-primary me-2"></i>My Drive Explorer</h1>
+        <p class="text-body-secondary mb-0">Browse the latest local metadata inventory and open items in Google Drive.</p>
+    </div>
+    <a class="btn btn-sm btn-outline-primary" href="/my-drive"><i class="bi bi-house-door me-1"></i>My Drive root</a>
+</div>
+
+{% if error.len() > 0 %}
+<div class="alert alert-danger" role="alert"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>
+{% endif %}
+
+<div class="d-flex align-items-center gap-2 mb-3">
+    {% if has_parent %}
+    <form method="get" action="/my-drive">
+        <input type="hidden" name="path" value="{{ parent_path }}">
+        <button class="btn btn-sm btn-outline-secondary" type="submit" title="Browse parent folder"><i class="bi bi-arrow-up"></i></button>
+    </form>
+    {% endif %}
+    <span class="small text-body-secondary">Location:</span>
+    <span class="fw-semibold">{{ current_path }}</span>
+</div>
+
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Size</th><th scope="col">Modified</th><th scope="col">Owner</th><th scope="col" class="text-end">Actions</th></tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <th scope="row">
+                        <a href="{{ row.drive_url }}" target="_blank" rel="noopener noreferrer" class="text-decoration-none" title="Open in Google Drive">
+                            <i class="bi {% if row.is_directory %}bi-folder-fill{% else %}bi-file-earmark{% endif %} text-primary me-2"></i>{{ row.name }}
+                        </a>
+                    </th>
+                    <td class="small">{{ row.kind }}</td>
+                    <td class="text-nowrap">{{ row.size }}</td>
+                    <td class="text-nowrap small">{{ row.modified_at }}</td>
+                    <td class="small">{{ row.owner_email }}</td>
+                    <td class="text-end text-nowrap">
+                        {% if row.is_directory %}
+                        <form method="get" action="/my-drive" class="d-inline">
+                            <input type="hidden" name="path" value="{{ row.relative_path }}">
+                            <button class="btn btn-sm btn-outline-primary" type="submit" title="Browse folder in BOREAL"><i class="bi bi-folder2-open me-1"></i>Browse</button>
+                        </form>
+                        {% endif %}
+                        <a class="btn btn-sm btn-outline-secondary" href="{{ row.drive_url }}" target="_blank" rel="noopener noreferrer" title="Open in Google Drive"><i class="bi bi-box-arrow-up-right"></i></a>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if rows.is_empty() %}
+                <tr><td colspan="6" class="text-center text-body-secondary py-4">This folder contains no indexed items.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}

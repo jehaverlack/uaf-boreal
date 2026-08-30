@@ -8,7 +8,11 @@
 >
     <section class="mb-4" aria-labelledby="my-drive-summary-heading">
         <div class="d-flex justify-content-between align-items-center mb-2">
-            <h1 class="h4 mb-0" id="my-drive-summary-heading"><i class="bi bi-folder2-open text-primary me-2"></i>My Drive</h1>
+            <h1 class="h4 mb-0" id="my-drive-summary-heading">
+                <a class="text-body text-decoration-none" href="/my-drive" title="Explore My Drive">
+                    <i class="bi bi-folder2-open text-primary me-2"></i>My Drive
+                </a>
+            </h1>
             {% if metadata.updating %}
             <span class="badge text-bg-primary"><span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>{{ metadata.phase }}</span>
             {% else if metadata.completed_at.len() > 0 %}

@@ -421,6 +421,12 @@ mod tests {
         assert_eq!(summary.deleted_items, 1);
         assert_eq!(summary.files_scanned, 0);
         assert_eq!(summary.bytes_discovered, 0);
+        assert!(
+            inventory::list_my_drive_directory(&database, Some("Reports"))
+                .expect("explorer directory should be readable")
+                .is_empty(),
+            "soft-deleted items must not appear in the explorer",
+        );
         let connection = database.connect().expect("database should connect");
         let values: (i64, i64, String) = connection.query_row(
             "SELECT i.is_deleted, i.size_bytes, p.email_address
