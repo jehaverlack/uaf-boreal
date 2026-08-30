@@ -408,9 +408,23 @@ mod tests {
             .expect("directory CSV should reimport");
         assert_eq!(second.rows_created, 0);
         assert_eq!(second.rows_updated, 2);
+        let changed_csv = b"email,name,status,type,organization\nformer@example.edu,Former User,former,person,UAF\ngroup@example.edu,ACEP Staff,active,google group,\n";
+        let third = directory::import_csv(&database, "directory.csv", changed_csv)
+            .expect("updated directory CSV should reimport");
+        assert_eq!(third.rows_updated, 2);
+        let principals = directory::list_principals(&database)
+            .expect("directory identities should load");
+        let former = principals.iter()
+            .find(|principal| principal.primary_email == "former@example.edu")
+            .expect("former identity should exist");
+        let group = principals.iter()
+            .find(|principal| principal.primary_email == "group@example.edu")
+            .expect("group identity should exist");
+        assert_eq!(former.organizations, "UAF");
+        assert!(group.organizations.is_empty());
         let summary = directory::summary(&database).expect("summary should load");
         assert_eq!(summary.principals, 2);
-        assert_eq!(summary.organizations, 1);
+        assert_eq!(summary.organizations, 2);
         assert_eq!(summary.groups, 1);
         assert_eq!(summary.former_or_departing, 1);
         fs::remove_dir_all(root).expect("temporary database directory should be removable");

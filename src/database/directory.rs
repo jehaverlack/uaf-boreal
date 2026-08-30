@@ -696,6 +696,12 @@ fn import_csv_source(
              VALUES (?1, ?2, 1)",
             params![principal_id, email],
         )?;
+        // The imported row is authoritative for this identity's organization.
+        // Clear prior memberships even when the CSV organization cell is blank.
+        transaction.execute(
+            "DELETE FROM organization_memberships WHERE principal_id = ?1",
+            [principal_id],
+        )?;
         if let Some(organization_name) = organization_index
             .map(|index| cell(row, index).trim())
             .filter(|value| !value.is_empty())
