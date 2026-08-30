@@ -197,6 +197,18 @@ pub struct DriveExplorerRow {
     pub owner_email: String,
     pub drive_url: String,
     pub is_deleted: bool,
+    pub size_bytes: u64,
+    pub permission_count: usize,
+}
+
+#[allow(dead_code)]
+pub struct ExplorerSummary {
+    pub items: usize,
+    pub files: usize,
+    pub folders: usize,
+    pub size_bytes: u64,
+    pub size_label: String,
+    pub permissions: usize,
 }
 
 #[allow(dead_code)]
@@ -244,6 +256,7 @@ struct MyDriveTemplate {
     root_label: &'static str,
     explorer_path: &'static str,
     tag_action: &'static str,
+    summary: ExplorerSummary,
 }
 
 #[allow(dead_code)]
@@ -1173,9 +1186,21 @@ fn render_drive_explorer(
             (Vec::new(), error.to_string())
         }
     };
+    let summary_size = items.iter().filter_map(|item| item.size_bytes).sum::<u64>();
+    let summary = ExplorerSummary {
+        items: items.len(),
+        files: items.iter().filter(|item| !item.is_directory).count(),
+        folders: items.iter().filter(|item| item.is_directory).count(),
+        size_bytes: summary_size,
+        size_label: format_bytes(summary_size),
+        permissions: items.iter().map(|item| item.permissions.len()).sum(),
+    };
     let rows = items
         .into_iter()
-        .map(|item| DriveExplorerRow {
+        .map(|item| {
+            let size_bytes = item.size_bytes.unwrap_or(0);
+            let permission_count = item.permissions.len();
+            DriveExplorerRow {
             drive_url: if item.is_directory {
                 format!("https://drive.google.com/drive/folders/{}", item.item_id)
             } else {
@@ -1232,7 +1257,9 @@ fn render_drive_explorer(
             modified_at: item.modified_at.unwrap_or_else(|| "—".to_string()),
             owner_email: item.owner_email.unwrap_or_else(|| "—".to_string()),
             is_deleted: item.is_deleted,
-        })
+            size_bytes,
+            permission_count,
+        }})
         .collect();
     let parent_path = query
         .path
@@ -1308,6 +1335,7 @@ fn render_drive_explorer(
         root_label,
         explorer_path,
         tag_action,
+        summary,
     };
     render_template(&template)
 }

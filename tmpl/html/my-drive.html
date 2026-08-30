@@ -68,6 +68,19 @@
     <div class="col-auto small text-body-secondary align-self-center">Prefix Owner with <code>!</code> to exclude a value.</div>
 </form>
 
+<section class="card mb-3" aria-labelledby="explorer-summary-heading">
+    <div class="card-body py-2">
+        <div class="d-flex flex-wrap align-items-center gap-3 gap-lg-4">
+            <span id="explorer-summary-heading" class="small fw-semibold text-body-secondary">Filtered results</span>
+            <span class="small"><strong id="explorer-summary-items">{{ summary.items }}</strong> items</span>
+            <span class="small"><strong id="explorer-summary-files">{{ summary.files }}</strong> files</span>
+            <span class="small"><strong id="explorer-summary-folders">{{ summary.folders }}</strong> folders</span>
+            <span class="small"><strong id="explorer-summary-size" data-size-bytes="{{ summary.size_bytes }}">{{ summary.size_label }}</strong> total size</span>
+            <span class="small"><strong id="explorer-summary-permissions">{{ summary.permissions }}</strong> permission references</span>
+        </div>
+    </div>
+</section>
+
 {% if tagged_count > 0 %}
 <div class="alert alert-success py-2" role="status">
     <i class="bi bi-tags-fill me-2"></i>Tag applied to {{ tagged_count }} item(s).
@@ -129,7 +142,7 @@
             </thead>
             <tbody>
                 {% for row in rows %}
-                <tr class="{% if row.is_deleted %}table-secondary opacity-75{% endif %}">
+                <tr class="{% if row.is_deleted %}table-secondary opacity-75{% endif %}" data-is-directory="{% if row.is_directory %}true{% else %}false{% endif %}" data-size-bytes="{{ row.size_bytes }}" data-permission-count="{{ row.permission_count }}">
                     <td class="text-center">
                         <input class="form-check-input my-drive-item-select" type="checkbox" value="{{ row.item_id }}" aria-label="Select {{ row.name }}" {% if row.is_deleted %}disabled title="Deleted items cannot be tagged"{% endif %}>
                     </td>
@@ -175,8 +188,9 @@
     (() => {
         const selectAll = document.getElementById("my-drive-select-all");
         const itemCheckboxes = Array.from(
-            document.querySelectorAll(".my-drive-item-select"),
+            document.querySelectorAll(".my-drive-item-select:not(:disabled)"),
         );
+        const visibleRows = Array.from(document.querySelectorAll("tbody tr[data-size-bytes]"));
         const applyButton = document.getElementById("my-drive-apply-tag-button");
         const selectionCount = document.getElementById("my-drive-selection-count");
         const selectedItemIds = document.getElementById("my-drive-selected-item-ids");
@@ -186,7 +200,8 @@
         }
 
         function updateSelectAll() {
-            const selected = itemCheckboxes.filter((checkbox) => checkbox.checked).length;
+            const selectedCheckboxes = itemCheckboxes.filter((checkbox) => checkbox.checked);
+            const selected = selectedCheckboxes.length;
             selectAll.checked = itemCheckboxes.length > 0 && selected === itemCheckboxes.length;
             selectAll.indeterminate = selected > 0 && selected < itemCheckboxes.length;
             applyButton.disabled = selected === 0;
@@ -195,6 +210,28 @@
                 .filter((checkbox) => checkbox.checked)
                 .map((checkbox) => checkbox.value)
                 .join(",");
+
+            const summaryRows = selected > 0
+                ? selectedCheckboxes.map((checkbox) => checkbox.closest("tr"))
+                : visibleRows;
+            const files = summaryRows.filter((row) => row.dataset.isDirectory !== "true").length;
+            const folders = summaryRows.length - files;
+            const size = summaryRows.reduce((total, row) => total + Number(row.dataset.sizeBytes || 0), 0);
+            const permissions = summaryRows.reduce((total, row) => total + Number(row.dataset.permissionCount || 0), 0);
+            document.getElementById("explorer-summary-heading").textContent = selected > 0 ? "Selected items" : "Filtered results";
+            document.getElementById("explorer-summary-items").textContent = summaryRows.length;
+            document.getElementById("explorer-summary-files").textContent = files;
+            document.getElementById("explorer-summary-folders").textContent = folders;
+            document.getElementById("explorer-summary-size").textContent = formatExplorerBytes(size);
+            document.getElementById("explorer-summary-permissions").textContent = permissions;
+        }
+
+        function formatExplorerBytes(bytes) {
+            const units = [[1e12, "TB"], [1e9, "GB"], [1e6, "MB"], [1e3, "kB"]];
+            for (const [divisor, unit] of units) {
+                if (bytes >= divisor) return `${(bytes / divisor).toFixed(1)} ${unit}`;
+            }
+            return `${bytes} B`;
         }
 
         selectAll.addEventListener("change", () => {
