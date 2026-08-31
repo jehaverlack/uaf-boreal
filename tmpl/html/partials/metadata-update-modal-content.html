@@ -1,4 +1,4 @@
-<div id="metadata-update-modal-content" data-updating="{% if metadata.updating %}true{% else %}false{% endif %}" data-complete="{% if metadata.completed_at.len() > 0 %}true{% else %}false{% endif %}">
+<div id="metadata-update-modal-content" data-updating="{% if metadata.updating %}true{% else %}false{% endif %}" data-complete="{% if !metadata.updating && metadata.errors == 0 %}true{% else %}false{% endif %}">
     <div class="modal-header">
         <h2 class="modal-title fs-5" id="metadataUpdateModalLabel">
             {% if metadata.updating %}
@@ -38,8 +38,14 @@
         {% else if metadata.errors > 0 %}
         <p class="mb-0 text-danger">{{ metadata.phase }}</p>
         {% else %}
-        <p>BOREAL will read My Drive and Shared with me through the read-only remote and update their local inventories.</p>
-        <p class="mb-0">Large Drives can take up to an hour. Keep BOREAL running until the update completes.</p>
+        <p class="mb-2">Select one or more metadata sources. Unselected inventories retain their existing data and timestamps.</p>
+        <div class="list-group mb-3">
+            <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="my_drive" value="true" checked>My Drive</label>
+            <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="shared_drives" value="true" checked>Shared Drives</label>
+            <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="shared_with_me" value="true" checked>Shared with me</label>
+            <label class="list-group-item{% if !directory_available %} text-body-secondary{% endif %}"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="directory_info" value="true" {% if directory_available %}checked{% else %}disabled{% endif %}>Directory Info {% if !directory_available %}<span class="small">— configure a spreadsheet URL in Settings</span>{% endif %}</label>
+        </div>
+        <p class="mb-0">Large inventories can take up to an hour. Keep BOREAL running until the update completes.</p>
         {% endif %}
     </div>
     <div class="modal-footer">

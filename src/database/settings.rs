@@ -1,13 +1,6 @@
-use rusqlite::{
-    params,
-    OptionalExtension,
-    Transaction,
-};
+use rusqlite::{OptionalExtension, Transaction, params};
 
-use super::{
-    Database,
-    DatabaseError,
-};
+use super::{Database, DatabaseError};
 
 #[derive(Debug, Clone)]
 pub struct InventorySettings {
@@ -35,87 +28,66 @@ impl Default for InventorySettings {
 }
 
 impl InventorySettings {
-    pub fn validate(
-        &self,
-    ) -> Result<(), DatabaseError> {
-        if !(1..=720).contains(
-            &self.refresh_interval_hours,
-        ) {
-            return Err(
-                "Refresh interval must be between 1 and 720 hours"
-                    .into(),
-            );
+    pub fn validate(&self) -> Result<(), DatabaseError> {
+        if !(1..=720).contains(&self.refresh_interval_hours) {
+            return Err("Refresh interval must be between 1 and 720 hours".into());
         }
 
-        if !(1..=365).contains(
-            &self.full_reconciliation_days,
-        ) {
-            return Err(
-                "Full reconciliation interval must be between 1 and 365 days"
-                    .into(),
-            );
+        if !(1..=365).contains(&self.full_reconciliation_days) {
+            return Err("Full reconciliation interval must be between 1 and 365 days".into());
         }
 
         if self.directory_sheet_enabled && self.directory_sheet_url.trim().is_empty() {
-            return Err("A Google Sheets URL is required when linked directory import is enabled".into());
+            return Err(
+                "A Google Sheets URL is required when linked directory import is enabled".into(),
+            );
         }
 
-        Ok(
-            (),
-        )
+        Ok(())
     }
 }
 
-pub fn load(
-    database: &Database,
-) -> Result<InventorySettings, DatabaseError> {
+pub fn load(database: &Database) -> Result<InventorySettings, DatabaseError> {
     let connection = database.connect()?;
     let defaults = InventorySettings::default();
 
-    Ok(
-        InventorySettings {
-            automatic_updates: get_bool(
-                &connection,
-                "inventory.automatic_updates",
-                defaults.automatic_updates,
-            )?,
-            refresh_interval_hours: get_u32(
-                &connection,
-                "inventory.refresh_interval_hours",
-                defaults.refresh_interval_hours,
-            )?,
-            full_reconciliation_days: get_u32(
-                &connection,
-                "inventory.full_reconciliation_days",
-                defaults.full_reconciliation_days,
-            )?,
-            update_when_overdue_at_startup: get_bool(
-                &connection,
-                "inventory.update_when_overdue_at_startup",
-                defaults.update_when_overdue_at_startup,
-            )?,
-            permission_scanning: get_bool(
-                &connection,
-                "inventory.permission_scanning",
-                defaults.permission_scanning,
-            )?,
-            directory_sheet_enabled: get_bool(
-                &connection,
-                "directory.sheet_enabled",
-                defaults.directory_sheet_enabled,
-            )?,
-            directory_sheet_url: get(
-                &connection,
-                "directory.sheet_url",
-            )?.unwrap_or(defaults.directory_sheet_url),
-        },
-    )
+    Ok(InventorySettings {
+        automatic_updates: get_bool(
+            &connection,
+            "inventory.automatic_updates",
+            defaults.automatic_updates,
+        )?,
+        refresh_interval_hours: get_u32(
+            &connection,
+            "inventory.refresh_interval_hours",
+            defaults.refresh_interval_hours,
+        )?,
+        full_reconciliation_days: get_u32(
+            &connection,
+            "inventory.full_reconciliation_days",
+            defaults.full_reconciliation_days,
+        )?,
+        update_when_overdue_at_startup: get_bool(
+            &connection,
+            "inventory.update_when_overdue_at_startup",
+            defaults.update_when_overdue_at_startup,
+        )?,
+        permission_scanning: get_bool(
+            &connection,
+            "inventory.permission_scanning",
+            defaults.permission_scanning,
+        )?,
+        directory_sheet_enabled: get_bool(
+            &connection,
+            "directory.sheet_enabled",
+            defaults.directory_sheet_enabled,
+        )?,
+        directory_sheet_url: get(&connection, "directory.sheet_url")?
+            .unwrap_or(defaults.directory_sheet_url),
+    })
 }
 
-pub fn save(
-    database: &Database,
-    settings: &InventorySettings,
-) -> Result<(), DatabaseError> {
+pub fn save(database: &Database, settings: &InventorySettings) -> Result<(), DatabaseError> {
     settings.validate()?;
 
     let mut connection = database.connect()?;
@@ -173,9 +145,7 @@ pub fn save(
 
     transaction.commit()?;
 
-    Ok(
-        (),
-    )
+    Ok(())
 }
 
 pub fn directory_setup_skipped(database: &Database) -> Result<bool, DatabaseError> {
@@ -183,7 +153,10 @@ pub fn directory_setup_skipped(database: &Database) -> Result<bool, DatabaseErro
     get_bool(&connection, "directory.setup_skipped", false)
 }
 
-pub fn set_directory_setup_skipped(database: &Database, skipped: bool) -> Result<(), DatabaseError> {
+pub fn set_directory_setup_skipped(
+    database: &Database,
+    skipped: bool,
+) -> Result<(), DatabaseError> {
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
     set(&transaction, "directory.setup_skipped", bool_value(skipped))?;
@@ -196,21 +169,13 @@ fn get_bool(
     key: &str,
     default: bool,
 ) -> Result<bool, DatabaseError> {
-    let value = get(
-        connection,
-        key,
-    )?;
+    let value = get(connection, key)?;
 
     match value.as_deref() {
         None => Ok(default),
         Some("true") => Ok(true),
         Some("false") => Ok(false),
-        Some(value) => Err(
-            format!(
-                "Invalid boolean setting {key}: {value}"
-            )
-            .into(),
-        ),
+        Some(value) => Err(format!("Invalid boolean setting {key}: {value}").into()),
     }
 }
 
@@ -219,39 +184,23 @@ fn get_u32(
     key: &str,
     default: u32,
 ) -> Result<u32, DatabaseError> {
-    match get(
-        connection,
-        key,
-    )? {
+    match get(connection, key)? {
         None => Ok(default),
-        Some(value) => value.parse::<u32>()
-            .map_err(
-                |error| format!(
-                    "Invalid numeric setting {key}: {error}"
-                ).into(),
-            ),
+        Some(value) => value
+            .parse::<u32>()
+            .map_err(|error| format!("Invalid numeric setting {key}: {error}").into()),
     }
 }
 
-fn get(
-    connection: &rusqlite::Connection,
-    key: &str,
-) -> Result<Option<String>, DatabaseError> {
-    Ok(
-        connection.query_row(
-            "SELECT value FROM settings WHERE key = ?1",
-            [key],
-            |row| row.get(0),
-        )
-        .optional()?,
-    )
+fn get(connection: &rusqlite::Connection, key: &str) -> Result<Option<String>, DatabaseError> {
+    Ok(connection
+        .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
+            row.get(0)
+        })
+        .optional()?)
 }
 
-fn set(
-    transaction: &Transaction<'_>,
-    key: &str,
-    value: &str,
-) -> Result<(), DatabaseError> {
+fn set(transaction: &Transaction<'_>, key: &str, value: &str) -> Result<(), DatabaseError> {
     transaction.execute(
         "INSERT INTO settings (
             key,
@@ -261,23 +210,12 @@ fn set(
         ON CONFLICT(key) DO UPDATE SET
             value = excluded.value,
             updated_at = CURRENT_TIMESTAMP",
-        params![
-            key,
-            value,
-        ],
+        params![key, value,],
     )?;
 
-    Ok(
-        (),
-    )
+    Ok(())
 }
 
-fn bool_value(
-    value: bool,
-) -> &'static str {
-    if value {
-        "true"
-    } else {
-        "false"
-    }
+fn bool_value(value: bool) -> &'static str {
+    if value { "true" } else { "false" }
 }

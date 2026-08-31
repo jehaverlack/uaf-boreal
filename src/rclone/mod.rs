@@ -6,15 +6,11 @@ pub mod install;
 pub mod inventory;
 pub mod remotes;
 
-use std::{
-    error::Error,
-    path::PathBuf,
-};
+use std::{error::Error, path::PathBuf};
 
 use crate::bootstrap::Runtime;
 
-pub type RcloneError =
-    Box<dyn Error + Send + Sync>;
+pub type RcloneError = Box<dyn Error + Send + Sync>;
 
 /// Current state of the BOREAL-managed Rclone executable.
 #[derive(Debug, Clone)]
@@ -30,15 +26,11 @@ pub struct RcloneStatus {
 }
 
 /// Return the expected BOREAL-managed Rclone executable path.
-pub fn executable_path(
-    runtime: &Runtime,
-) -> Result<PathBuf, RcloneError> {
+pub fn executable_path(runtime: &Runtime) -> Result<PathBuf, RcloneError> {
     let bin_dir = runtime
         .directories
         .get("BIN")
-        .ok_or(
-            "BOREAL BIN directory is not configured",
-        )?;
+        .ok_or("BOREAL BIN directory is not configured")?;
 
     let executable_name = if cfg!(windows) {
         "rclone.exe"
@@ -46,43 +38,27 @@ pub fn executable_path(
         "rclone"
     };
 
-    Ok(
-        bin_dir.join(
-            executable_name,
-        ),
-    )
+    Ok(bin_dir.join(executable_name))
 }
 
 /// Detect the BOREAL-managed Rclone installation.
 ///
 /// This does not search PATH because BOREAL intentionally
 /// manages and uses its own private Rclone executable.
-pub fn detect(
-    runtime: &Runtime,
-) -> Result<Option<RcloneStatus>, RcloneError> {
-    let path = executable_path(
-        runtime,
-    )?;
+pub fn detect(runtime: &Runtime) -> Result<Option<RcloneStatus>, RcloneError> {
+    let path = executable_path(runtime)?;
 
     if !path.is_file() {
-        return Ok(
-            None,
-        );
+        return Ok(None);
     }
 
-    let version = command::version(
-        &path,
-    )?;
+    let version = command::version(&path)?;
 
-    Ok(
-        Some(
-            RcloneStatus {
-                path,
-                version,
-                gui_url: None,
-            },
-        ),
-    )
+    Ok(Some(RcloneStatus {
+        path,
+        version,
+        gui_url: None,
+    }))
 }
 
 /// Ensure that BOREAL has a working Rclone executable.
@@ -92,23 +68,11 @@ pub fn detect(
 ///
 /// If an existing managed executable is unusable,
 /// BOREAL attempts to replace it.
-pub fn ensure_installed(
-    runtime: &Runtime,
-) -> Result<RcloneStatus, RcloneError> {
-    match detect(
-        runtime,
-    ) {
-        Ok(
-            Some(
-                status,
-            ),
-        ) => {
-            if supports_embedded_gui(
-                &status.version,
-            ) {
-                return Ok(
-                    status,
-                );
+pub fn ensure_installed(runtime: &Runtime) -> Result<RcloneStatus, RcloneError> {
+    match detect(runtime) {
+        Ok(Some(status)) => {
+            if supports_embedded_gui(&status.version) {
+                return Ok(status);
             }
 
             println!(
@@ -116,77 +80,43 @@ pub fn ensure_installed(
                 status.version
             );
 
-            println!(
-                "BOREAL will update Rclone."
-            );
+            println!("BOREAL will update Rclone.");
         }
 
-        Ok(
-            None,
-        ) => {
-            println!(
-                "BOREAL-managed Rclone was not found."
-            );
+        Ok(None) => {
+            println!("BOREAL-managed Rclone was not found.");
         }
 
-        Err(
-            error,
-        ) => {
-            eprintln!(
-                "Existing BOREAL Rclone installation is not usable: {error}"
-            );
+        Err(error) => {
+            eprintln!("Existing BOREAL Rclone installation is not usable: {error}");
 
-            eprintln!(
-                "BOREAL will reinstall Rclone."
-            );
+            eprintln!("BOREAL will reinstall Rclone.");
         }
     }
 
-    let installed_path = install::install(
-        runtime,
-    )?;
+    let installed_path = install::install(runtime)?;
 
-    let version = command::version(
-        &installed_path,
-    )?;
+    let version = command::version(&installed_path)?;
 
-    Ok(
-        RcloneStatus {
-            path: installed_path,
-            version,
-            gui_url: None,
-        },
-    )
+    Ok(RcloneStatus {
+        path: installed_path,
+        version,
+        gui_url: None,
+    })
 }
 
 /// The dedicated `rclone gui` command with its embedded UI was
 /// introduced in Rclone v1.74.
-fn supports_embedded_gui(
-    version: &str,
-) -> bool {
-    let Some(
-        version,
-    ) = version.strip_prefix(
-        "rclone v",
-    ) else {
+fn supports_embedded_gui(version: &str) -> bool {
+    let Some(version) = version.strip_prefix("rclone v") else {
         return false;
     };
 
-    let mut parts = version.split(
-        '.',
-    );
+    let mut parts = version.split('.');
 
-    let major = parts
-        .next()
-        .and_then(
-            |part| part.parse::<u32>().ok(),
-        );
+    let major = parts.next().and_then(|part| part.parse::<u32>().ok());
 
-    let minor = parts
-        .next()
-        .and_then(
-            |part| part.parse::<u32>().ok(),
-        );
+    let minor = parts.next().and_then(|part| part.parse::<u32>().ok());
 
     matches!(
         (major, minor),

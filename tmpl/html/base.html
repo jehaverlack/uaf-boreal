@@ -376,16 +376,20 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <p>
-                        BOREAL will read My Drive, Shared Drives, and Shared with me through the read-only remote and update their local inventories.
-                    </p>
+                    <p>Select one or more metadata sources. Unselected inventories retain their existing data and timestamps.</p>
+                    <div class="list-group mb-3">
+                        <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="my_drive" value="true" checked>My Drive</label>
+                        <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="shared_drives" value="true" checked>Shared Drives</label>
+                        <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="shared_with_me" value="true" checked>Shared with me</label>
+                        <label class="list-group-item text-body-secondary"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="directory_info" value="true" disabled>Directory Info <span class="small">— checking configuration…</span></label>
+                    </div>
                     <p class="mb-0">
                         Large Drives can take up to an hour. Keep BOREAL running until the update completes; you may continue using this browser tab.
                     </p>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <form method="post" action="/metadata/update">
+                    <form id="metadata-update-form" method="post" action="/metadata/update">
                         <button type="submit" class="btn btn-primary">
                             <i class="bi bi-play-circle me-1"></i>
                             Start update
@@ -622,10 +626,19 @@
                     if (event.target.id !== "metadata-update-form") return;
                     event.preventDefault();
                     const button = event.target.querySelector("button[type=submit]");
+                    const selectedSources = Array.from(event.target.elements)
+                        .filter((control) => control.type === "checkbox" && control.checked);
+                    if (selectedSources.length === 0) {
+                        button.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Select at least one';
+                        return;
+                    }
                     button.disabled = true;
                     button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Starting…';
                     try {
-                        const response = await fetch(event.target.action, { method: "POST" });
+                        const response = await fetch(event.target.action, {
+                            method: "POST",
+                            body: new FormData(event.target),
+                        });
                         if (!response.ok) throw new Error("Unable to start metadata update");
                         metadataModalDismissed = false;
                         await refreshMetadataModal(false);

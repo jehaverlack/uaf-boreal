@@ -14,19 +14,11 @@ use super::RcloneError;
 ///
 ///     %LOCALAPPDATA%\boreal\conf\rclone.conf
 #[allow(dead_code)]
-pub fn path(
-    runtime: &Runtime,
-) -> Result<PathBuf, RcloneError> {
+pub fn path(runtime: &Runtime) -> Result<PathBuf, RcloneError> {
     let conf_dir = runtime
         .directories
         .get("CONF")
-        .ok_or(
-            "BOREAL CONF directory is not configured",
-        )?;
+        .ok_or("BOREAL CONF directory is not configured")?;
 
-    Ok(
-        conf_dir.join(
-            "rclone.conf",
-        ),
-    )
+    Ok(conf_dir.join("rclone.conf"))
 }

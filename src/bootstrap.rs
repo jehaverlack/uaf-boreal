@@ -8,14 +8,11 @@ use std::path::{Path, PathBuf};
 
 const APP_NAME: &str = "boreal";
 
-const DEFAULT_BOREAL: &str =
-    include_str!("../tmpl/boreal.json");
+const DEFAULT_BOREAL: &str = include_str!("../tmpl/boreal.json");
 
-const DEFAULT_CONFIG: &str =
-    include_str!("../tmpl/conf/config.json");
+const DEFAULT_CONFIG: &str = include_str!("../tmpl/conf/config.json");
 
-const DEFAULT_SECRETS: &str =
-    include_str!("../tmpl/conf/secrets.json");
+const DEFAULT_SECRETS: &str = include_str!("../tmpl/conf/secrets.json");
 
 pub struct Runtime {
     pub boreal_home: PathBuf,
@@ -43,42 +40,27 @@ pub fn initialize() -> Result<Runtime, Box<dyn Error>> {
      */
     let boreal_file = boreal_home.join("boreal.json");
 
-    create_from_template(
-        &boreal_file,
-        DEFAULT_BOREAL,
-    )?;
+    create_from_template(&boreal_file, DEFAULT_BOREAL)?;
 
     /*
      * Load boreal.json.
      */
-    let mut boreal = config::load_json(
-        &boreal_file,
-    )?;
+    let mut boreal = config::load_json(&boreal_file)?;
 
     /*
      * The platform determines BOREAL.DIRS.home.
      */
-    let home_changed = config::set_boreal_home(
-        &mut boreal,
-        &boreal_home,
-    )?;
+    let home_changed = config::set_boreal_home(&mut boreal, &boreal_home)?;
 
     if home_changed {
-        config::save_json(
-            &boreal_file,
-            &boreal,
-        )?;
+        config::save_json(&boreal_file, &boreal)?;
     }
 
     /*
      * Resolve every directory configured under
      * BOREAL.DIRS.
      */
-    let mut directories =
-        config::resolve_all_directories(
-            &boreal,
-            &boreal_home,
-        )?;
+    let mut directories = config::resolve_all_directories(&boreal, &boreal_home)?;
 
     // Existing installations may predate the CACHE entry in boreal.json.
     // Keep them upgrade-safe without overwriting their configuration file.
@@ -86,10 +68,7 @@ pub fn initialize() -> Result<Runtime, Box<dyn Error>> {
         let data_dir = directories
             .get("DATA")
             .ok_or("Missing BOREAL.DIRS.data in boreal.json")?;
-        directories.insert(
-            "CACHE".to_string(),
-            data_dir.join("cache"),
-        );
+        directories.insert("CACHE".to_string(), data_dir.join("cache"));
     }
 
     /*
@@ -105,15 +84,11 @@ pub fn initialize() -> Result<Runtime, Box<dyn Error>> {
      */
     let conf_dir = directories
         .get("CONF")
-        .ok_or(
-            "Missing BOREAL.DIRS.conf in boreal.json",
-        )?;
+        .ok_or("Missing BOREAL.DIRS.conf in boreal.json")?;
 
-    let config_file =
-        conf_dir.join("config.json");
+    let config_file = conf_dir.join("config.json");
 
-    let secrets_file =
-        conf_dir.join("secrets.json");
+    let secrets_file = conf_dir.join("secrets.json");
 
     /*
      * Initialize configuration files from their
@@ -121,22 +96,14 @@ pub fn initialize() -> Result<Runtime, Box<dyn Error>> {
      *
      * Existing files are never overwritten.
      */
-    create_from_template(
-        &config_file,
-        DEFAULT_CONFIG,
-    )?;
+    create_from_template(&config_file, DEFAULT_CONFIG)?;
 
-    create_from_template(
-        &secrets_file,
-        DEFAULT_SECRETS,
-    )?;
+    create_from_template(&secrets_file, DEFAULT_SECRETS)?;
 
     /*
      * Restrict secrets.json on Unix-like systems.
      */
-    protect_secrets(
-        &secrets_file,
-    )?;
+    protect_secrets(&secrets_file)?;
 
     Ok(Runtime {
         boreal_home,
@@ -156,54 +123,32 @@ pub fn initialize() -> Result<Runtime, Box<dyn Error>> {
 /// Windows:
 ///     %LOCALAPPDATA%\boreal
 fn get_boreal_home() -> Result<PathBuf, Box<dyn Error>> {
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "macos"
-    ))]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
-        let home = dirs::home_dir()
-            .ok_or(
-                "Unable to determine user home directory",
-            )?;
+        let home = dirs::home_dir().ok_or("Unable to determine user home directory")?;
 
-        return Ok(
-            home.join(
-                format!(".{APP_NAME}")
-            )
-        );
+        return Ok(home.join(format!(".{APP_NAME}")));
     }
 
     #[cfg(target_os = "windows")]
     {
         let data_dir =
-            dirs::data_local_dir()
-                .ok_or(
-                    "Unable to determine local application data directory",
-                )?;
+            dirs::data_local_dir().ok_or("Unable to determine local application data directory")?;
 
-        return Ok(
-            data_dir.join(APP_NAME)
-        );
+        return Ok(data_dir.join(APP_NAME));
     }
 
     #[allow(unreachable_code)]
-    Err(
-        "Unsupported operating system".into()
-    )
+    Err("Unsupported operating system".into())
 }
 
 /// Create a directory and any missing parent
 /// directories.
-fn ensure_directory(
-    path: &Path,
-) -> Result<(), Box<dyn Error>> {
+fn ensure_directory(path: &Path) -> Result<(), Box<dyn Error>> {
     if !path.exists() {
         fs::create_dir_all(path)?;
 
-        println!(
-            "Created directory: {}",
-            path.display()
-        );
+        println!("Created directory: {}", path.display());
     }
 
     Ok(())
@@ -213,10 +158,7 @@ fn ensure_directory(
 /// does not already exist.
 ///
 /// Existing files are never overwritten.
-fn create_from_template(
-    path: &Path,
-    template: &str,
-) -> Result<(), Box<dyn Error>> {
+fn create_from_template(path: &Path, template: &str) -> Result<(), Box<dyn Error>> {
     if path.exists() {
         return Ok(());
     }
@@ -225,15 +167,9 @@ fn create_from_template(
         fs::create_dir_all(parent)?;
     }
 
-    fs::write(
-        path,
-        template,
-    )?;
+    fs::write(path, template)?;
 
-    println!(
-        "Created file: {}",
-        path.display()
-    );
+    println!("Created file: {}", path.display());
 
     Ok(())
 }
@@ -245,20 +181,14 @@ fn create_from_template(
 ///
 /// Windows:
 ///     uses the ACL inherited from %LOCALAPPDATA%.
-fn protect_secrets(
-    path: &Path,
-) -> Result<(), Box<dyn Error>> {
+fn protect_secrets(path: &Path) -> Result<(), Box<dyn Error>> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
 
-        let permissions =
-            fs::Permissions::from_mode(0o600);
+        let permissions = fs::Permissions::from_mode(0o600);
 
-        fs::set_permissions(
-            path,
-            permissions,
-        )?;
+        fs::set_permissions(path, permissions)?;
     }
 
     #[cfg(not(unix))]

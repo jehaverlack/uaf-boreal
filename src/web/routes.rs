@@ -420,7 +420,10 @@ struct MetadataProgressTemplate {
 
 #[allow(dead_code)]
 #[derive(Template)]
-#[template(path = "partials/metadata-update-modal-content.html", config = "askama.toml")]
+#[template(
+    path = "partials/metadata-update-modal-content.html",
+    config = "askama.toml"
+)]
 struct MetadataUpdateModalTemplate {
     metadata: MetadataView,
     progress_percent: u8,
@@ -429,6 +432,7 @@ struct MetadataUpdateModalTemplate {
     estimated_total_label: String,
     remaining_label: String,
     timing_samples: u64,
+    directory_available: bool,
 }
 
 #[allow(dead_code)]
@@ -582,6 +586,18 @@ struct SetupDirectoryForm {
     skip: Option<String>,
 }
 
+#[derive(serde::Deserialize)]
+struct MetadataUpdateForm {
+    #[serde(default)]
+    my_drive: Option<String>,
+    #[serde(default)]
+    shared_drives: Option<String>,
+    #[serde(default)]
+    shared_with_me: Option<String>,
+    #[serde(default)]
+    directory_info: Option<String>,
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(index))
@@ -597,18 +613,39 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/shared-drives/tags/remove", post(remove_shared_drive_tag))
         .route("/shared-with-me", get(shared_with_me_page))
         .route("/shared-with-me/tags", post(apply_shared_with_me_tag))
-        .route("/shared-with-me/tags/remove", post(remove_shared_with_me_tag))
+        .route(
+            "/shared-with-me/tags/remove",
+            post(remove_shared_with_me_tag),
+        )
         .route("/tags", get(tags_page))
         .route("/directory", get(directory_page))
-        .route("/directory/new", get(new_principal_page).post(create_manual_principal))
+        .route(
+            "/directory/new",
+            get(new_principal_page).post(create_manual_principal),
+        )
         .route("/directory/principals/{principal_id}", get(principal_page))
-        .route("/directory/principals/{principal_id}/edit", get(edit_principal_page).post(update_manual_principal))
-        .route("/directory/principals/{principal_id}/edit/tags", post(apply_principal_editor_tag))
-        .route("/directory/principals/{principal_id}/edit/tags/remove", post(remove_principal_editor_tag))
+        .route(
+            "/directory/principals/{principal_id}/edit",
+            get(edit_principal_page).post(update_manual_principal),
+        )
+        .route(
+            "/directory/principals/{principal_id}/edit/tags",
+            post(apply_principal_editor_tag),
+        )
+        .route(
+            "/directory/principals/{principal_id}/edit/tags/remove",
+            post(remove_principal_editor_tag),
+        )
         .route("/directory/tags", post(apply_directory_tag))
         .route("/directory/tags/remove", post(remove_directory_tag))
-        .route("/directory/principals/{principal_id}/tags", post(apply_principal_tag))
-        .route("/directory/principals/{principal_id}/tags/remove", post(remove_principal_tag))
+        .route(
+            "/directory/principals/{principal_id}/tags",
+            post(apply_principal_tag),
+        )
+        .route(
+            "/directory/principals/{principal_id}/tags/remove",
+            post(remove_principal_tag),
+        )
         .route("/directory/import/csv", post(import_directory_csv))
         .route("/tags/create", post(create_tag))
         .route("/tags/update", post(update_tag))
@@ -667,15 +704,22 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         authenticated_google_email(&state),
     );
 
-    let setup_settings = state.database().ok()
+    let setup_settings = state
+        .database()
+        .ok()
         .and_then(|database| database::settings::load(&database).ok())
         .unwrap_or_default();
     let directory_setup_decided = setup_settings.directory_sheet_enabled
-        || state.database().ok()
+        || state
+            .database()
+            .ok()
             .and_then(|database| database::settings::directory_setup_skipped(&database).ok())
             .unwrap_or(false);
     let (setup_steps, setup_percent) = build_setup_progress(
-        &rclone_state, &google_client_state, &google_remotes_state, directory_setup_decided,
+        &rclone_state,
+        &google_client_state,
+        &google_remotes_state,
+        directory_setup_decided,
     );
 
     let poll_rclone = should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state);
@@ -819,8 +863,8 @@ fn build_setup_progress(
 
     let steps = vec![rclone_step, google_step, remote_step];
 
-    let complete_count = steps.iter().filter(|step| step.complete).count()
-        + usize::from(directory_setup_decided);
+    let complete_count =
+        steps.iter().filter(|step| step.complete).count() + usize::from(directory_setup_decided);
     let setup_percent = (complete_count * 100 / 4) as u8;
 
     (steps, setup_percent)
@@ -886,7 +930,8 @@ fn build_metadata_view(
             size_label: "0 B".to_string(),
             errors: 0,
             completed_at: String::new(),
-            shared_drives_indexed, shared_drives_count,
+            shared_drives_indexed,
+            shared_drives_count,
             shared_drives_files_scanned: shared_drives.files_scanned,
             shared_drives_folders_scanned: shared_drives.folders_scanned,
             shared_drives_permissions_scanned: shared_drives.permissions_scanned,
@@ -913,7 +958,8 @@ fn build_metadata_view(
             size_label: format_bytes(progress.bytes_discovered),
             errors: progress.errors,
             completed_at: String::new(),
-            shared_drives_indexed, shared_drives_count,
+            shared_drives_indexed,
+            shared_drives_count,
             shared_drives_files_scanned: shared_drives.files_scanned,
             shared_drives_folders_scanned: shared_drives.folders_scanned,
             shared_drives_permissions_scanned: shared_drives.permissions_scanned,
@@ -940,7 +986,8 @@ fn build_metadata_view(
             size_label: format_bytes(summary.bytes_discovered),
             errors: 0,
             completed_at: summary.completed_at.clone(),
-            shared_drives_indexed, shared_drives_count,
+            shared_drives_indexed,
+            shared_drives_count,
             shared_drives_files_scanned: shared_drives.files_scanned,
             shared_drives_folders_scanned: shared_drives.folders_scanned,
             shared_drives_permissions_scanned: shared_drives.permissions_scanned,
@@ -967,7 +1014,8 @@ fn build_metadata_view(
             size_label: "0 B".to_string(),
             errors: 1,
             completed_at: String::new(),
-            shared_drives_indexed, shared_drives_count,
+            shared_drives_indexed,
+            shared_drives_count,
             shared_drives_files_scanned: shared_drives.files_scanned,
             shared_drives_folders_scanned: shared_drives.folders_scanned,
             shared_drives_permissions_scanned: shared_drives.permissions_scanned,
@@ -1012,7 +1060,13 @@ async fn settings_page(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    render_settings(&state, inventory_settings, query.saved, String::new(), String::new())
+    render_settings(
+        &state,
+        inventory_settings,
+        query.saved,
+        String::new(),
+        String::new(),
+    )
 }
 
 async fn save_settings(
@@ -1029,11 +1083,17 @@ async fn save_settings(
         directory_sheet_url: form.directory_sheet_url.trim().to_string(),
     };
     if inventory_settings.directory_sheet_enabled {
-        if let Err(error) = crate::rclone::identity::parse_google_sheet_url(
-            &inventory_settings.directory_sheet_url,
-        ) {
-            return render_settings(&state, inventory_settings, false, error.to_string(), String::new())
-                .map(axum::response::IntoResponse::into_response);
+        if let Err(error) =
+            crate::rclone::identity::parse_google_sheet_url(&inventory_settings.directory_sheet_url)
+        {
+            return render_settings(
+                &state,
+                inventory_settings,
+                false,
+                error.to_string(),
+                String::new(),
+            )
+            .map(axum::response::IntoResponse::into_response);
         }
     }
     let database = state
@@ -1043,8 +1103,14 @@ async fn save_settings(
     match settings::save(&database, &inventory_settings) {
         Ok(()) => Ok(Redirect::to("/settings?saved=true").into_response()),
 
-        Err(error) => render_settings(&state, inventory_settings, false, error.to_string(), String::new())
-            .map(axum::response::IntoResponse::into_response),
+        Err(error) => render_settings(
+            &state,
+            inventory_settings,
+            false,
+            error.to_string(),
+            String::new(),
+        )
+        .map(axum::response::IntoResponse::into_response),
     }
 }
 
@@ -1061,16 +1127,30 @@ async fn test_directory_sheet(
         directory_sheet_enabled: form.directory_sheet_enabled.is_some(),
         directory_sheet_url: form.directory_sheet_url.trim().to_string(),
     };
-    if let Err(error) = crate::rclone::identity::parse_google_sheet_url(
-        &inventory_settings.directory_sheet_url,
-    ) {
-        return render_settings(&state, inventory_settings, false, error.to_string(), String::new())
-            .map(axum::response::IntoResponse::into_response);
+    if let Err(error) =
+        crate::rclone::identity::parse_google_sheet_url(&inventory_settings.directory_sheet_url)
+    {
+        return render_settings(
+            &state,
+            inventory_settings,
+            false,
+            error.to_string(),
+            String::new(),
+        )
+        .map(axum::response::IntoResponse::into_response);
     }
-    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     if let Err(error) = settings::save(&database, &inventory_settings) {
-        return render_settings(&state, inventory_settings, false, error.to_string(), String::new())
-            .map(axum::response::IntoResponse::into_response);
+        return render_settings(
+            &state,
+            inventory_settings,
+            false,
+            error.to_string(),
+            String::new(),
+        )
+        .map(axum::response::IntoResponse::into_response);
     }
     let worker_state = Arc::clone(&state);
     let url = inventory_settings.directory_sheet_url.clone();
@@ -1084,14 +1164,15 @@ async fn test_directory_sheet(
                 "Rclone must be ready before directory access can be tested".to_string(),
                 String::new(),
             )
-            .map(axum::response::IntoResponse::into_response)
+            .map(axum::response::IntoResponse::into_response);
         }
     };
     let result: Result<(), String> = tokio::task::spawn_blocking(move || {
         crate::rclone::identity::fetch_read_only_account(&worker_state.runtime, &rclone_path)
             .map_err(|error| error.to_string())?;
-        let (_, csv) = crate::rclone::identity::download_google_sheet_csv(&worker_state.runtime, &url)
-            .map_err(|error| error.to_string())?;
+        let (_, csv) =
+            crate::rclone::identity::download_google_sheet_csv(&worker_state.runtime, &url)
+                .map_err(|error| error.to_string())?;
         database::directory::validate_csv(&csv).map_err(|error| error.to_string())
     })
     .await
@@ -1301,27 +1382,40 @@ async fn shared_drives_page(
     State(state): State<Arc<AppState>>,
     Query(query): Query<DrivePathQuery>,
 ) -> Result<Html<String>, StatusCode> {
-    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     if query.drive.is_empty() {
         let drives = database::inventory::list_shared_drives(&database)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .into_iter().map(|drive| SharedDriveView {
-                drive_id: drive.drive_id, name: drive.name,
-                is_accessible: drive.is_accessible, last_scanned_at: drive.last_scanned_at,
-                last_error: drive.last_error, files: drive.files_scanned,
-                folders: drive.folders_scanned, permissions: drive.permissions_scanned,
+            .into_iter()
+            .map(|drive| SharedDriveView {
+                drive_id: drive.drive_id,
+                name: drive.name,
+                is_accessible: drive.is_accessible,
+                last_scanned_at: drive.last_scanned_at,
+                last_error: drive.last_error,
+                files: drive.files_scanned,
+                folders: drive.folders_scanned,
+                permissions: drive.permissions_scanned,
                 size_label: format_bytes(drive.bytes_discovered),
-            }).collect();
+            })
+            .collect();
         let rclone_state = state.rclone_state();
         let google_client_state = state.google_client_state();
         let google_remotes_state = state.google_remotes_state();
         let metadata_state = state.metadata_state();
         return render_template(&SharedDrivesTemplate {
-            title: "Shared Drives - BOREAL", active_page: "shared-drives",
+            title: "Shared Drives - BOREAL",
+            active_page: "shared-drives",
             alerts: build_alerts(&rclone_state, &google_client_state),
             status_items: build_status_items(
-                &rclone_state, &google_client_state, &google_remotes_state, &metadata_state,
-                configured_remote_count(&state.runtime, &rclone_state), authenticated_google_email(&state),
+                &rclone_state,
+                &google_client_state,
+                &google_remotes_state,
+                &metadata_state,
+                configured_remote_count(&state.runtime, &rclone_state),
+                authenticated_google_email(&state),
             ),
             poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
             drives,
@@ -1330,13 +1424,22 @@ async fn shared_drives_page(
     let drive = database::inventory::get_shared_drive(&database, &query.drive)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
-    let explorer_path = format!("/shared-drives?drive={}", encode_query_value(&drive.drive_id));
+    let explorer_path = format!(
+        "/shared-drives?drive={}",
+        encode_query_value(&drive.drive_id)
+    );
     render_drive_explorer(
-        &state, query, &drive.inventory_scope, "shared-drives",
+        &state,
+        query,
+        &drive.inventory_scope,
+        "shared-drives",
         &format!("{} — Shared Drive Explorer", drive.name),
         "Browse the latest local metadata inventory for this Shared Drive.",
-        &drive.name, &explorer_path, "/shared-drives/tags",
-        "/shared-drives/tags/remove", drive.drive_id,
+        &drive.name,
+        &explorer_path,
+        "/shared-drives/tags",
+        "/shared-drives/tags/remove",
+        drive.drive_id,
     )
 }
 
@@ -1415,66 +1518,71 @@ fn render_drive_explorer(
                 item.owner_known,
                 &item.owner_tags,
             );
-            let permissions = item.permissions.iter()
-                .map(|permission| identity_display(permission.label.clone(), permission.known, &permission.tags))
+            let permissions = item
+                .permissions
+                .iter()
+                .map(|permission| {
+                    identity_display(permission.label.clone(), permission.known, &permission.tags)
+                })
                 .collect();
             DriveExplorerRow {
-            drive_url: if item.is_directory {
-                format!("https://drive.google.com/drive/folders/{}", item.item_id)
-            } else {
-                format!("https://drive.google.com/open?id={}", item.item_id)
-            },
-            item_id: item.item_id.clone(),
-            name: item.name,
-            name_url: if item.is_directory {
-                explorer_url(
-                    explorer_path,
-                    &item.relative_path,
-                    "",
-                    &query.tag,
-                    &query.type_filter,
-                    &query.size_filter,
-                    &query.modified_filter,
-                    &query.owner_filter,
-                    &query.permission_filter,
-                    &query.owner_identity_tag,
-                    &query.permission_identity_tag,
-                    sort,
-                    if descending { "desc" } else { "asc" },
-                    query.include_deleted,
-                )
-            } else {
-                format!("https://drive.google.com/open?id={}", item.item_id)
-            },
-            name_new_tab: !item.is_directory,
-            is_directory: item.is_directory,
-            type_icon: mime_icon(item.is_directory, item.mime_type.as_deref()),
-            mime_type: if item.is_directory {
-                "Folder".to_string()
-            } else {
-                item.mime_type
-                    .unwrap_or_else(|| "Unknown file type".to_string())
-            },
-            tags: item
-                .tags
-                .into_iter()
-                .map(|tag| TagPill {
-                    text_color: tag_text_color(&tag.color),
-                    name: tag.name,
-                    color: tag.color,
-                })
-                .collect(),
-            permissions,
-            size: item
-                .size_bytes
-                .map(format_bytes)
-                .unwrap_or_else(|| "—".to_string()),
-            modified_at: item.modified_at.unwrap_or_else(|| "—".to_string()),
-            owner,
-            is_deleted: item.is_deleted,
-            size_bytes,
-            permission_count,
-        }})
+                drive_url: if item.is_directory {
+                    format!("https://drive.google.com/drive/folders/{}", item.item_id)
+                } else {
+                    format!("https://drive.google.com/open?id={}", item.item_id)
+                },
+                item_id: item.item_id.clone(),
+                name: item.name,
+                name_url: if item.is_directory {
+                    explorer_url(
+                        explorer_path,
+                        &item.relative_path,
+                        "",
+                        &query.tag,
+                        &query.type_filter,
+                        &query.size_filter,
+                        &query.modified_filter,
+                        &query.owner_filter,
+                        &query.permission_filter,
+                        &query.owner_identity_tag,
+                        &query.permission_identity_tag,
+                        sort,
+                        if descending { "desc" } else { "asc" },
+                        query.include_deleted,
+                    )
+                } else {
+                    format!("https://drive.google.com/open?id={}", item.item_id)
+                },
+                name_new_tab: !item.is_directory,
+                is_directory: item.is_directory,
+                type_icon: mime_icon(item.is_directory, item.mime_type.as_deref()),
+                mime_type: if item.is_directory {
+                    "Folder".to_string()
+                } else {
+                    item.mime_type
+                        .unwrap_or_else(|| "Unknown file type".to_string())
+                },
+                tags: item
+                    .tags
+                    .into_iter()
+                    .map(|tag| TagPill {
+                        text_color: tag_text_color(&tag.color),
+                        name: tag.name,
+                        color: tag.color,
+                    })
+                    .collect(),
+                permissions,
+                size: item
+                    .size_bytes
+                    .map(format_bytes)
+                    .unwrap_or_else(|| "—".to_string()),
+                modified_at: item.modified_at.unwrap_or_else(|| "—".to_string()),
+                owner,
+                is_deleted: item.is_deleted,
+                size_bytes,
+                permission_count,
+            }
+        })
         .collect();
     let parent_path = query
         .path
@@ -1577,13 +1685,21 @@ fn identity_display(
         tagged: first.is_some(),
         unknown,
         color: first.map(|tag| tag.color.clone()).unwrap_or_default(),
-        text_color: first.map(|tag| tag_text_color(&tag.color)).unwrap_or("#212529"),
+        text_color: first
+            .map(|tag| tag_text_color(&tag.color))
+            .unwrap_or("#212529"),
         tag_details: if unknown {
             "Unknown identity — not found in the BOREAL directory".to_string()
         } else if tags.is_empty() {
             "No identity tags".to_string()
         } else {
-            format!("Identity tags: {}", tags.iter().map(|tag| tag.name.as_str()).collect::<Vec<_>>().join(", "))
+            format!(
+                "Identity tags: {}",
+                tags.iter()
+                    .map(|tag| tag.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
         },
     }
 }
@@ -1646,7 +1762,11 @@ fn explorer_url(
 ) -> String {
     format!(
         "{explorer_path}{}path={}&q={}&tag={}&type_filter={}&size_filter={}&modified_filter={}&owner_filter={}&permission_filter={}&owner_identity_tag={}&permission_identity_tag={}&sort={}&direction={}&include_deleted={include_deleted}",
-        if explorer_path.contains('?') { "&" } else { "?" },
+        if explorer_path.contains('?') {
+            "&"
+        } else {
+            "?"
+        },
         encode_query_value(path),
         encode_query_value(search),
         encode_query_value(tag),
@@ -1737,11 +1857,16 @@ fn change_shared_drive_tag(
     form: ApplyTagForm,
     remove: bool,
 ) -> Result<Redirect, StatusCode> {
-    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let drive = database::inventory::get_shared_drive(&database, &form.drive)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::BAD_REQUEST)?;
-    let explorer_path = format!("/shared-drives?drive={}", encode_query_value(&drive.drive_id));
+    let explorer_path = format!(
+        "/shared-drives?drive={}",
+        encode_query_value(&drive.drive_id)
+    );
     change_drive_tag(state, form, &drive.inventory_scope, &explorer_path, remove)
 }
 
@@ -1749,14 +1874,26 @@ async fn remove_my_drive_tag(
     State(state): State<Arc<AppState>>,
     Form(form): Form<ApplyTagForm>,
 ) -> Result<Redirect, StatusCode> {
-    change_drive_tag(&state, form, database::inventory::MY_DRIVE_SCOPE, "/my-drive", true)
+    change_drive_tag(
+        &state,
+        form,
+        database::inventory::MY_DRIVE_SCOPE,
+        "/my-drive",
+        true,
+    )
 }
 
 async fn remove_shared_with_me_tag(
     State(state): State<Arc<AppState>>,
     Form(form): Form<ApplyTagForm>,
 ) -> Result<Redirect, StatusCode> {
-    change_drive_tag(&state, form, database::inventory::SHARED_WITH_ME_SCOPE, "/shared-with-me", true)
+    change_drive_tag(
+        &state,
+        form,
+        database::inventory::SHARED_WITH_ME_SCOPE,
+        "/shared-with-me",
+        true,
+    )
 }
 
 fn change_drive_tag(
@@ -1778,11 +1915,17 @@ fn change_drive_tag(
         .collect();
     let changed = if remove {
         database::inventory::remove_tag_recursively_for_scope(
-            &database, inventory_scope, &selected_items, &form.tag,
+            &database,
+            inventory_scope,
+            &selected_items,
+            &form.tag,
         )
     } else {
         database::inventory::apply_tag_recursively_for_scope(
-            &database, inventory_scope, &selected_items, &form.tag,
+            &database,
+            inventory_scope,
+            &selected_items,
+            &form.tag,
         )
     }
     .map_err(|error| {
@@ -1882,8 +2025,8 @@ async fn directory_page(
             log::error!("Unable to load authenticated accounts: {error}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-    let tags = database::inventory::list_tags(&database)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tags =
+        database::inventory::list_tags(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
@@ -1923,16 +2066,20 @@ async fn apply_directory_tag(
     State(state): State<Arc<AppState>>,
     Form(form): Form<ApplyPrincipalTagForm>,
 ) -> Result<Redirect, StatusCode> {
-    let principal_ids = form.selected_principal_ids
+    let principal_ids = form
+        .selected_principal_ids
         .split(',')
         .filter_map(|value| value.trim().parse::<i64>().ok())
         .collect::<Vec<_>>();
-    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    database::directory::apply_principal_tag(&database, &principal_ids, &form.tag)
-        .map_err(|error| {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::directory::apply_principal_tag(&database, &principal_ids, &form.tag).map_err(
+        |error| {
             log::error!("Unable to apply directory identity tag: {error}");
             StatusCode::BAD_REQUEST
-        })?;
+        },
+    )?;
     Ok(Redirect::to("/directory"))
 }
 
@@ -1940,9 +2087,14 @@ async fn remove_directory_tag(
     State(state): State<Arc<AppState>>,
     Form(form): Form<ApplyPrincipalTagForm>,
 ) -> Result<Redirect, StatusCode> {
-    let principal_ids = form.selected_principal_ids.split(',')
-        .filter_map(|value| value.trim().parse::<i64>().ok()).collect::<Vec<_>>();
-    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let principal_ids = form
+        .selected_principal_ids
+        .split(',')
+        .filter_map(|value| value.trim().parse::<i64>().ok())
+        .collect::<Vec<_>>();
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     database::directory::remove_principal_tag(&database, &principal_ids, &form.tag)
         .map_err(|_| StatusCode::BAD_REQUEST)?;
     Ok(Redirect::to("/directory"))
@@ -1953,13 +2105,18 @@ async fn apply_principal_tag(
     Path(principal_id): Path<i64>,
     Form(form): Form<ApplyPrincipalTagForm>,
 ) -> Result<Redirect, StatusCode> {
-    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    database::directory::apply_principal_tag(&database, &[principal_id], &form.tag)
-        .map_err(|error| {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::directory::apply_principal_tag(&database, &[principal_id], &form.tag).map_err(
+        |error| {
             log::error!("Unable to apply identity tag: {error}");
             StatusCode::BAD_REQUEST
-        })?;
-    Ok(Redirect::to(&format!("/directory/principals/{principal_id}")))
+        },
+    )?;
+    Ok(Redirect::to(&format!(
+        "/directory/principals/{principal_id}"
+    )))
 }
 
 async fn remove_principal_tag(
@@ -1967,10 +2124,14 @@ async fn remove_principal_tag(
     Path(principal_id): Path<i64>,
     Form(form): Form<ApplyPrincipalTagForm>,
 ) -> Result<Redirect, StatusCode> {
-    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     database::directory::remove_principal_tag(&database, &[principal_id], &form.tag)
         .map_err(|_| StatusCode::BAD_REQUEST)?;
-    Ok(Redirect::to(&format!("/directory/principals/{principal_id}")))
+    Ok(Redirect::to(&format!(
+        "/directory/principals/{principal_id}"
+    )))
 }
 
 async fn apply_principal_editor_tag(
@@ -1978,10 +2139,14 @@ async fn apply_principal_editor_tag(
     Path(principal_id): Path<i64>,
     Form(form): Form<ApplyPrincipalTagForm>,
 ) -> Result<Redirect, StatusCode> {
-    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     database::directory::apply_principal_tag(&database, &[principal_id], &form.tag)
         .map_err(|_| StatusCode::BAD_REQUEST)?;
-    Ok(Redirect::to(&format!("/directory/principals/{principal_id}/edit")))
+    Ok(Redirect::to(&format!(
+        "/directory/principals/{principal_id}/edit"
+    )))
 }
 
 async fn remove_principal_editor_tag(
@@ -1989,10 +2154,14 @@ async fn remove_principal_editor_tag(
     Path(principal_id): Path<i64>,
     Form(form): Form<ApplyPrincipalTagForm>,
 ) -> Result<Redirect, StatusCode> {
-    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     database::directory::remove_principal_tag(&database, &[principal_id], &form.tag)
         .map_err(|_| StatusCode::BAD_REQUEST)?;
-    Ok(Redirect::to(&format!("/directory/principals/{principal_id}/edit")))
+    Ok(Redirect::to(&format!(
+        "/directory/principals/{principal_id}/edit"
+    )))
 }
 
 async fn new_principal_page(
@@ -2020,7 +2189,9 @@ async fn edit_principal_page(
     State(state): State<Arc<AppState>>,
     Path(principal_id): Path<i64>,
 ) -> Result<Html<String>, StatusCode> {
-    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let principal = database::directory::get_principal(&database, principal_id)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -2047,14 +2218,25 @@ fn save_principal_editor(
     principal_id: Option<i64>,
     form: PrincipalEditForm,
 ) -> Result<axum::response::Response, StatusCode> {
-    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     match database::directory::save_manual_principal(
-        &database, principal_id, &form.email, &form.display_name, &form.principal_type,
-        &form.status, &form.departure_date, &form.organization, &form.notes,
+        &database,
+        principal_id,
+        &form.email,
+        &form.display_name,
+        &form.principal_type,
+        &form.status,
+        &form.departure_date,
+        &form.organization,
+        &form.notes,
     ) {
         Ok(id) => Ok(Redirect::to(&format!("/directory/principals/{id}")).into_response()),
-        Err(error) => render_principal_editor(state, None, Some((principal_id, form)), error.to_string())
-            .map(axum::response::IntoResponse::into_response),
+        Err(error) => {
+            render_principal_editor(state, None, Some((principal_id, form)), error.to_string())
+                .map(axum::response::IntoResponse::into_response)
+        }
     }
 }
 
@@ -2064,29 +2246,55 @@ fn render_principal_editor(
     submitted: Option<(Option<i64>, PrincipalEditForm)>,
     error: String,
 ) -> Result<Html<String>, StatusCode> {
-    let principal_id = submitted.as_ref().and_then(|value| value.0)
-        .or_else(|| principal.as_ref().map(|value| value.id)).unwrap_or(0);
+    let principal_id = submitted
+        .as_ref()
+        .and_then(|value| value.0)
+        .or_else(|| principal.as_ref().map(|value| value.id))
+        .unwrap_or(0);
     let is_new = principal_id == 0;
     let (email, display_name, principal_type, status, departure_date, organization, notes) =
         if let Some((_, form)) = submitted {
-            (form.email, form.display_name, form.principal_type, form.status,
-             form.departure_date, form.organization, form.notes)
+            (
+                form.email,
+                form.display_name,
+                form.principal_type,
+                form.status,
+                form.departure_date,
+                form.organization,
+                form.notes,
+            )
         } else if let Some(principal) = principal {
-            (principal.primary_email, principal.display_name, principal.principal_type,
-             principal.status, principal.departure_date, principal.organizations, principal.notes)
+            (
+                principal.primary_email,
+                principal.display_name,
+                principal.principal_type,
+                principal.status,
+                principal.departure_date,
+                principal.organizations,
+                principal.notes,
+            )
         } else {
-            (String::new(), String::new(), "person".to_string(), "active".to_string(),
-             String::new(), String::new(), String::new())
+            (
+                String::new(),
+                String::new(),
+                "person".to_string(),
+                "active".to_string(),
+                String::new(),
+                String::new(),
+                String::new(),
+            )
         };
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
     let metadata_state = state.metadata_state();
-    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let principal_types = database::directory::list_principal_types(&database)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let tags = database::inventory::list_tags(&database)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tags =
+        database::inventory::list_tags(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let principal_tags = if principal_id > 0 {
         database::directory::get_principal(&database, principal_id)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -2096,19 +2304,44 @@ fn render_principal_editor(
         Vec::new()
     };
     render_template(&DirectoryEditTemplate {
-        title: if is_new { "New Directory Entry - BOREAL".to_string() } else { "Edit Directory Entry - BOREAL".to_string() },
+        title: if is_new {
+            "New Directory Entry - BOREAL".to_string()
+        } else {
+            "Edit Directory Entry - BOREAL".to_string()
+        },
         active_page: "directory",
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
-            &rclone_state, &google_client_state, &google_remotes_state, &metadata_state,
-            configured_remote_count(&state.runtime, &rclone_state), authenticated_google_email(state),
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(state),
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
-        heading: if is_new { "Add directory entry" } else { "Edit directory entry" },
-        action: if is_new { "/directory/new".to_string() } else { format!("/directory/principals/{principal_id}/edit") },
-        principal_id, email, display_name, principal_type, status, departure_date,
-        organization, notes, error,
-        principal_types, principal_tags, tags,
+        heading: if is_new {
+            "Add directory entry"
+        } else {
+            "Edit directory entry"
+        },
+        action: if is_new {
+            "/directory/new".to_string()
+        } else {
+            format!("/directory/principals/{principal_id}/edit")
+        },
+        principal_id,
+        email,
+        display_name,
+        principal_type,
+        status,
+        departure_date,
+        organization,
+        notes,
+        error,
+        principal_types,
+        principal_tags,
+        tags,
     })
 }
 
@@ -2178,8 +2411,8 @@ async fn principal_page(
             log::error!("Unable to load principal Drive associations: {error}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-    let tags = database::inventory::list_tags(&database)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tags =
+        database::inventory::list_tags(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
@@ -2308,15 +2541,22 @@ async fn ui_setup_progress(State(state): State<Arc<AppState>>) -> Result<Html<St
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
 
-    let setup_settings = state.database().ok()
+    let setup_settings = state
+        .database()
+        .ok()
         .and_then(|database| database::settings::load(&database).ok())
         .unwrap_or_default();
     let directory_setup_decided = setup_settings.directory_sheet_enabled
-        || state.database().ok()
+        || state
+            .database()
+            .ok()
             .and_then(|database| database::settings::directory_setup_skipped(&database).ok())
             .unwrap_or(false);
     let (setup_steps, setup_percent) = build_setup_progress(
-        &rclone_state, &google_client_state, &google_remotes_state, directory_setup_decided,
+        &rclone_state,
+        &google_client_state,
+        &google_remotes_state,
+        directory_setup_decided,
     );
 
     let template = SetupProgressTemplate {
@@ -2337,8 +2577,12 @@ async fn ui_drive_summaries(
     let shared_summary = latest_shared_summary(&state);
     let template = DriveSummariesTemplate {
         metadata: build_metadata_view(
-            &metadata_state, true, false, shared_summary.as_ref(),
-            latest_shared_drives_summary(&state).as_ref(), shared_drive_count(&state),
+            &metadata_state,
+            true,
+            false,
+            shared_summary.as_ref(),
+            latest_shared_drives_summary(&state).as_ref(),
+            shared_drive_count(&state),
         ),
     };
     render_template(&template)
@@ -2405,6 +2649,14 @@ async fn ui_metadata_update_modal(
                 .unwrap_or(0),
         ),
         timing_samples: timing.map(|value| value.sample_count).unwrap_or(0),
+        directory_available: state
+            .database()
+            .ok()
+            .and_then(|database| database::settings::load(&database).ok())
+            .map(|settings| {
+                settings.directory_sheet_enabled && !settings.directory_sheet_url.is_empty()
+            })
+            .unwrap_or(false),
     })
 }
 
@@ -2457,13 +2709,22 @@ fn latest_shared_summary(state: &AppState) -> Option<database::inventory::Invent
 
 fn latest_shared_drives_summary(state: &AppState) -> Option<database::inventory::InventorySummary> {
     let database = state.database().ok()?;
-    database::inventory::latest_summary_for(&database, "shared-drives").ok().flatten()
+    database::inventory::latest_summary_for(&database, "shared-drives")
+        .ok()
+        .flatten()
 }
 
 fn shared_drive_count(state: &AppState) -> usize {
-    state.database().ok()
+    state
+        .database()
+        .ok()
         .and_then(|database| database::inventory::list_shared_drives(&database).ok())
-        .map(|drives| drives.into_iter().filter(|drive| drive.is_accessible).count())
+        .map(|drives| {
+            drives
+                .into_iter()
+                .filter(|drive| drive.is_accessible)
+                .count()
+        })
         .unwrap_or(0)
 }
 
@@ -2526,9 +2787,11 @@ async fn save_setup_directory(
     State(state): State<Arc<AppState>>,
     Form(form): Form<SetupDirectoryForm>,
 ) -> Result<Redirect, StatusCode> {
-    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let mut settings = database::settings::load(&database)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let mut settings =
+        database::settings::load(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     if form.skip.is_some() {
         database::settings::set_directory_setup_skipped(&database, true)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -2548,7 +2811,10 @@ async fn save_setup_directory(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     database::settings::set_directory_setup_skipped(&database, false)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    log::info!("Optional setup directory URL {}", if url.is_empty() { "cleared" } else { "saved" });
+    log::info!(
+        "Optional setup directory URL {}",
+        if url.is_empty() { "cleared" } else { "saved" }
+    );
     Ok(Redirect::to("/"))
 }
 
@@ -2561,14 +2827,23 @@ fn start_remote_setup(state: Arc<AppState>, kind: RemoteKind) -> Result<Redirect
     Ok(Redirect::to("/"))
 }
 
-async fn start_metadata_update(State(state): State<Arc<AppState>>) -> Result<Redirect, StatusCode> {
+async fn start_metadata_update(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<MetadataUpdateForm>,
+) -> Result<Redirect, StatusCode> {
     let remotes = state.google_remotes_state();
 
     if !matches!(remotes.ro, RemoteState::Ready) {
         return Err(StatusCode::PRECONDITION_FAILED);
     }
 
-    AppState::start_metadata_update(state).map_err(|error| {
+    let selection = crate::app::MetadataUpdateSelection {
+        my_drive: form.my_drive.is_some(),
+        shared_drives: form.shared_drives.is_some(),
+        shared_with_me: form.shared_with_me.is_some(),
+        directory_info: form.directory_info.is_some(),
+    };
+    AppState::start_metadata_update(state, selection).map_err(|error| {
         eprintln!("Unable to start metadata update: {error}");
         StatusCode::CONFLICT
     })?;
@@ -2581,8 +2856,7 @@ fn should_poll_rclone(rclone_state: &RcloneState) -> bool {
 }
 
 fn should_poll_setup(rclone_state: &RcloneState, remotes_state: &GoogleRemotesState) -> bool {
-    should_poll_rclone(rclone_state)
-        || matches!(remotes_state.ro, RemoteState::Configuring)
+    should_poll_rclone(rclone_state) || matches!(remotes_state.ro, RemoteState::Configuring)
 }
 
 fn should_poll_ui(

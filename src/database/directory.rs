@@ -74,12 +74,14 @@ pub fn linked_sheet_status(database: &Database) -> Result<LinkedSheetStatus, Dat
                     COALESCE(last_error, '')
              FROM directory_sources WHERE name = 'Linked Google Sheet directory'",
             [],
-            |row| Ok(LinkedSheetStatus {
-                configured: row.get::<_, i64>(0)? != 0,
-                last_attempt_at: row.get(1)?,
-                last_success_at: row.get(2)?,
-                last_error: row.get(3)?,
-            }),
+            |row| {
+                Ok(LinkedSheetStatus {
+                    configured: row.get::<_, i64>(0)? != 0,
+                    last_attempt_at: row.get(1)?,
+                    last_success_at: row.get(2)?,
+                    last_error: row.get(3)?,
+                })
+            },
         )
         .optional()
         .map(|value| value.unwrap_or_default())
@@ -235,9 +237,13 @@ pub fn list_principals_filtered(
              WHERE pt.principal_id = ?1 ORDER BY t.name COLLATE NOCASE",
         )?;
         principal.tags = tag_statement
-            .query_map([principal.id], |row| Ok(IdentityTag {
-                slug: row.get(0)?, name: row.get(1)?, color: row.get(2)?,
-            }))?
+            .query_map([principal.id], |row| {
+                Ok(IdentityTag {
+                    slug: row.get(0)?,
+                    name: row.get(1)?,
+                    color: row.get(2)?,
+                })
+            })?
             .collect::<Result<Vec<_>, _>>()?;
     }
     Ok(principals)
@@ -269,9 +275,12 @@ pub fn apply_principal_tag(
     }
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
-    let tag_id: i64 = transaction.query_row(
-        "SELECT id FROM tags WHERE slug = ?1", [tag_slug], |row| row.get(0),
-    ).optional()?.ok_or_else(|| format!("Unknown tag: {tag_slug}"))?;
+    let tag_id: i64 = transaction
+        .query_row("SELECT id FROM tags WHERE slug = ?1", [tag_slug], |row| {
+            row.get(0)
+        })
+        .optional()?
+        .ok_or_else(|| format!("Unknown tag: {tag_slug}"))?;
     let mut applied = 0;
     for principal_id in principal_ids {
         applied += transaction.execute(
@@ -323,13 +332,20 @@ pub fn save_manual_principal(
         return Err("A directory identity type is required".into());
     }
     let principal_type = canonical_principal_type(principal_type);
-    let status = if status.trim().is_empty() { "unknown".to_string() } else { normalize_value(status) };
+    let status = if status.trim().is_empty() {
+        "unknown".to_string()
+    } else {
+        normalize_value(status)
+    };
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
-    let email_owner: Option<i64> = transaction.query_row(
-        "SELECT principal_id FROM principal_emails WHERE lower(email) = lower(?1)",
-        [&email], |row| row.get(0),
-    ).optional()?;
+    let email_owner: Option<i64> = transaction
+        .query_row(
+            "SELECT principal_id FROM principal_emails WHERE lower(email) = lower(?1)",
+            [&email],
+            |row| row.get(0),
+        )
+        .optional()?;
     if email_owner.is_some() && email_owner != principal_id {
         return Err("That email address already belongs to another directory identity".into());
     }
@@ -340,10 +356,19 @@ pub fn save_manual_principal(
                     departure_date = NULLIF(?6, ''), notes = NULLIF(?7, ''),
                     source = 'manual', updated_at = CURRENT_TIMESTAMP
              WHERE id = ?1",
-            params![id, principal_type, email, display_name.trim(), status,
-                    departure_date.trim(), notes.trim()],
+            params![
+                id,
+                principal_type,
+                email,
+                display_name.trim(),
+                status,
+                departure_date.trim(),
+                notes.trim()
+            ],
         )?;
-        if updated == 0 { return Err("Directory identity was not found".into()); }
+        if updated == 0 {
+            return Err("Directory identity was not found".into());
+        }
         id
     } else {
         transaction.execute(
@@ -351,18 +376,30 @@ pub fn save_manual_principal(
                 principal_type, primary_email, display_name, status,
                 departure_date, notes, source
              ) VALUES (?1, ?2, NULLIF(?3, ''), ?4, NULLIF(?5, ''), NULLIF(?6, ''), 'manual')",
-            params![principal_type, email, display_name.trim(), status,
-                    departure_date.trim(), notes.trim()],
+            params![
+                principal_type,
+                email,
+                display_name.trim(),
+                status,
+                departure_date.trim(),
+                notes.trim()
+            ],
         )?;
         transaction.last_insert_rowid()
     };
-    transaction.execute("UPDATE principal_emails SET is_primary = 0 WHERE principal_id = ?1", [id])?;
+    transaction.execute(
+        "UPDATE principal_emails SET is_primary = 0 WHERE principal_id = ?1",
+        [id],
+    )?;
     transaction.execute(
         "INSERT INTO principal_emails (principal_id, email, is_primary) VALUES (?1, ?2, 1)
          ON CONFLICT(email) DO UPDATE SET is_primary = 1",
         params![id, email],
     )?;
-    transaction.execute("DELETE FROM organization_memberships WHERE principal_id = ?1", [id])?;
+    transaction.execute(
+        "DELETE FROM organization_memberships WHERE principal_id = ?1",
+        [id],
+    )?;
     for organization in organization
         .split(',')
         .map(str::trim)
@@ -374,7 +411,8 @@ pub fn save_manual_principal(
         )?;
         let organization_id: i64 = transaction.query_row(
             "SELECT id FROM organizations WHERE name = ?1 COLLATE NOCASE",
-            [organization], |row| row.get(0),
+            [organization],
+            |row| row.get(0),
         )?;
         transaction.execute(
             "INSERT INTO organization_memberships (organization_id, principal_id, status, source)
@@ -576,8 +614,12 @@ pub fn import_csv(
 pub fn validate_csv(data: &[u8]) -> Result<(), DatabaseError> {
     let text = std::str::from_utf8(data).map_err(|_| "Directory CSV must use UTF-8 encoding")?;
     let rows = parse_csv(text)?;
-    let headers = rows.first().ok_or("Directory CSV is empty")?
-        .iter().map(|value| normalize_header(value)).collect::<Vec<_>>();
+    let headers = rows
+        .first()
+        .ok_or("Directory CSV is empty")?
+        .iter()
+        .map(|value| normalize_header(value))
+        .collect::<Vec<_>>();
     header_index(&headers, &["email", "primary_email", "email_address"])
         .ok_or_else(|| "Directory CSV requires an email column".into())
         .map(|_| ())
@@ -636,7 +678,12 @@ fn import_csv_source(
             enabled = 1,
             refresh_on_metadata_update = excluded.refresh_on_metadata_update,
             updated_at = CURRENT_TIMESTAMP",
-        params![source_name, source_type, source_location, refresh_on_metadata_update],
+        params![
+            source_name,
+            source_type,
+            source_location,
+            refresh_on_metadata_update
+        ],
     )?;
     let source_id: i64 = transaction.query_row(
         "SELECT id FROM directory_sources WHERE name = ?1",
@@ -805,7 +852,9 @@ fn canonical_principal_type(value: &str) -> String {
         "person" | "user" => "person",
         "group" | "google_group" => "group",
         "service_acct" | "service_account" => "service_acct",
-        "dept_acct" | "department_account" | "departmental_account" | "departmental_acct" => "dept_acct",
+        "dept_acct" | "department_account" | "departmental_account" | "departmental_acct" => {
+            "dept_acct"
+        }
         "other" => "other",
         _ => value.trim(),
     }
@@ -903,6 +952,9 @@ mod tests {
         assert_eq!(canonical_principal_type("service account"), "service_acct");
         assert_eq!(canonical_principal_type("departmental_acct"), "dept_acct");
         assert_eq!(canonical_principal_type("Staff"), "Staff");
-        assert_eq!(canonical_principal_type("Affiliate Researcher"), "Affiliate Researcher");
+        assert_eq!(
+            canonical_principal_type("Affiliate Researcher"),
+            "Affiliate Researcher"
+        );
     }
 }

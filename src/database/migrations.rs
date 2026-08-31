@@ -1,7 +1,4 @@
-use rusqlite::{
-    params,
-    Connection,
-};
+use rusqlite::{Connection, params};
 
 use super::DatabaseError;
 
@@ -15,51 +12,37 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
         name: "foundation",
-        sql: include_str!(
-            "migrations/0001_foundation.sql"
-        ),
+        sql: include_str!("migrations/0001_foundation.sql"),
     },
     Migration {
         version: 2,
         name: "drive_inventory",
-        sql: include_str!(
-            "migrations/0002_drive_inventory.sql"
-        ),
+        sql: include_str!("migrations/0002_drive_inventory.sql"),
     },
     Migration {
         version: 3,
         name: "folder_sizes",
-        sql: include_str!(
-            "migrations/0003_folder_sizes.sql"
-        ),
+        sql: include_str!("migrations/0003_folder_sizes.sql"),
     },
     Migration {
         version: 4,
         name: "tags",
-        sql: include_str!(
-            "migrations/0004_tags.sql"
-        ),
+        sql: include_str!("migrations/0004_tags.sql"),
     },
     Migration {
         version: 5,
         name: "tag_colors",
-        sql: include_str!(
-            "migrations/0005_tag_colors.sql"
-        ),
+        sql: include_str!("migrations/0005_tag_colors.sql"),
     },
     Migration {
         version: 6,
         name: "identity_directory",
-        sql: include_str!(
-            "migrations/0006_identity_directory.sql"
-        ),
+        sql: include_str!("migrations/0006_identity_directory.sql"),
     },
     Migration {
         version: 7,
         name: "identity_lookup_indexes",
-        sql: include_str!(
-            "migrations/0007_identity_lookup_indexes.sql"
-        ),
+        sql: include_str!("migrations/0007_identity_lookup_indexes.sql"),
     },
     Migration {
         version: 8,
@@ -83,9 +66,7 @@ const MIGRATIONS: &[Migration] = &[
     },
 ];
 
-pub fn apply(
-    connection: &mut Connection,
-) -> Result<(), DatabaseError> {
+pub fn apply(connection: &mut Connection) -> Result<(), DatabaseError> {
     connection.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -113,31 +94,23 @@ pub fn apply(
 
         let transaction = connection.transaction()?;
 
-        transaction.execute_batch(
-            migration.sql,
-        )?;
+        transaction.execute_batch(migration.sql)?;
 
         transaction.execute(
             "INSERT INTO schema_migrations (
                 version,
                 name
             ) VALUES (?1, ?2)",
-            params![
-                migration.version,
-                migration.name,
-            ],
+            params![migration.version, migration.name,],
         )?;
 
         transaction.commit()?;
 
         println!(
             "Applied database migration {}: {}",
-            migration.version,
-            migration.name,
+            migration.version, migration.name,
         );
     }
 
-    Ok(
-        (),
-    )
+    Ok(())
 }

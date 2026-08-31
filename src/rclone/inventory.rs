@@ -10,7 +10,7 @@ use serde::Deserialize;
 
 use crate::bootstrap::Runtime;
 
-use super::{config, remotes::RemoteKind, RcloneError};
+use super::{RcloneError, config, remotes::RemoteKind};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -49,13 +49,23 @@ pub fn discover_shared_drives(
         return Err(format!("Rclone executable does not exist: {}", executable.display()).into());
     }
     let config_path = config::path(runtime)?;
-    let output = Command::new(executable).args([
-        "backend", "drives", &format!("{}:", RemoteKind::MyDriveRo.name()),
-        "--json", "--config", config_path.to_string_lossy().as_ref(),
-    ]).output().map_err(|error| format!("Unable to discover Shared Drives: {error}"))?;
+    let output = Command::new(executable)
+        .args([
+            "backend",
+            "drives",
+            &format!("{}:", RemoteKind::MyDriveRo.name()),
+            "--json",
+            "--config",
+            config_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .map_err(|error| format!("Unable to discover Shared Drives: {error}"))?;
     if !output.status.success() {
-        return Err(format!("Rclone Shared Drive discovery failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()).into());
+        return Err(format!(
+            "Rclone Shared Drive discovery failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )
+        .into());
     }
     serde_json::from_slice(&output.stdout)
         .map_err(|error| format!("Unable to parse Shared Drive discovery: {error}").into())
@@ -68,7 +78,14 @@ pub fn fetch_shared_drive(
     drive_id: &str,
     include_permissions: bool,
 ) -> Result<Vec<DriveItem>, RcloneError> {
-    fetch_drive_with_options(runtime, executable, scan_id, include_permissions, false, Some(drive_id))
+    fetch_drive_with_options(
+        runtime,
+        executable,
+        scan_id,
+        include_permissions,
+        false,
+        Some(drive_id),
+    )
 }
 
 pub fn fetch_my_drive(
@@ -77,7 +94,14 @@ pub fn fetch_my_drive(
     scan_id: i64,
     include_permissions: bool,
 ) -> Result<Vec<DriveItem>, RcloneError> {
-    fetch_drive_with_options(runtime, executable, scan_id, include_permissions, false, None)
+    fetch_drive_with_options(
+        runtime,
+        executable,
+        scan_id,
+        include_permissions,
+        false,
+        None,
+    )
 }
 
 pub fn fetch_shared_with_me(
@@ -86,7 +110,14 @@ pub fn fetch_shared_with_me(
     scan_id: i64,
     include_permissions: bool,
 ) -> Result<Vec<DriveItem>, RcloneError> {
-    fetch_drive_with_options(runtime, executable, scan_id, include_permissions, true, None)
+    fetch_drive_with_options(
+        runtime,
+        executable,
+        scan_id,
+        include_permissions,
+        true,
+        None,
+    )
 }
 
 fn fetch_drive_with_options(
@@ -101,10 +132,18 @@ fn fetch_drive_with_options(
         return Err(format!("Rclone executable does not exist: {}", executable.display()).into());
     }
 
-    let cache_dir = runtime.directories.get("CACHE")
+    let cache_dir = runtime
+        .directories
+        .get("CACHE")
         .ok_or("BOREAL CACHE directory is not configured")?;
     fs::create_dir_all(cache_dir)?;
-    let scope = if shared_with_me { "shared-with-me" } else if shared_drive_id.is_some() { "shared-drive" } else { "my-drive" };
+    let scope = if shared_with_me {
+        "shared-with-me"
+    } else if shared_drive_id.is_some() {
+        "shared-drive"
+    } else {
+        "my-drive"
+    };
     let cache_path = cache_dir.join(format!("{scope}-inventory-{scan_id}.json"));
     let output_file = File::create(&cache_path)?;
     let config_path = config::path(runtime)?;
@@ -130,7 +169,10 @@ fn fetch_drive_with_options(
         command.args(["--drive-team-drive", drive_id, "--drive-root-folder-id", ""]);
     }
 
-    let output = command.stdout(Stdio::from(output_file)).stderr(Stdio::piped()).output()
+    let output = command
+        .stdout(Stdio::from(output_file))
+        .stderr(Stdio::piped())
+        .output()
         .map_err(|error| format!("Unable to execute My Drive inventory: {error}"))?;
 
     if !output.status.success() {
@@ -141,9 +183,7 @@ fn fetch_drive_with_options(
 
     let result = parse(&cache_path);
     if let Err(error) = fs::remove_file(&cache_path) {
-        log::warn!(
-            "Unable to remove metadata cache file for scan_id={scan_id}: {error}"
-        );
+        log::warn!("Unable to remove metadata cache file for scan_id={scan_id}: {error}");
     }
     result
 }
@@ -154,7 +194,10 @@ fn parse(path: &PathBuf) -> Result<Vec<DriveItem>, RcloneError> {
         .map_err(|error| format!("Unable to parse Rclone inventory: {error}"))?;
 
     if let Some(index) = items.iter().position(|item| item.id.trim().is_empty()) {
-        return Err(format!("Rclone returned an item without a Drive ID at response index {index}").into());
+        return Err(format!(
+            "Rclone returned an item without a Drive ID at response index {index}"
+        )
+        .into());
     }
     Ok(items)
 }
@@ -188,7 +231,8 @@ mod tests {
     fn parses_shared_drive_discovery() {
         let drives: Vec<SharedDrive> = serde_json::from_str(
             r#"[{"id":"0ABC123","kind":"drive#drive","name":"ACEP Projects"}]"#,
-        ).expect("Shared Drive discovery should parse");
+        )
+        .expect("Shared Drive discovery should parse");
         assert_eq!(drives.len(), 1);
         assert_eq!(drives[0].id, "0ABC123");
         assert_eq!(drives[0].name, "ACEP Projects");

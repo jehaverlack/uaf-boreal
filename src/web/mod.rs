@@ -1,117 +1,62 @@
 pub mod routes;
 
-use std::{
-    error::Error,
-    sync::Arc,
-};
+use std::{error::Error, sync::Arc};
 
 use axum::Router;
 use tokio::sync::watch;
 
-use crate::{
-    app::AppState,
-    config,
-};
+use crate::{app::AppState, config};
 
 /// Run the local BOREAL WebUI.
-pub async fn run(
-    state: Arc<AppState>,
-) -> Result<(), Box<dyn Error>> {
-    let webapp = config::get_webapp_config(
-        &state.runtime.boreal,
-    )?;
+pub async fn run(state: Arc<AppState>) -> Result<(), Box<dyn Error>> {
+    let webapp = config::get_webapp_config(&state.runtime.boreal)?;
 
     /*
      * BOREAL's WebUI must remain local-only.
      */
     match webapp.listen.as_str() {
-        "127.0.0.1"
-        | "localhost"
-        | "::1" => {}
+        "127.0.0.1" | "localhost" | "::1" => {}
 
         other => {
-            return Err(
-                format!(
-                    "BOREAL refuses to listen on non-local address: {other}"
-                )
-                .into(),
-            );
+            return Err(format!("BOREAL refuses to listen on non-local address: {other}").into());
         }
     }
 
-    let bind_address = format!(
-        "{}:{}",
-        webapp.listen,
-        webapp.port,
-    );
+    let bind_address = format!("{}:{}", webapp.listen, webapp.port,);
 
     /*
      * Bind before opening the browser.
      */
-    let listener = tokio::net::TcpListener::bind(
-        &bind_address,
-    )
-    .await?;
+    let listener = tokio::net::TcpListener::bind(&bind_address).await?;
 
-    let app: Router = routes::router()
-        .with_state(
-            Arc::clone(
-                &state,
-            ),
-        );
+    let app: Router = routes::router().with_state(Arc::clone(&state));
 
     let browser_host = match webapp.listen.as_str() {
         "::1" => "[::1]",
         other => other,
     };
 
-    let url = format!(
-        "http://{}:{}",
-        browser_host,
-        webapp.port,
-    );
+    let url = format!("http://{}:{}", browser_host, webapp.port,);
 
-    println!(
-        "BOREAL WebUI: {url}"
-    );
+    println!("BOREAL WebUI: {url}");
 
     if webapp.open_browser {
-        if let Err(error) = webbrowser::open(
-            &url,
-        ) {
-            eprintln!(
-                "Unable to open default browser: {error}"
-            );
+        if let Err(error) = webbrowser::open(&url) {
+            eprintln!("Unable to open default browser: {error}");
 
-            eprintln!(
-                "Open this URL manually: {url}"
-            );
+            eprintln!("Open this URL manually: {url}");
         }
     }
 
-    println!(
-        "Press Ctrl-C to stop BOREAL."
-    );
+    println!("Press Ctrl-C to stop BOREAL.");
 
     let shutdown_rx = state.shutdown_receiver();
 
-    axum::serve(
-        listener,
-        app,
-    )
-    .with_graceful_shutdown(
-        shutdown_signal(
-            Arc::clone(
-                &state,
-            ),
-            shutdown_rx,
-        ),
-    )
-    .await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal(Arc::clone(&state), shutdown_rx))
+        .await?;
 
-    println!(
-        "BOREAL stopped."
-    );
+    println!("BOREAL stopped.");
 
     Ok(())
 }
@@ -120,10 +65,7 @@ pub async fn run(
 ///
 /// - Ctrl-C at the terminal
 /// - a shutdown request from the WebUI
-async fn shutdown_signal(
-    state: Arc<AppState>,
-    mut shutdown_rx: watch::Receiver<bool>,
-) {
+async fn shutdown_signal(state: Arc<AppState>, mut shutdown_rx: watch::Receiver<bool>) {
     tokio::select! {
         result = tokio::signal::ctrl_c() => {
             match result {
@@ -155,9 +97,7 @@ async fn shutdown_signal(
 }
 
 /// Wait until AppState indicates that shutdown has been requested.
-async fn wait_for_shutdown_request(
-    shutdown_rx: &mut watch::Receiver<bool>,
-) {
+async fn wait_for_shutdown_request(shutdown_rx: &mut watch::Receiver<bool>) {
     loop {
         if *shutdown_rx.borrow() {
             return;

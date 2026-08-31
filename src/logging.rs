@@ -6,8 +6,8 @@ use std::{
     sync::Mutex,
 };
 
-use log::{Level, LevelFilter, Log, Metadata, Record};
 use crate::bootstrap::Runtime;
+use log::{Level, LevelFilter, Log, Metadata, Record};
 
 pub type LoggingError = Box<dyn Error>;
 
@@ -15,9 +15,7 @@ pub type LoggingError = Box<dyn Error>;
 ///
 /// Files are named `YYYY-MM-DD.boreal.log`. The local date is checked for
 /// every event so a running process rolls over at local midnight.
-pub fn initialize(
-    runtime: &Runtime,
-) -> Result<(), LoggingError> {
+pub fn initialize(runtime: &Runtime) -> Result<(), LoggingError> {
     let logs_dir = runtime
         .directories
         .get("LOGS")
@@ -28,11 +26,7 @@ pub fn initialize(
     let logger = Box::leak(Box::new(BorealLogger::new(logs_dir)?));
 
     log::set_logger(logger)
-        .map_err(
-            |_| io::Error::other(
-                "BOREAL logger is already initialized",
-            ),
-        )?;
+        .map_err(|_| io::Error::other("BOREAL logger is already initialized"))?;
     log::set_max_level(LevelFilter::Info);
 
     Ok(())
@@ -49,9 +43,7 @@ struct LogState {
 }
 
 impl BorealLogger {
-    fn new(
-        directory: &Path,
-    ) -> io::Result<Self> {
+    fn new(directory: &Path) -> io::Result<Self> {
         let date = format_date(local_now());
         let file = open_log_file(directory, &date)?;
 
@@ -66,17 +58,11 @@ impl BorealLogger {
 }
 
 impl Log for BorealLogger {
-    fn enabled(
-        &self,
-        metadata: &Metadata<'_>,
-    ) -> bool {
+    fn enabled(&self, metadata: &Metadata<'_>) -> bool {
         metadata.level() <= Level::Info
     }
 
-    fn log(
-        &self,
-        record: &Record<'_>,
-    ) {
+    fn log(&self, record: &Record<'_>) {
         if !self.enabled(record.metadata()) {
             return;
         }
@@ -120,9 +106,7 @@ impl Log for BorealLogger {
         let _ = output.write_all(line.as_bytes());
     }
 
-    fn flush(
-        &self,
-    ) {
+    fn flush(&self) {
         if let Ok(mut state) = self.state.lock() {
             let _ = state.file.flush();
         }
@@ -175,12 +159,7 @@ fn local_now() -> LocalTime {
 }
 
 fn format_date(now: LocalTime) -> String {
-    format!(
-        "{:04}-{:02}-{:02}",
-        now.year,
-        now.month,
-        now.day,
-    )
+    format!("{:04}-{:02}-{:02}", now.year, now.month, now.day,)
 }
 
 fn format_timestamp(now: LocalTime) -> String {
@@ -194,10 +173,7 @@ fn format_timestamp(now: LocalTime) -> String {
     )
 }
 
-fn open_log_file(
-    directory: &Path,
-    date: &str,
-) -> io::Result<File> {
+fn open_log_file(directory: &Path, date: &str) -> io::Result<File> {
     let file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -207,16 +183,10 @@ fn open_log_file(
     {
         use std::os::unix::fs::PermissionsExt;
 
-        file.set_permissions(
-            fs::Permissions::from_mode(
-                0o600,
-            ),
-        )?;
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
     }
 
-    Ok(
-        file,
-    )
+    Ok(file)
 }
 
 #[cfg(test)]
@@ -234,68 +204,25 @@ mod tests {
 
     #[test]
     fn writes_to_current_day_log_file() {
-        let directory = std::env::temp_dir().join(
-            format!(
-                "boreal-logging-test-{}",
-                std::process::id(),
-            ),
-        );
-        fs::create_dir_all(
-            &directory,
-        )
-        .expect(
-            "temporary log directory should be created",
-        );
-        let logger = BorealLogger::new(
-            &directory,
-        )
-        .expect(
-            "logger should initialize",
-        );
-        let message = format_args!(
-            "logging test"
-        );
+        let directory =
+            std::env::temp_dir().join(format!("boreal-logging-test-{}", std::process::id(),));
+        fs::create_dir_all(&directory).expect("temporary log directory should be created");
+        let logger = BorealLogger::new(&directory).expect("logger should initialize");
+        let message = format_args!("logging test");
         let record = Record::builder()
-            .args(
-                message,
-            )
-            .level(
-                Level::Info,
-            )
-            .target(
-                "boreal::test",
-            )
+            .args(message)
+            .level(Level::Info)
+            .target("boreal::test")
             .build();
 
-        logger.log(
-            &record,
-        );
+        logger.log(&record);
         logger.flush();
 
-        let log_path = directory.join(
-            format!(
-                "{}.boreal.log",
-                format_date(local_now()),
-            ),
-        );
-        let contents = fs::read_to_string(
-            log_path,
-        )
-        .expect(
-            "current day log should be readable",
-        );
+        let log_path = directory.join(format!("{}.boreal.log", format_date(local_now()),));
+        let contents = fs::read_to_string(log_path).expect("current day log should be readable");
 
-        assert!(
-            contents.contains(
-                "logging test",
-            ),
-        );
+        assert!(contents.contains("logging test",),);
 
-        fs::remove_dir_all(
-            directory,
-        )
-        .expect(
-            "temporary log directory should be removed",
-        );
+        fs::remove_dir_all(directory).expect("temporary log directory should be removed");
     }
 }

@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::bootstrap::Runtime;
 
-use super::{config, remotes::RemoteKind, RcloneError};
+use super::{RcloneError, config, remotes::RemoteKind};
 
 #[derive(Debug, Clone)]
 pub struct RemoteIdentity {
@@ -22,12 +22,16 @@ pub struct GoogleSheetLocation {
 
 pub fn parse_google_sheet_url(url: &str) -> Result<GoogleSheetLocation, RcloneError> {
     let marker = "docs.google.com/spreadsheets/d/";
-    let start = url.find(marker).ok_or("Directory source must be a Google Sheets URL")?
+    let start = url
+        .find(marker)
+        .ok_or("Directory source must be a Google Sheets URL")?
         + marker.len();
     let remainder = &url[start..];
     let spreadsheet_id = remainder.split('/').next().unwrap_or("").trim();
     if spreadsheet_id.is_empty()
-        || !spreadsheet_id.chars().all(|character| character.is_ascii_alphanumeric() || character == '-' || character == '_')
+        || !spreadsheet_id.chars().all(|character| {
+            character.is_ascii_alphanumeric() || character == '-' || character == '_'
+        })
     {
         return Err("Google Sheets URL contains an invalid spreadsheet ID".into());
     }
@@ -83,8 +87,15 @@ pub fn fetch_read_only_account(
     let config_path = config::path(runtime)?;
     let output = Command::new(executable)
         .args([
-            "config", "userinfo", &format!("{}:", RemoteKind::MyDriveRo.name()),
-            "--json", "--timeout", "20s", "--contimeout", "10s", "--config",
+            "config",
+            "userinfo",
+            &format!("{}:", RemoteKind::MyDriveRo.name()),
+            "--json",
+            "--timeout",
+            "20s",
+            "--contimeout",
+            "10s",
+            "--config",
             config_path.to_string_lossy().as_ref(),
         ])
         .output()
@@ -143,8 +154,9 @@ fn google_client() -> Result<reqwest::blocking::Client, RcloneError> {
 }
 
 fn read_access_token(config_path: &Path) -> Result<String, RcloneError> {
-    let config_text = fs::read_to_string(config_path)
-        .map_err(|error| format!("Unable to read rclone configuration for Google access: {error}"))?;
+    let config_text = fs::read_to_string(config_path).map_err(|error| {
+        format!("Unable to read rclone configuration for Google access: {error}")
+    })?;
     let token_json = remote_setting(&config_text, RemoteKind::MyDriveRo.name(), "token")
         .ok_or("The read-only rclone remote does not contain an OAuth token")?;
     let token: Value = serde_json::from_str(token_json)
@@ -192,7 +204,8 @@ fn remote_setting<'a>(config: &'a str, section: &str, key: &str) -> Option<&'a s
 }
 
 fn string_field(value: &Value, names: &[&str]) -> Option<String> {
-    names.iter()
+    names
+        .iter()
         .find_map(|name| value.get(*name).and_then(Value::as_str))
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -210,8 +223,14 @@ mod tests {
             "DisplayName": "Example User",
             "ID": "123"
         });
-        assert_eq!(string_field(&value, &["email", "Email"]).as_deref(), Some("user@example.edu"));
-        assert_eq!(string_field(&value, &["displayName", "DisplayName"]).as_deref(), Some("Example User"));
+        assert_eq!(
+            string_field(&value, &["email", "Email"]).as_deref(),
+            Some("user@example.edu")
+        );
+        assert_eq!(
+            string_field(&value, &["displayName", "DisplayName"]).as_deref(),
+            Some("Example User")
+        );
     }
 
     #[test]

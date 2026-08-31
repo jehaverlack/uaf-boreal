@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 use serde_json::Value;
 
 use crate::rclone::inventory::DriveItem;
@@ -58,18 +58,32 @@ pub fn list_shared_drives(database: &Database) -> Result<Vec<SharedDriveRow>, Da
                 files_scanned, folders_scanned, permissions_scanned, bytes_discovered
          FROM shared_drives ORDER BY is_accessible DESC, name COLLATE NOCASE, drive_id",
     )?;
-    statement.query_map([], |row| Ok(SharedDriveRow {
-        drive_id: row.get(0)?, name: row.get(1)?, inventory_scope: row.get(2)?,
-        is_accessible: row.get(3)?, last_scanned_at: row.get(4)?, last_error: row.get(5)?,
-        files_scanned: row.get::<_, i64>(6)? as u64,
-        folders_scanned: row.get::<_, i64>(7)? as u64,
-        permissions_scanned: row.get::<_, i64>(8)? as u64,
-        bytes_discovered: row.get::<_, i64>(9)? as u64,
-    }))?.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    statement
+        .query_map([], |row| {
+            Ok(SharedDriveRow {
+                drive_id: row.get(0)?,
+                name: row.get(1)?,
+                inventory_scope: row.get(2)?,
+                is_accessible: row.get(3)?,
+                last_scanned_at: row.get(4)?,
+                last_error: row.get(5)?,
+                files_scanned: row.get::<_, i64>(6)? as u64,
+                folders_scanned: row.get::<_, i64>(7)? as u64,
+                permissions_scanned: row.get::<_, i64>(8)? as u64,
+                bytes_discovered: row.get::<_, i64>(9)? as u64,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(Into::into)
 }
 
-pub fn get_shared_drive(database: &Database, drive_id: &str) -> Result<Option<SharedDriveRow>, DatabaseError> {
-    Ok(list_shared_drives(database)?.into_iter().find(|drive| drive.drive_id == drive_id))
+pub fn get_shared_drive(
+    database: &Database,
+    drive_id: &str,
+) -> Result<Option<SharedDriveRow>, DatabaseError> {
+    Ok(list_shared_drives(database)?
+        .into_iter()
+        .find(|drive| drive.drive_id == drive_id))
 }
 
 pub fn record_shared_drive_scan(
@@ -82,37 +96,51 @@ pub fn record_shared_drive_scan(
         "UPDATE shared_drives SET last_scanned_at = CURRENT_TIMESTAMP, last_error = NULL,
                 files_scanned = ?2, folders_scanned = ?3, permissions_scanned = ?4,
                 bytes_discovered = ?5, deleted_items = ?6 WHERE drive_id = ?1",
-        params![drive_id, summary.files_scanned as i64, summary.folders_scanned as i64,
-                summary.permissions_scanned as i64, summary.bytes_discovered as i64,
-                summary.deleted_items as i64],
+        params![
+            drive_id,
+            summary.files_scanned as i64,
+            summary.folders_scanned as i64,
+            summary.permissions_scanned as i64,
+            summary.bytes_discovered as i64,
+            summary.deleted_items as i64
+        ],
     )?;
     Ok(())
 }
 
-pub fn record_shared_drive_error(database: &Database, drive_id: &str, error: &str) -> Result<(), DatabaseError> {
+pub fn record_shared_drive_error(
+    database: &Database,
+    drive_id: &str,
+    error: &str,
+) -> Result<(), DatabaseError> {
     database.connect()?.execute(
-        "UPDATE shared_drives SET last_error = ?2 WHERE drive_id = ?1", params![drive_id, error],
+        "UPDATE shared_drives SET last_error = ?2 WHERE drive_id = ?1",
+        params![drive_id, error],
     )?;
     Ok(())
 }
 
 pub fn shared_drives_aggregate(database: &Database) -> Result<InventorySummary, DatabaseError> {
     let connection = database.connect()?;
-    connection.query_row(
-        "SELECT COALESCE(SUM(files_scanned), 0), COALESCE(SUM(folders_scanned), 0),
+    connection
+        .query_row(
+            "SELECT COALESCE(SUM(files_scanned), 0), COALESCE(SUM(folders_scanned), 0),
                 COALESCE(SUM(permissions_scanned), 0), COALESCE(SUM(bytes_discovered), 0),
                 COALESCE(SUM(deleted_items), 0)
          FROM shared_drives WHERE is_accessible = 1",
-        [],
-        |row| Ok(InventorySummary {
-            files_scanned: row.get::<_, i64>(0)? as u64,
-            folders_scanned: row.get::<_, i64>(1)? as u64,
-            permissions_scanned: row.get::<_, i64>(2)? as u64,
-            bytes_discovered: row.get::<_, i64>(3)? as u64,
-            deleted_items: row.get::<_, i64>(4)? as u64,
-            completed_at: String::new(),
-        }),
-    ).map_err(Into::into)
+            [],
+            |row| {
+                Ok(InventorySummary {
+                    files_scanned: row.get::<_, i64>(0)? as u64,
+                    folders_scanned: row.get::<_, i64>(1)? as u64,
+                    permissions_scanned: row.get::<_, i64>(2)? as u64,
+                    bytes_discovered: row.get::<_, i64>(3)? as u64,
+                    deleted_items: row.get::<_, i64>(4)? as u64,
+                    completed_at: String::new(),
+                })
+            },
+        )
+        .map_err(Into::into)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -182,9 +210,22 @@ pub fn list_my_drive_directory(
     descending: bool,
 ) -> Result<Vec<DriveExplorerItem>, DatabaseError> {
     list_drive_directory(
-        database, MY_DRIVE_SCOPE, parent_path, search, tag_filter, type_filter,
-        size_filter, modified_filter, owner_filter, exclude_owner, permission_filter,
-        owner_identity_tag_filter, permission_identity_tag_filter, include_deleted, sort, descending,
+        database,
+        MY_DRIVE_SCOPE,
+        parent_path,
+        search,
+        tag_filter,
+        type_filter,
+        size_filter,
+        modified_filter,
+        owner_filter,
+        exclude_owner,
+        permission_filter,
+        owner_identity_tag_filter,
+        permission_identity_tag_filter,
+        include_deleted,
+        sort,
+        descending,
     )
 }
 
@@ -211,14 +252,22 @@ pub fn list_drive_directory(
     let (modified_comparison, modified_value) = parse_modified_filter(modified_filter)?;
     let remote = inventory_scope;
     let sort_expression = match sort {
-        "type" => "CASE WHEN is_directory THEN 'folder' ELSE COALESCE(mime_type, '') END COLLATE NOCASE",
-        "size" => "COALESCE(CASE WHEN is_directory THEN cumulative_size_bytes ELSE size_bytes END, -1)",
+        "type" => {
+            "CASE WHEN is_directory THEN 'folder' ELSE COALESCE(mime_type, '') END COLLATE NOCASE"
+        }
+        "size" => {
+            "COALESCE(CASE WHEN is_directory THEN cumulative_size_bytes ELSE size_bytes END, -1)"
+        }
         "modified" => "COALESCE(modified_at, '')",
         "owner" => "COALESCE(owner_email, '') COLLATE NOCASE",
         _ => "name COLLATE NOCASE",
     };
     let direction = if descending { "DESC" } else { "ASC" };
-    let directory_grouping = if sort == "name" { "is_directory DESC," } else { "" };
+    let directory_grouping = if sort == "name" {
+        "is_directory DESC,"
+    } else {
+        ""
+    };
     let sql = format!(
         "SELECT item_id, name, relative_path, is_directory, mime_type,
                 CASE WHEN is_directory THEN cumulative_size_bytes ELSE size_bytes END,
@@ -306,10 +355,21 @@ pub fn list_drive_directory(
     let mut statement = connection.prepare(&sql)?;
     let rows = statement.query_map(
         params![
-            remote, parent_path, search.trim(), tag_filter, type_filter.trim(),
-            size_comparison, size_bytes, modified_comparison, modified_value,
-            owner_filter.trim(), exclude_owner, permission_filter.trim(), include_deleted,
-            owner_identity_tag_filter, permission_identity_tag_filter,
+            remote,
+            parent_path,
+            search.trim(),
+            tag_filter,
+            type_filter.trim(),
+            size_comparison,
+            size_bytes,
+            modified_comparison,
+            modified_value,
+            owner_filter.trim(),
+            exclude_owner,
+            permission_filter.trim(),
+            include_deleted,
+            owner_identity_tag_filter,
+            permission_identity_tag_filter,
         ],
         |row| {
             let size: Option<i64> = row.get(5)?;
@@ -324,16 +384,33 @@ pub fn list_drive_directory(
                 owner_email: row.get(7)?,
                 owner_known: false,
                 owner_tags: Vec::new(),
-                tags: row.get::<_, Option<String>>(8)?
-                    .map(|tags| tags.split('\u{1f}').filter_map(|tag| {
-                        let (name, color) = tag.split_once('\u{1e}')?;
-                        Some(Tag { slug: String::new(), name: name.to_string(), color: color.to_string() })
-                    }).collect())
+                tags: row
+                    .get::<_, Option<String>>(8)?
+                    .map(|tags| {
+                        tags.split('\u{1f}')
+                            .filter_map(|tag| {
+                                let (name, color) = tag.split_once('\u{1e}')?;
+                                Some(Tag {
+                                    slug: String::new(),
+                                    name: name.to_string(),
+                                    color: color.to_string(),
+                                })
+                            })
+                            .collect()
+                    })
                     .unwrap_or_default(),
-                permissions: row.get::<_, Option<String>>(9)?
-                    .map(|permissions| permissions.split('\u{1f}').map(|label| PermissionIdentity {
-                        label: label.to_string(), known: false, tags: Vec::new(),
-                    }).collect())
+                permissions: row
+                    .get::<_, Option<String>>(9)?
+                    .map(|permissions| {
+                        permissions
+                            .split('\u{1f}')
+                            .map(|label| PermissionIdentity {
+                                label: label.to_string(),
+                                known: false,
+                                tags: Vec::new(),
+                            })
+                            .collect()
+                    })
                     .unwrap_or_default(),
                 is_deleted: row.get(10)?,
             })
@@ -357,10 +434,16 @@ pub fn list_drive_directory(
          JOIN tags t ON t.id = pt.tag_id
          ORDER BY t.name COLLATE NOCASE",
     )?;
-    for row in tag_statement.query_map([], |row| Ok((
-        row.get::<_, String>(0)?,
-        Tag { slug: row.get(1)?, name: row.get(2)?, color: row.get(3)? },
-    )))? {
+    for row in tag_statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            Tag {
+                slug: row.get(1)?,
+                name: row.get(2)?,
+                color: row.get(3)?,
+            },
+        ))
+    })? {
         let (email, tag) = row?;
         identity_tags.entry(email).or_default().push(tag);
     }
@@ -373,10 +456,7 @@ pub fn list_drive_directory(
         for permission in &mut item.permissions {
             let label = permission.label.to_ascii_lowercase();
             permission.known = known_identities.contains(&label);
-            permission.tags = identity_tags
-                .get(&label)
-                .cloned()
-                .unwrap_or_default();
+            permission.tags = identity_tags.get(&label).cloned().unwrap_or_default();
         }
     }
     Ok(items)
@@ -400,9 +480,12 @@ fn parse_size_filter(filter: &str) -> Result<(i64, i64), DatabaseError> {
     if !matches!(filter.chars().next(), Some('>' | '<' | '=')) {
         comparison = 2; // A bare size remains a convenient minimum-size filter.
     }
-    let split = value.find(|character: char| !character.is_ascii_digit() && character != '.')
+    let split = value
+        .find(|character: char| !character.is_ascii_digit() && character != '.')
         .unwrap_or(value.len());
-    let number = value[..split].trim().parse::<f64>()
+    let number = value[..split]
+        .trim()
+        .parse::<f64>()
         .map_err(|_| format!("Invalid size filter '{filter}'. Try >5GB or <=250MB."))?;
     let unit = value[split..].trim().to_ascii_uppercase();
     let multiplier = match unit.as_str() {
@@ -415,7 +498,11 @@ fn parse_size_filter(filter: &str) -> Result<(i64, i64), DatabaseError> {
         "MIB" => 1_048_576_f64,
         "GIB" => 1_073_741_824_f64,
         "TIB" => 1_099_511_627_776_f64,
-        _ => return Err(format!("Unknown size unit in '{filter}'. Use B, KB, MB, GB, or TB.").into()),
+        _ => {
+            return Err(
+                format!("Unknown size unit in '{filter}'. Use B, KB, MB, GB, or TB.").into(),
+            );
+        }
     };
     let bytes = number * multiplier;
     if !bytes.is_finite() || bytes < 0.0 || bytes > i64::MAX as f64 {
@@ -433,9 +520,10 @@ fn parse_modified_filter(filter: &str) -> Result<(i64, String), DatabaseError> {
     let valid = value.len() == 10
         && value.as_bytes()[4] == b'-'
         && value.as_bytes()[7] == b'-'
-        && value.chars().enumerate().all(|(index, character)| {
-            index == 4 || index == 7 || character.is_ascii_digit()
-        });
+        && value
+            .chars()
+            .enumerate()
+            .all(|(index, character)| index == 4 || index == 7 || character.is_ascii_digit());
     if !valid {
         return Err(format!("Invalid modified-date filter '{filter}'. Try >2026-01-01.").into());
     }
@@ -444,22 +532,19 @@ fn parse_modified_filter(filter: &str) -> Result<(i64, String), DatabaseError> {
 
 pub fn list_tags(database: &Database) -> Result<Vec<Tag>, DatabaseError> {
     let connection = database.connect()?;
-    let mut statement = connection.prepare(
-        "SELECT slug, name, color FROM tags ORDER BY name COLLATE NOCASE",
-    )?;
-    let rows = statement.query_map([], |row| Ok(Tag {
-        slug: row.get(0)?,
-        name: row.get(1)?,
-        color: row.get(2)?,
-    }))?;
+    let mut statement =
+        connection.prepare("SELECT slug, name, color FROM tags ORDER BY name COLLATE NOCASE")?;
+    let rows = statement.query_map([], |row| {
+        Ok(Tag {
+            slug: row.get(0)?,
+            name: row.get(1)?,
+            color: row.get(2)?,
+        })
+    })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
-pub fn create_tag(
-    database: &Database,
-    name: &str,
-    color: &str,
-) -> Result<(), DatabaseError> {
+pub fn create_tag(database: &Database, name: &str, color: &str) -> Result<(), DatabaseError> {
     validate_tag(name, color)?;
     let slug = tag_slug(name);
     if slug.is_empty() {
@@ -495,7 +580,8 @@ fn validate_tag(name: &str, color: &str) -> Result<(), DatabaseError> {
     if name.trim().is_empty() || name.trim().len() > 40 {
         return Err("Tag name must be between 1 and 40 characters".into());
     }
-    if color.len() != 7 || !color.starts_with('#')
+    if color.len() != 7
+        || !color.starts_with('#')
         || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
     {
         return Err("Tag color must use #RRGGBB format".into());
@@ -504,14 +590,19 @@ fn validate_tag(name: &str, color: &str) -> Result<(), DatabaseError> {
 }
 
 fn tag_slug(name: &str) -> String {
-    name.trim().to_ascii_lowercase().chars().fold(String::new(), |mut slug, character| {
-        if character.is_ascii_alphanumeric() {
-            slug.push(character);
-        } else if !slug.is_empty() && !slug.ends_with('-') {
-            slug.push('-');
-        }
-        slug
-    }).trim_end_matches('-').to_string()
+    name.trim()
+        .to_ascii_lowercase()
+        .chars()
+        .fold(String::new(), |mut slug, character| {
+            if character.is_ascii_alphanumeric() {
+                slug.push(character);
+            } else if !slug.is_empty() && !slug.ends_with('-') {
+                slug.push('-');
+            }
+            slug
+        })
+        .trim_end_matches('-')
+        .to_string()
 }
 
 #[allow(dead_code)]
@@ -534,11 +625,12 @@ pub fn apply_tag_recursively_for_scope(
     }
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
-    let tag_id: i64 = transaction.query_row(
-        "SELECT id FROM tags WHERE slug = ?1",
-        [tag_slug],
-        |row| row.get(0),
-    ).optional()?.ok_or_else(|| format!("Unknown tag: {tag_slug}"))?;
+    let tag_id: i64 = transaction
+        .query_row("SELECT id FROM tags WHERE slug = ?1", [tag_slug], |row| {
+            row.get(0)
+        })
+        .optional()?
+        .ok_or_else(|| format!("Unknown tag: {tag_slug}"))?;
     let remote = inventory_scope;
     let mut applied = 0;
 
@@ -577,9 +669,12 @@ pub fn remove_tag_recursively_for_scope(
     }
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
-    let tag_id: i64 = transaction.query_row(
-        "SELECT id FROM tags WHERE slug = ?1", [tag_slug], |row| row.get(0),
-    ).optional()?.ok_or_else(|| format!("Unknown tag: {tag_slug}"))?;
+    let tag_id: i64 = transaction
+        .query_row("SELECT id FROM tags WHERE slug = ?1", [tag_slug], |row| {
+            row.get(0)
+        })
+        .optional()?
+        .ok_or_else(|| format!("Unknown tag: {tag_slug}"))?;
     let mut removed = 0;
     for item_id in item_ids {
         removed += transaction.execute(
@@ -608,7 +703,13 @@ pub fn synchronize_my_drive(
     items: &[DriveItem],
     include_permissions: bool,
 ) -> Result<InventorySummary, DatabaseError> {
-    synchronize_drive(database, MY_DRIVE_SCOPE, scan_id, items, include_permissions)
+    synchronize_drive(
+        database,
+        MY_DRIVE_SCOPE,
+        scan_id,
+        items,
+        include_permissions,
+    )
 }
 
 pub fn synchronize_drive(
@@ -661,9 +762,19 @@ pub fn synchronize_drive(
                 is_deleted = 0,
                 deleted_at = NULL",
             params![
-                remote, item.id, item.name, item.path, parent_path,
-                item.is_dir, empty_as_none(&item.mime_type), size,
-                empty_as_none(&item.mod_time), created, owner, metadata_json, scan_id,
+                remote,
+                item.id,
+                item.name,
+                item.path,
+                parent_path,
+                item.is_dir,
+                empty_as_none(&item.mime_type),
+                size,
+                empty_as_none(&item.mod_time),
+                created,
+                owner,
+                metadata_json,
+                scan_id,
             ],
         )?;
 
@@ -676,18 +787,24 @@ pub fn synchronize_drive(
             for permission in permissions(item)? {
                 let key = permission_key(&permission);
                 transaction.execute(
-                "INSERT INTO drive_permissions (
+                    "INSERT INTO drive_permissions (
                     remote_name, item_id, permission_key, permission_id,
                     permission_type, role, email_address, display_name,
                     domain, raw_json, last_seen_scan_id
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                params![
-                    remote, item.id, key,
-                    field(&permission, "id"), field(&permission, "type"),
-                    field(&permission, "role"), field(&permission, "emailAddress"),
-                    field(&permission, "displayName"), field(&permission, "domain"),
-                    permission.to_string(), scan_id,
-                ],
+                    params![
+                        remote,
+                        item.id,
+                        key,
+                        field(&permission, "id"),
+                        field(&permission, "type"),
+                        field(&permission, "role"),
+                        field(&permission, "emailAddress"),
+                        field(&permission, "displayName"),
+                        field(&permission, "domain"),
+                        permission.to_string(),
+                        scan_id,
+                    ],
                 )?;
                 summary.permissions_scanned += 1;
             }
@@ -697,7 +814,9 @@ pub fn synchronize_drive(
             summary.folders_scanned += 1;
         } else {
             summary.files_scanned += 1;
-            summary.bytes_discovered = summary.bytes_discovered.saturating_add(size.unwrap_or(0) as u64);
+            summary.bytes_discovered = summary
+                .bytes_discovered
+                .saturating_add(size.unwrap_or(0) as u64);
             let file_size = size.unwrap_or(0) as u64;
             let mut ancestor = item.path.rsplit_once('/').map(|(parent, _)| parent);
             while let Some(folder_path) = ancestor {
@@ -739,8 +858,11 @@ pub fn synchronize_drive(
             bytes_discovered = ?5, deleted_items = ?6
          WHERE id = ?1",
         params![
-            scan_id, summary.files_scanned as i64, summary.folders_scanned as i64,
-            summary.permissions_scanned as i64, summary.bytes_discovered as i64,
+            scan_id,
+            summary.files_scanned as i64,
+            summary.folders_scanned as i64,
+            summary.permissions_scanned as i64,
+            summary.bytes_discovered as i64,
             summary.deleted_items as i64,
         ],
     )?;
@@ -763,22 +885,27 @@ pub fn latest_summary_for(
     scan_type: &str,
 ) -> Result<Option<InventorySummary>, DatabaseError> {
     let connection = database.connect()?;
-    connection.query_row(
-        "SELECT completed_at, files_scanned, folders_scanned,
+    connection
+        .query_row(
+            "SELECT completed_at, files_scanned, folders_scanned,
                 permissions_scanned, bytes_discovered, deleted_items
          FROM scan_runs
          WHERE scan_type = ?1 AND status = 'complete'
          ORDER BY id DESC LIMIT 1",
-        [scan_type],
-        |row| Ok(InventorySummary {
-            completed_at: row.get(0)?,
-            files_scanned: row.get::<_, i64>(1)? as u64,
-            folders_scanned: row.get::<_, i64>(2)? as u64,
-            permissions_scanned: row.get::<_, i64>(3)? as u64,
-            bytes_discovered: row.get::<_, i64>(4)? as u64,
-            deleted_items: row.get::<_, i64>(5)? as u64,
-        }),
-    ).optional().map_err(Into::into)
+            [scan_type],
+            |row| {
+                Ok(InventorySummary {
+                    completed_at: row.get(0)?,
+                    files_scanned: row.get::<_, i64>(1)? as u64,
+                    folders_scanned: row.get::<_, i64>(2)? as u64,
+                    permissions_scanned: row.get::<_, i64>(3)? as u64,
+                    bytes_discovered: row.get::<_, i64>(4)? as u64,
+                    deleted_items: row.get::<_, i64>(5)? as u64,
+                })
+            },
+        )
+        .optional()
+        .map_err(Into::into)
 }
 
 pub fn scan_timing_estimate(
@@ -812,18 +939,27 @@ pub fn scan_timing_estimate(
              ORDER BY id DESC LIMIT 5
          )",
         [scan_type],
-        |row| Ok((row.get::<_, f64>(0)?.round() as u64, row.get::<_, i64>(1)? as u64)),
+        |row| {
+            Ok((
+                row.get::<_, f64>(0)?.round() as u64,
+                row.get::<_, i64>(1)? as u64,
+            ))
+        },
     )?;
 
-    Ok((sample_count > 0 && average_seconds > 0).then_some(ScanTimingEstimate {
-        elapsed_seconds,
-        average_seconds,
-        sample_count,
-    }))
+    Ok(
+        (sample_count > 0 && average_seconds > 0).then_some(ScanTimingEstimate {
+            elapsed_seconds,
+            average_seconds,
+            sample_count,
+        }),
+    )
 }
 
 fn permissions(item: &DriveItem) -> Result<Vec<Value>, DatabaseError> {
-    let Some(raw) = item.metadata.get("permissions") else { return Ok(Vec::new()); };
+    let Some(raw) = item.metadata.get("permissions") else {
+        return Ok(Vec::new());
+    };
     let value: Value = serde_json::from_str(raw)
         .map_err(|error| format!("Invalid permissions metadata in the rclone response: {error}"))?;
     Ok(match value {
@@ -838,8 +974,11 @@ fn field<'a>(value: &'a Value, name: &str) -> Option<&'a str> {
 }
 
 fn permission_key(value: &Value) -> String {
-    if let Some(id) = field(value, "id") { return format!("id:{id}"); }
-    ["type", "role", "emailAddress", "domain"].iter()
+    if let Some(id) = field(value, "id") {
+        return format!("id:{id}");
+    }
+    ["type", "role", "emailAddress", "domain"]
+        .iter()
         .filter_map(|name| field(value, name).map(|part| format!("{name}:{part}")))
         .collect::<Vec<_>>()
         .join("|")
@@ -847,9 +986,15 @@ fn permission_key(value: &Value) -> String {
         .unwrap_or_else(|| value.to_string())
 }
 
-trait Nonempty { fn pipe_nonempty(self) -> Option<Self> where Self: Sized; }
+trait Nonempty {
+    fn pipe_nonempty(self) -> Option<Self>
+    where
+        Self: Sized;
+}
 impl Nonempty for String {
-    fn pipe_nonempty(self) -> Option<Self> { if self.is_empty() { None } else { Some(self) } }
+    fn pipe_nonempty(self) -> Option<Self> {
+        if self.is_empty() { None } else { Some(self) }
+    }
 }
 
 fn empty_as_none(value: &str) -> Option<&str> {

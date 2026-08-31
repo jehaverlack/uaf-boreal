@@ -1,19 +1,10 @@
-use std::{
-    path::Path,
-};
+use std::path::Path;
 
 use serde_json::Value;
 
-use crate::{
-    bootstrap::Runtime,
-    google::client::GoogleClientConfig,
-};
+use crate::{bootstrap::Runtime, google::client::GoogleClientConfig};
 
-use super::{
-    command,
-    config,
-    RcloneError,
-};
+use super::{RcloneError, command, config};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemoteKind {
@@ -174,15 +165,13 @@ pub fn configure(
             "Rclone could not configure {}: {}",
             kind.label(),
             stderr.trim()
-        ).into());
+        )
+        .into());
     }
 
     match inspect(runtime, executable, client, kind)? {
         DetectedRemote::Ready => Ok(()),
-        _ => Err(format!(
-            "Rclone finished without a usable {} remote",
-            kind.label()
-        ).into()),
+        _ => Err(format!("Rclone finished without a usable {} remote", kind.label()).into()),
     }
 }
 
@@ -227,7 +216,6 @@ fn classify_remote(
     client: &GoogleClientConfig,
     kind: RemoteKind,
 ) -> Result<DetectedRemote, RcloneError> {
-
     check_value(remote, "type", "drive", kind)?;
     check_value(remote, "scope", kind.scope(), kind)?;
     check_value(remote, "client_id", &client.client_id, kind)?;
@@ -251,17 +239,15 @@ fn check_value(
         Err(format!(
             "Remote '{}' has {key}='{actual}', expected '{expected}'",
             kind.name()
-        ).into())
+        )
+        .into())
     }
 }
 
 #[cfg(unix)]
 fn protect_config(path: &Path) -> Result<(), RcloneError> {
     use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(
-        path,
-        std::fs::Permissions::from_mode(0o600),
-    )?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     Ok(())
 }
 
