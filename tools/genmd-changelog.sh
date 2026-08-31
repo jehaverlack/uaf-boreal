@@ -14,11 +14,11 @@ echo "Generating ${OUT_FILE}"
 # Load metadata for header
 # -------------------------------------------------
 NAME=$(jq -r '.METADATA.description' metadata.json)
+PROJECT_NAME=$(jq -r '.METADATA.name' metadata.json)
 ABBR=$(jq -r '.METADATA.abbr' metadata.json)
 VERSION=$(jq -r '.METADATA.version' metadata.json)
 DATE=$(jq -r '.METADATA.version_date' metadata.json)
 AUTHOR=$(jq -r '.METADATA.author' metadata.json)
-COPYRIGHT=$(jq -r '.METADATA.copyright' metadata.json)
 LICENSE=$(jq -r '.METADATA.license' metadata.json)
 
 # -------------------------------------------------
@@ -47,8 +47,8 @@ find_merge() {
   echo ""
   echo "| Attribute | Value |"
   echo "| --- | --- |"
+  echo "| **Name** | ${PROJECT_NAME} |"
   echo "| **Author** | ${AUTHOR} |"
-  echo "| **Copyright** | ${COPYRIGHT} |"
   echo "| **License** | ${LICENSE} |"
   echo "| **Version** | ${VERSION} |"
   echo "| **Date** | ${DATE} |"

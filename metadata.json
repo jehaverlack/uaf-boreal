@@ -31,7 +31,6 @@
       "**Version**": "version",
       "**Date**": "version_date",
       "**Author**": "author",
-      "**Copyright**": "copyright",
       "**License**": "license",
       "**Homepage**": "homepage"
     }
