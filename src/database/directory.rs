@@ -276,11 +276,14 @@ pub fn apply_principal_tag(
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
     let tag_id: i64 = transaction
-        .query_row("SELECT id FROM tags WHERE slug = ?1", [tag_slug], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT t.id FROM tags t JOIN tag_scopes s ON s.tag_id = t.id
+             WHERE t.slug = ?1 AND s.scope = 'directory'",
+            [tag_slug],
+            |row| row.get(0),
+        )
         .optional()?
-        .ok_or_else(|| format!("Unknown tag: {tag_slug}"))?;
+        .ok_or_else(|| format!("Tag '{tag_slug}' is not available for Directory"))?;
     let mut applied = 0;
     for principal_id in principal_ids {
         applied += transaction.execute(

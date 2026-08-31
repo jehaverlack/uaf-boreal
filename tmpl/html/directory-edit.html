@@ -2,7 +2,7 @@
 
 {% block content %}
 
-<div class="mb-3"><a href="/directory" class="text-decoration-none"><i class="bi bi-arrow-left me-1"></i>Directory</a></div>
+<div class="mb-3"><a href="/directory" class="text-decoration-none"><i class="bi bi-arrow-left me-1"></i>Persons</a></div>
 
 <div class="row justify-content-center">
     <div class="col-xl-8">
@@ -45,7 +45,7 @@
             </div>
         </section>
         {% else %}
-        <div class="alert alert-light border mb-3"><i class="bi bi-tags me-2"></i>Save this directory entry before assigning identity tags.</div>
+        <div class="alert alert-light border mb-3"><i class="bi bi-tags me-2"></i>Save this person before assigning identity tags.</div>
         {% endif %}
 
         <form method="post" action="{{ action }}" class="card">

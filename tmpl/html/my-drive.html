@@ -60,7 +60,7 @@
         <label class="visually-hidden" for="my-drive-owner-identity-tag-filter">Filter by owner identity tag</label>
         <select id="my-drive-owner-identity-tag-filter" class="form-select form-select-sm" name="owner_identity_tag">
             <option value="">Any owner identity tag</option>
-            {% for tag in tags %}
+            {% for tag in directory_tags %}
             <option value="{{ tag.slug }}" {% if owner_identity_tag_filter == tag.slug %}selected{% endif %}>Owner: {{ tag.name }}</option>
             {% endfor %}
         </select>
@@ -69,7 +69,7 @@
         <label class="visually-hidden" for="my-drive-permission-identity-tag-filter">Filter by permission identity tag</label>
         <select id="my-drive-permission-identity-tag-filter" class="form-select form-select-sm" name="permission_identity_tag">
             <option value="">Any permission identity tag</option>
-            {% for tag in tags %}
+            {% for tag in directory_tags %}
             <option value="{{ tag.slug }}" {% if permission_identity_tag_filter == tag.slug %}selected{% endif %}>Shared with: {{ tag.name }}</option>
             {% endfor %}
         </select>
@@ -195,7 +195,7 @@
                     <td class="text-nowrap small">{{ row.modified_at }}</td>
                     <td class="small">
                         {% if row.owner.directory_url.len() > 0 %}<a href="{{ row.owner.directory_url }}" class="badge rounded-pill boreal-unknown-identity text-decoration-none"
-                              title="{{ row.owner.label }} — {{ row.owner.tag_details }}. Click to add to the directory"><i class="bi bi-person-question me-1" aria-hidden="true"></i>{{ row.owner.label }}</a>{% else %}
+                              title="{{ row.owner.label }} — {{ row.owner.tag_details }}. Click to add to Persons"><i class="bi bi-person-question me-1" aria-hidden="true"></i>{{ row.owner.label }}</a>{% else %}
                         <span class="badge rounded-pill {% if row.owner.unknown %}boreal-unknown-identity{% else if !row.owner.tagged %}text-bg-light border text-body{% endif %}"
                               {% if row.owner.tagged %}style="background-color: {{ row.owner.color }}; color: {{ row.owner.text_color }}"{% endif %}
                               title="{{ row.owner.label }} — {{ row.owner.tag_details }}">{% if row.owner.unknown %}<i class="bi bi-person-question me-1" aria-hidden="true"></i>{% endif %}{{ row.owner.label }}</span>
@@ -206,7 +206,7 @@
                         <div class="d-flex flex-wrap gap-1">
                             {% for permission in row.permissions %}
                             {% if permission.directory_url.len() > 0 %}<a href="{{ permission.directory_url }}" class="badge rounded-pill boreal-unknown-identity text-decoration-none"
-                                  title="{{ permission.label }} — {{ permission.tag_details }}. Click to add to the directory"><i class="bi bi-person-question me-1" aria-hidden="true"></i>{{ permission.label }}</a>{% else %}
+                                  title="{{ permission.label }} — {{ permission.tag_details }}. Click to add to Persons"><i class="bi bi-person-question me-1" aria-hidden="true"></i>{{ permission.label }}</a>{% else %}
                             <span class="badge rounded-pill {% if permission.unknown %}boreal-unknown-identity{% else if !permission.tagged %}text-bg-light border text-body{% endif %}"
                                   {% if permission.tagged %}style="background-color: {{ permission.color }}; color: {{ permission.text_color }}"{% endif %}
                                   title="{{ permission.label }} — {{ permission.tag_details }}">{% if permission.unknown %}<i class="bi bi-person-question me-1" aria-hidden="true"></i>{% endif %}{{ permission.label }}</span>

@@ -266,6 +266,7 @@ struct MyDriveTemplate {
     owner_sort_url: String,
     clear_search_url: String,
     tags: Vec<database::inventory::Tag>,
+    directory_tags: Vec<database::inventory::Tag>,
     tag_filter: String,
     tagged_count: usize,
     untagged_count: usize,
@@ -635,6 +636,14 @@ struct TagForm {
     slug: String,
     name: String,
     color: String,
+    #[serde(default)]
+    directory: Option<String>,
+    #[serde(default)]
+    my_drive: Option<String>,
+    #[serde(default)]
+    shared_drives: Option<String>,
+    #[serde(default)]
+    shared_with_me: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -1609,8 +1618,11 @@ async fn shared_drives_page(
                 }
             })
             .collect();
-        let tags = database::inventory::list_tags(&database)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let tags = database::inventory::list_tags_for_scope(
+            &database,
+            database::inventory::TagScope::SharedDrives,
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let rclone_state = state.rclone_state();
         let google_client_state = state.google_client_state();
         let google_remotes_state = state.google_remotes_state();
@@ -1855,10 +1867,17 @@ fn render_drive_explorer(
         .rsplit_once('/')
         .map(|(parent, _)| parent.to_string())
         .unwrap_or_default();
-    let tags = database::inventory::list_tags(&database).map_err(|error| {
+    let tag_scope = database::inventory::TagScope::for_inventory(inventory_scope)
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let tags = database::inventory::list_tags_for_scope(&database, tag_scope).map_err(|error| {
         eprintln!("Unable to load My Drive tags: {error}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+    let directory_tags = database::inventory::list_tags_for_scope(
+        &database,
+        database::inventory::TagScope::Directory,
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let template = MyDriveTemplate {
         title: heading.to_string(),
@@ -1911,6 +1930,7 @@ fn render_drive_explorer(
             false,
         ),
         tags,
+        directory_tags,
         tag_filter: query.tag,
         tagged_count: query.tagged,
         untagged_count: query.untagged,
@@ -1955,7 +1975,7 @@ fn identity_display(
             .map(|tag| tag_text_color(&tag.color))
             .unwrap_or("#212529"),
         tag_details: if unknown {
-            "Unknown identity — not found in the BOREAL directory".to_string()
+            "Unknown identity — not found in BOREAL Persons".to_string()
         } else if tags.is_empty() {
             "No identity tags".to_string()
         } else {
@@ -2349,14 +2369,17 @@ async fn directory_page(
             log::error!("Unable to load authenticated accounts: {error}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-    let tags =
-        database::inventory::list_tags(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tags = database::inventory::list_tags_for_scope(
+        &database,
+        database::inventory::TagScope::Directory,
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
     let metadata_state = state.metadata_state();
     render_template(&DirectoryTemplate {
-        title: "Directory - BOREAL",
+        title: "Persons - BOREAL",
         active_page: "directory",
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
@@ -2617,8 +2640,11 @@ fn render_principal_editor(
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let principal_types = database::directory::list_principal_types(&database)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let tags =
-        database::inventory::list_tags(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tags = database::inventory::list_tags_for_scope(
+        &database,
+        database::inventory::TagScope::Directory,
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let principal_tags = if principal_id > 0 {
         database::directory::get_principal(&database, principal_id)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -2629,9 +2655,9 @@ fn render_principal_editor(
     };
     render_template(&DirectoryEditTemplate {
         title: if is_new {
-            "New Directory Entry - BOREAL".to_string()
+            "New Person - BOREAL".to_string()
         } else {
-            "Edit Directory Entry - BOREAL".to_string()
+            "Edit Person - BOREAL".to_string()
         },
         active_page: "directory",
         alerts: build_alerts(&rclone_state, &google_client_state),
@@ -2644,11 +2670,7 @@ fn render_principal_editor(
             authenticated_google_email(state),
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
-        heading: if is_new {
-            "Add directory entry"
-        } else {
-            "Edit directory entry"
-        },
+        heading: if is_new { "Add person" } else { "Edit person" },
         action: if is_new {
             "/directory/new".to_string()
         } else {
@@ -2735,14 +2757,17 @@ async fn principal_page(
             log::error!("Unable to load principal Drive associations: {error}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-    let tags =
-        database::inventory::list_tags(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tags = database::inventory::list_tags_for_scope(
+        &database,
+        database::inventory::TagScope::Directory,
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
     let metadata_state = state.metadata_state();
     render_template(&PrincipalTemplate {
-        title: format!("{} - Directory - BOREAL", principal.display_name),
+        title: format!("{} - Persons - BOREAL", principal.display_name),
         active_page: "directory",
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
@@ -2767,10 +2792,12 @@ async fn create_tag(
     let database = state
         .database()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    database::inventory::create_tag(&database, &form.name, &form.color).map_err(|error| {
-        eprintln!("Unable to create tag: {error}");
-        StatusCode::BAD_REQUEST
-    })?;
+    let scopes = tag_form_scopes(&form);
+    database::inventory::create_tag_with_scopes(&database, &form.name, &form.color, &scopes)
+        .map_err(|error| {
+            eprintln!("Unable to create tag: {error}");
+            StatusCode::BAD_REQUEST
+        })?;
     println!("Tag created: name={}", form.name.trim());
     Ok(Redirect::to("/tags?saved=true"))
 }
@@ -2782,14 +2809,37 @@ async fn update_tag(
     let database = state
         .database()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    database::inventory::update_tag(&database, &form.slug, &form.name, &form.color).map_err(
-        |error| {
-            eprintln!("Unable to update tag: {error}");
-            StatusCode::BAD_REQUEST
-        },
-    )?;
+    let scopes = tag_form_scopes(&form);
+    database::inventory::update_tag_with_scopes(
+        &database,
+        &form.slug,
+        &form.name,
+        &form.color,
+        &scopes,
+    )
+    .map_err(|error| {
+        eprintln!("Unable to update tag: {error}");
+        StatusCode::BAD_REQUEST
+    })?;
     println!("Tag updated: slug={}", form.slug);
     Ok(Redirect::to("/tags?saved=true"))
+}
+
+fn tag_form_scopes(form: &TagForm) -> Vec<database::inventory::TagScope> {
+    let mut scopes = Vec::new();
+    if form.directory.is_some() {
+        scopes.push(database::inventory::TagScope::Directory);
+    }
+    if form.my_drive.is_some() {
+        scopes.push(database::inventory::TagScope::MyDrive);
+    }
+    if form.shared_drives.is_some() {
+        scopes.push(database::inventory::TagScope::SharedDrives);
+    }
+    if form.shared_with_me.is_some() {
+        scopes.push(database::inventory::TagScope::SharedWithMe);
+    }
+    scopes
 }
 
 fn tag_text_color(color: &str) -> &'static str {
@@ -3052,7 +3102,7 @@ fn metadata_scope_progress_views(
             "shared-with-me",
             shared_with_me,
         ),
-        ("Directory Info", selection.directory_info, "", directory),
+        ("Persons", selection.directory_info, "", directory),
     ]
     .into_iter()
     .map(
