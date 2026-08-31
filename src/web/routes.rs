@@ -291,11 +291,11 @@ pub struct SharedDriveView {
     pub drive_id: String,
     pub name: String,
     pub is_accessible: bool,
-    pub last_scanned_at: String,
     pub last_error: String,
     pub files: u64,
     pub folders: u64,
-    pub permissions: u64,
+    pub permissions_count: u64,
+    pub permission_identities: Vec<String>,
     pub size_label: String,
     pub tags: Vec<TagPill>,
 }
@@ -320,9 +320,8 @@ struct SharedDrivesTemplate {
     folders_filter: String,
     size_filter: String,
     permissions_filter: String,
-    indexed_filter: String,
-    status_filter: String,
     error: String,
+    summary: ExplorerSummary,
 }
 
 #[allow(dead_code)]
@@ -540,10 +539,6 @@ struct DrivePathQuery {
     folders_filter: String,
     #[serde(default)]
     permissions_count_filter: String,
-    #[serde(default)]
-    indexed_filter: String,
-    #[serde(default)]
-    status_filter: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -588,10 +583,6 @@ struct SharedDriveTagForm {
     size_filter: String,
     #[serde(default)]
     permissions_filter: String,
-    #[serde(default)]
-    indexed_filter: String,
-    #[serde(default)]
-    status_filter: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -1484,8 +1475,6 @@ async fn shared_drives_page(
             &query.folders_filter,
             &query.size_filter,
             &query.permissions_count_filter,
-            &query.indexed_filter,
-            &query.status_filter,
         ) {
             Ok(drives) => (drives, String::new()),
             Err(error) => (Vec::new(), error.to_string()),
@@ -1494,18 +1483,42 @@ async fn shared_drives_page(
             .iter()
             .filter(|drive| !drive.is_accessible)
             .count();
-        let drives = all_drives
+        let filtered_drives = all_drives
             .into_iter()
             .filter(|drive| query.show_inaccessible || drive.is_accessible)
+            .collect::<Vec<_>>();
+        let summary_size = filtered_drives
+            .iter()
+            .map(|drive| drive.bytes_discovered)
+            .sum::<u64>();
+        let summary = ExplorerSummary {
+            items: filtered_drives.len(),
+            files: filtered_drives
+                .iter()
+                .map(|drive| drive.files_scanned as usize)
+                .sum(),
+            folders: filtered_drives
+                .iter()
+                .map(|drive| drive.folders_scanned as usize)
+                .sum(),
+            size_bytes: summary_size,
+            size_label: format_bytes(summary_size),
+            permissions: filtered_drives
+                .iter()
+                .map(|drive| drive.permissions_scanned as usize)
+                .sum(),
+        };
+        let drives = filtered_drives
+            .into_iter()
             .map(|drive| SharedDriveView {
                 drive_id: drive.drive_id,
                 name: drive.name,
                 is_accessible: drive.is_accessible,
-                last_scanned_at: drive.last_scanned_at,
                 last_error: drive.last_error,
                 files: drive.files_scanned,
                 folders: drive.folders_scanned,
-                permissions: drive.permissions_scanned,
+                permissions_count: drive.permissions_scanned,
+                permission_identities: drive.permission_identities,
                 size_label: format_bytes(drive.bytes_discovered),
                 tags: drive
                     .tags
@@ -1549,9 +1562,8 @@ async fn shared_drives_page(
             folders_filter: query.folders_filter,
             size_filter: query.size_filter,
             permissions_filter: query.permissions_count_filter,
-            indexed_filter: query.indexed_filter,
-            status_filter: query.status_filter,
             error,
+            summary,
         });
     }
     let drive = database::inventory::get_shared_drive(&database, &query.drive)
@@ -2020,7 +2032,7 @@ fn change_shared_drive_list_tag(
         drive_ids.len(),
     );
     let url = format!(
-        "/shared-drives?q={}&tag={}&show_inaccessible={}&files_filter={}&folders_filter={}&size_filter={}&permissions_count_filter={}&indexed_filter={}&status_filter={}&{}={changed}",
+        "/shared-drives?q={}&tag={}&show_inaccessible={}&files_filter={}&folders_filter={}&size_filter={}&permissions_count_filter={}&{}={changed}",
         encode_query_value(&form.q),
         encode_query_value(&form.tag_filter),
         form.show_inaccessible,
@@ -2028,8 +2040,6 @@ fn change_shared_drive_list_tag(
         encode_query_value(&form.folders_filter),
         encode_query_value(&form.size_filter),
         encode_query_value(&form.permissions_filter),
-        encode_query_value(&form.indexed_filter),
-        encode_query_value(&form.status_filter),
         if remove { "untagged" } else { "tagged" },
     );
     Ok(Redirect::to(&url))

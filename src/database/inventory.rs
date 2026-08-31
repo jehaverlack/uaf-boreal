@@ -17,13 +17,13 @@ pub struct SharedDriveRow {
     pub name: String,
     pub inventory_scope: String,
     pub is_accessible: bool,
-    pub last_scanned_at: String,
     pub last_error: String,
     pub files_scanned: u64,
     pub folders_scanned: u64,
     pub permissions_scanned: u64,
     pub bytes_discovered: u64,
     pub tags: Vec<Tag>,
+    pub permission_identities: Vec<String>,
 }
 
 pub fn shared_drive_scope(drive_id: &str) -> String {
@@ -52,7 +52,7 @@ pub fn reconcile_shared_drives(
 }
 
 pub fn list_shared_drives(database: &Database) -> Result<Vec<SharedDriveRow>, DatabaseError> {
-    list_shared_drives_filtered(database, "", "", "", "", "", "", "", "")
+    list_shared_drives_filtered(database, "", "", "", "", "", "")
 }
 
 pub fn list_shared_drives_filtered(
@@ -63,22 +63,28 @@ pub fn list_shared_drives_filtered(
     folders_filter: &str,
     size_filter: &str,
     permissions_filter: &str,
-    indexed_filter: &str,
-    status_filter: &str,
 ) -> Result<Vec<SharedDriveRow>, DatabaseError> {
     let (files_comparison, files_value) = parse_count_filter(files_filter)?;
     let (folders_comparison, folders_value) = parse_count_filter(folders_filter)?;
     let (size_comparison, size_value) = parse_size_filter(size_filter)?;
     let (permissions_comparison, permissions_value) = parse_count_filter(permissions_filter)?;
-    let (indexed_comparison, indexed_value) = parse_modified_filter(indexed_filter)?;
     let connection = database.connect()?;
     let mut statement = connection.prepare(
         "SELECT sd.drive_id, sd.name, sd.inventory_scope, sd.is_accessible,
-                COALESCE(last_scanned_at, ''), COALESCE(last_error, ''),
+                COALESCE(last_error, ''),
                 files_scanned, folders_scanned, permissions_scanned, bytes_discovered,
                 (SELECT group_concat(t.slug || char(30) || t.name || char(30) || t.color, char(31))
                  FROM shared_drive_tags sdt JOIN tags t ON t.id = sdt.tag_id
-                 WHERE sdt.drive_id = sd.drive_id)
+                 WHERE sdt.drive_id = sd.drive_id),
+                (SELECT group_concat(label, char(31)) FROM (
+                    SELECT DISTINCT COALESCE(
+                        NULLIF(p.email_address, ''), NULLIF(p.domain, ''),
+                        NULLIF(p.display_name, ''), NULLIF(p.permission_type, ''), 'Unknown'
+                    ) AS label
+                    FROM drive_permissions p
+                    WHERE p.remote_name = sd.inventory_scope
+                    ORDER BY label COLLATE NOCASE
+                ))
          FROM shared_drives sd
          WHERE (?1 = '' OR instr(lower(sd.name), lower(?1)) > 0
                     OR instr(lower(sd.drive_id), lower(?1)) > 0)
@@ -95,16 +101,6 @@ pub fn list_shared_drives_filtered(
                 OR (?7 = 3 AND bytes_discovered < ?8) OR (?7 = 4 AND bytes_discovered <= ?8) OR (?7 = 5 AND bytes_discovered = ?8))
            AND (?9 = 0 OR (?9 = 1 AND permissions_scanned > ?10) OR (?9 = 2 AND permissions_scanned >= ?10)
                 OR (?9 = 3 AND permissions_scanned < ?10) OR (?9 = 4 AND permissions_scanned <= ?10) OR (?9 = 5 AND permissions_scanned = ?10))
-           AND (?11 = 0 OR (?11 = 1 AND substr(COALESCE(last_scanned_at, ''), 1, 10) > ?12)
-                OR (?11 = 2 AND substr(COALESCE(last_scanned_at, ''), 1, 10) >= ?12)
-                OR (?11 = 3 AND substr(COALESCE(last_scanned_at, ''), 1, 10) < ?12)
-                OR (?11 = 4 AND substr(COALESCE(last_scanned_at, ''), 1, 10) <= ?12)
-                OR (?11 = 5 AND substr(COALESCE(last_scanned_at, ''), 1, length(?12)) = ?12))
-           AND (?13 = '' OR instr(lower(CASE
-                WHEN is_accessible = 0 THEN 'not accessible'
-                WHEN COALESCE(last_error, '') <> '' THEN 'scan failed'
-                WHEN COALESCE(last_scanned_at, '') <> '' THEN 'indexed'
-                ELSE 'discovered' END), lower(?13)) > 0)
          ORDER BY is_accessible DESC, name COLLATE NOCASE, drive_id",
     )?;
     statement
@@ -120,9 +116,6 @@ pub fn list_shared_drives_filtered(
                 size_value,
                 permissions_comparison,
                 permissions_value,
-                indexed_comparison,
-                indexed_value,
-                status_filter.trim(),
             ],
             |row| {
                 Ok(SharedDriveRow {
@@ -130,14 +123,13 @@ pub fn list_shared_drives_filtered(
                     name: row.get(1)?,
                     inventory_scope: row.get(2)?,
                     is_accessible: row.get(3)?,
-                    last_scanned_at: row.get(4)?,
-                    last_error: row.get(5)?,
-                    files_scanned: row.get::<_, i64>(6)? as u64,
-                    folders_scanned: row.get::<_, i64>(7)? as u64,
-                    permissions_scanned: row.get::<_, i64>(8)? as u64,
-                    bytes_discovered: row.get::<_, i64>(9)? as u64,
+                    last_error: row.get(4)?,
+                    files_scanned: row.get::<_, i64>(5)? as u64,
+                    folders_scanned: row.get::<_, i64>(6)? as u64,
+                    permissions_scanned: row.get::<_, i64>(7)? as u64,
+                    bytes_discovered: row.get::<_, i64>(8)? as u64,
                     tags: row
-                        .get::<_, Option<String>>(10)?
+                        .get::<_, Option<String>>(9)?
                         .map(|tags| {
                             tags.split('\u{1f}')
                                 .filter_map(|tag| {
@@ -150,6 +142,10 @@ pub fn list_shared_drives_filtered(
                                 })
                                 .collect()
                         })
+                        .unwrap_or_default(),
+                    permission_identities: row
+                        .get::<_, Option<String>>(10)?
+                        .map(|identities| identities.split('\u{1f}').map(str::to_string).collect())
                         .unwrap_or_default(),
                 })
             },
