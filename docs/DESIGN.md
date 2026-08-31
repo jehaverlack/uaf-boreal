@@ -3,7 +3,7 @@
 | **Name** | boreal |
 | **Author** | John Haverlack |
 | **License** | MIT |
-| **Version** | 0.1.0 |
+| **Version** | 0.1.1 |
 | **Maturity** | BETA |
 | **Date** | 2026-08-31 |
 
