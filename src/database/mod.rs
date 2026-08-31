@@ -186,7 +186,17 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 11,);
+        assert_eq!(migration_count, 12,);
+
+        let safe_for_removal_tag: (String, String) = connection
+            .query_row(
+                "SELECT name, color FROM tags WHERE slug = 'safe-for-removal'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("safe-for-removal tag should exist");
+        assert_eq!(safe_for_removal_tag.0, "Safe for removal");
+        assert_eq!(safe_for_removal_tag.1, "#198754");
 
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
