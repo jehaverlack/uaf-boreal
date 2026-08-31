@@ -689,6 +689,60 @@ impl AppState {
                         items.len(),
                         unique_ids.len(),
                     ); }
+                    let my_drive_summary = if selection.my_drive {
+                    worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                        selection,
+                        phase: "Indexing My Drive metadata".to_string(),
+                        files_scanned: files,
+                        folders_scanned: folders,
+                        permissions_scanned: 0,
+                        bytes_discovered: bytes,
+                        errors: 0,
+                    }));
+                    database::inventory::synchronize_my_drive(
+                        &database,
+                        scan_id,
+                        &items,
+                        permission_scanning,
+                    )?
+                    } else { database::inventory::latest_summary(&database)?.unwrap_or_default() };
+                    let shared_items = if selection.shared_with_me {
+                    worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                        selection,
+                        phase: "Fetching Shared with me metadata".to_string(),
+                        files_scanned: my_drive_summary.files_scanned,
+                        folders_scanned: my_drive_summary.folders_scanned,
+                        permissions_scanned: my_drive_summary.permissions_scanned,
+                        bytes_discovered: my_drive_summary.bytes_discovered,
+                        errors: 0,
+                    }));
+                    rclone::inventory::fetch_shared_with_me(
+                        &worker_state.runtime,
+                        &rclone_path,
+                        shared_scan_id,
+                        permission_scanning,
+                    )?
+                    } else { Vec::new() };
+                    let shared_summary = if selection.shared_with_me {
+                    worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                        selection,
+                        phase: "Indexing Shared with me metadata".to_string(),
+                        files_scanned: my_drive_summary.files_scanned,
+                        folders_scanned: my_drive_summary.folders_scanned,
+                        permissions_scanned: my_drive_summary.permissions_scanned,
+                        bytes_discovered: my_drive_summary.bytes_discovered,
+                        errors: 0,
+                    }));
+                    database::inventory::synchronize_drive(
+                        &database,
+                        database::inventory::SHARED_WITH_ME_SCOPE,
+                        shared_scan_id,
+                        &shared_items,
+                        permission_scanning,
+                    )?
+                    } else {
+                        database::inventory::latest_summary_for(&database, "shared-with-me")?.unwrap_or_default()
+                    };
                     let mut shared_drives_summary = database::inventory::InventorySummary::default();
                     if selection.shared_drives {
                     worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
@@ -811,60 +865,6 @@ impl AppState {
                     shared_drives_summary = database::inventory::shared_drives_aggregate(&database)?;
                     database.complete_scan_run(shared_drives_scan_id, &shared_drives_summary)?;
                     }
-                    let shared_items = if selection.shared_with_me {
-                    worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
-                        selection,
-                        phase: "Fetching Shared with me metadata".to_string(),
-                        files_scanned: files,
-                        folders_scanned: folders,
-                        permissions_scanned: 0,
-                        bytes_discovered: bytes,
-                        errors: 0,
-                    }));
-                    rclone::inventory::fetch_shared_with_me(
-                        &worker_state.runtime,
-                        &rclone_path,
-                        shared_scan_id,
-                        permission_scanning,
-                    )?
-                    } else { Vec::new() };
-                    let my_drive_summary = if selection.my_drive {
-                    worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
-                        selection,
-                        phase: "Saving My Drive metadata".to_string(),
-                        files_scanned: files,
-                        folders_scanned: folders,
-                        permissions_scanned: 0,
-                        bytes_discovered: bytes,
-                        errors: 0,
-                    }));
-                    database::inventory::synchronize_my_drive(
-                        &database,
-                        scan_id,
-                        &items,
-                        permission_scanning,
-                    )?
-                    } else { database::inventory::latest_summary(&database)?.unwrap_or_default() };
-                    let shared_summary = if selection.shared_with_me {
-                    worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
-                        selection,
-                        phase: "Saving Shared with me metadata".to_string(),
-                        files_scanned: my_drive_summary.files_scanned,
-                        folders_scanned: my_drive_summary.folders_scanned,
-                        permissions_scanned: my_drive_summary.permissions_scanned,
-                        bytes_discovered: my_drive_summary.bytes_discovered,
-                        errors: 0,
-                    }));
-                    database::inventory::synchronize_drive(
-                        &database,
-                        database::inventory::SHARED_WITH_ME_SCOPE,
-                        shared_scan_id,
-                        &shared_items,
-                        permission_scanning,
-                    )?
-                    } else {
-                        database::inventory::latest_summary_for(&database, "shared-with-me")?.unwrap_or_default()
-                    };
                     Ok::<_, crate::database::DatabaseError>((my_drive_summary, shared_drives_summary, shared_summary))
                 }).await;
 
