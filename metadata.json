@@ -7,7 +7,7 @@
     "icon": "fa-solid fa-cloud-bolt",
     "version": "0.0.2",
     "version_date": "2026-08-27",
-    "maturity": "ALPHA",
+    "maturity": "BETA",
     "author": "John Haverlack",
     "copyright": "2026 University of Alaska Fairbanks",
     "license": "MIT",
@@ -17,11 +17,11 @@
   },
   "BUILD_TARGETS": {
     "x86_64-unknown-linux-gnu": true,
-    "aarch64-unknown-linux-gnu": false,
-    "armv7-unknown-linux-gnueabihf": false,
-    "x86_64-pc-windows-gnu": false,
-    "x86_64-apple-darwin": false,
-    "aarch64-apple-darwin": false
+    "aarch64-unknown-linux-gnu": true,
+    "armv7-unknown-linux-gnueabihf": true,
+    "x86_64-pc-windows-gnu": true,
+    "x86_64-apple-darwin": true,
+    "aarch64-apple-darwin": true
   },
   "META_MAPS": {
     "*.md": {
