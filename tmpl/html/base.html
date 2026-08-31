@@ -148,6 +148,16 @@
         .navbar .boreal-drive-nav:focus {
             color: #146c43 !important;
         }
+
+        .navbar .boreal-person-nav,
+        .navbar .boreal-person-nav.active {
+            color: #0aa2c0 !important;
+        }
+
+        .navbar .boreal-person-nav:hover,
+        .navbar .boreal-person-nav:focus {
+            color: #087990 !important;
+        }
     </style>
 
 </head>
@@ -246,7 +256,7 @@
 
                     <li class="nav-item">
                         <a
-                            class="nav-link{% if active_page == "directory" %} active{% endif %}"
+                            class="nav-link boreal-person-nav{% if active_page == "directory" %} active{% endif %}"
                             {% if active_page == "directory" %}aria-current="page"{% endif %}
                             href="/directory"
                             title="People, groups, organizations, and accounts"

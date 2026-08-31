@@ -45,8 +45,6 @@ pub struct IdentityTag {
 #[derive(Debug, Clone)]
 pub struct OrganizationRow {
     pub name: String,
-    pub primary_domain: String,
-    pub status: String,
     pub members: u64,
 }
 
@@ -517,8 +515,7 @@ pub fn list_principal_associations(
 pub fn list_organizations(database: &Database) -> Result<Vec<OrganizationRow>, DatabaseError> {
     let connection = database.connect()?;
     let mut statement = connection.prepare(
-        "SELECT o.name, COALESCE(o.primary_domain, ''), o.status,
-                COUNT(om.principal_id)
+        "SELECT o.name, COUNT(om.principal_id)
          FROM organizations o
          LEFT JOIN organization_memberships om ON om.organization_id = o.id
          GROUP BY o.id
@@ -527,9 +524,7 @@ pub fn list_organizations(database: &Database) -> Result<Vec<OrganizationRow>, D
     let rows = statement.query_map([], |row| {
         Ok(OrganizationRow {
             name: row.get(0)?,
-            primary_domain: row.get(1)?,
-            status: row.get(2)?,
-            members: row.get::<_, i64>(3)? as u64,
+            members: row.get::<_, i64>(1)? as u64,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)

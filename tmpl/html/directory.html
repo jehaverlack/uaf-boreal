@@ -67,12 +67,12 @@
     </h2>
     <div class="collapse show" id="directory-organizations">
     <div class="card"><div class="table-responsive"><table class="table align-middle mb-0">
-        <thead class="table-light"><tr><th>Name</th><th>Domain</th><th>Status</th><th>Members</th></tr></thead>
+        <thead class="table-light"><tr><th>Name</th><th>Members</th></tr></thead>
         <tbody>
             {% for organization in organizations %}
-            <tr><td>{{ organization.name }}</td><td>{{ organization.primary_domain }}</td><td>{{ organization.status }}</td><td>{{ organization.members }}</td></tr>
+            <tr><td>{{ organization.name }}</td><td>{{ organization.members }}</td></tr>
             {% endfor %}
-            {% if organizations.is_empty() %}<tr><td colspan="4" class="text-body-secondary text-center py-3">No organizations have been imported.</td></tr>{% endif %}
+            {% if organizations.is_empty() %}<tr><td colspan="2" class="text-body-secondary text-center py-3">No organizations have been imported.</td></tr>{% endif %}
         </tbody>
     </table></div></div>
     </div>
