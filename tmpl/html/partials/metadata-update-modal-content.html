@@ -1,0 +1,67 @@
+<div id="metadata-update-modal-content" data-updating="{% if metadata.updating %}true{% else %}false{% endif %}" data-complete="{% if !metadata.updating && metadata.errors == 0 %}true{% else %}false{% endif %}">
+    <div class="modal-header">
+        <h2 class="modal-title fs-5" id="metadataUpdateModalLabel">
+            {% if metadata.updating %}
+            <span class="spinner-border spinner-border-sm text-primary me-2" aria-hidden="true"></span>
+            Metadata update in progress
+            {% else if metadata.errors > 0 %}
+            <i class="bi bi-exclamation-triangle-fill text-danger me-2"></i>Metadata update failed
+            {% else %}
+            <i class="bi bi-database-down me-2"></i>Update metadata inventory?
+            {% endif %}
+        </h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+    </div>
+    <div class="modal-body">
+        {% if metadata.updating %}
+        <p class="text-body-secondary">
+            Large Drives can take several hours to update. Please be patient and keep BOREAL running. You may continue using the application while this completes.
+        </p>
+        <div class="vstack gap-3 mb-3">
+            {% for scope in scopes %}
+            <div class="{% if !scope.selected %}opacity-50{% endif %}">
+                <div class="d-flex justify-content-between align-items-center small mb-1">
+                    <strong>{{ scope.name }}</strong>
+                    <span>{% if scope.active %}<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>{% endif %}{{ scope.status }}</span>
+                </div>
+                <div class="progress" role="progressbar" aria-label="{{ scope.name }} progress" aria-valuenow="{{ scope.percent }}" aria-valuemin="0" aria-valuemax="100">
+                    <div class="progress-bar{% if scope.active %} progress-bar-striped progress-bar-animated{% else if scope.complete %} bg-success{% endif %}" style="width: {{ scope.percent }}%">{% if scope.percent > 0 %}{{ scope.percent }}%{% endif %}</div>
+                </div>
+                {% if scope.selected %}<div class="small text-body-secondary mt-1">{{ scope.elapsed_label }}{% if scope.estimate_label.len() > 0 %} &middot; {{ scope.estimate_label }}{% endif %}</div>{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        <div class="row g-2 small">
+            <div class="col-6"><strong>{{ metadata.progress_files_scanned }}</strong> files scanned</div>
+            <div class="col-6"><strong>{{ metadata.progress_folders_scanned }}</strong> folders scanned</div>
+            <div class="col-6"><strong>{{ metadata.progress_permissions_scanned }}</strong> permissions</div>
+            <div class="col-6"><strong>{{ metadata.progress_size_label }}</strong> discovered</div>
+        </div>
+        {% else if metadata.errors > 0 %}
+        <p class="mb-0 text-danger">{{ metadata.phase }}</p>
+        {% else %}
+        <p class="mb-2">Select one or more metadata sources. Unselected inventories retain their existing data and timestamps.</p>
+        <div class="list-group mb-3">
+            <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="my_drive" value="true" checked>My Drive</label>
+            <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="shared_drives" value="true" checked>Shared Drives</label>
+            <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="shared_with_me" value="true" checked>Shared with me</label>
+            <label class="list-group-item{% if !directory_available %} text-body-secondary{% endif %}"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="directory_info" value="true" {% if directory_available %}checked{% else %}disabled{% endif %}>Directory Info {% if !directory_available %}<span class="small">— configure a spreadsheet URL in Settings</span>{% endif %}</label>
+        </div>
+        <p class="mb-0">Large inventories can take several hours to update. Keep BOREAL running until the update completes.</p>
+        {% endif %}
+    </div>
+    <div class="modal-footer">
+        {% if metadata.updating %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Continue in background</button>
+        {% else if metadata.errors > 0 %}
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        {% else %}
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <form id="metadata-update-form" method="post" action="/metadata/update">
+            <button type="submit" class="btn btn-primary" {% if !metadata.available %}disabled{% endif %}>
+                <i class="bi bi-play-circle me-1"></i>Start update
+            </button>
+        </form>
+        {% endif %}
+    </div>
+</div>

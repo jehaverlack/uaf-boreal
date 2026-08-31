@@ -1,0 +1,59 @@
+{% if alerts.len() > 0 %}
+
+<div
+    id="boreal-alerts"
+    class="border-bottom bg-body-secondary"
+    {% if poll_rclone %}
+    hx-get="/ui/alerts"
+    hx-trigger="every 1s"
+    hx-swap="outerHTML"
+    {% endif %}
+>
+
+    <div
+        class="container-fluid py-2 d-flex align-items-center flex-wrap gap-2"
+    >
+
+        <span
+            class="small fw-semibold text-body me-1"
+        >
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            Alerts
+        </span>
+
+        {% for alert in alerts %}
+
+        {% if alert.modal_target.len() > 0 %}
+
+        <button
+            type="button"
+            class="badge text-bg-{{ alert.level }} border-0 d-inline-flex align-items-center"
+            data-bs-toggle="modal"
+            data-bs-target="#{{ alert.modal_target }}"
+        >
+            <i class="bi {{ alert.icon }} me-1"></i>
+            {{ alert.message }}
+        </button>
+
+        {% else %}
+
+        <span
+            class="badge text-bg-{{ alert.level }} d-inline-flex align-items-center"
+        >
+            <i class="bi {{ alert.icon }} me-1"></i>
+            {{ alert.message }}
+        </span>
+
+        {% endif %}
+
+        {% endfor %}
+
+    </div>
+
+</div>
+
+{% else %}
+
+<div id="boreal-alerts"></div>
+
+{% endif %}

@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="d-flex flex-column h-100 overflow-hidden">
+
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+        <h1 class="h3 mb-1"><i class="bi bi-folder2-open text-primary me-2"></i>{{ heading }}</h1>
+        <p class="text-body-secondary mb-0">{{ description }}</p>
+    </div>
+    <div class="d-flex gap-2">
+        {% if drive_id.len() > 0 %}<a class="btn btn-sm btn-outline-secondary" href="/shared-drives"><i class="bi bi-arrow-left me-1"></i>All Shared Drives</a>{% endif %}
+        <a class="btn btn-sm btn-outline-primary" href="{{ explorer_path }}"><i class="bi bi-house-door me-1"></i>{{ root_label }} root</a>
+    </div>
+</div>
+
+{% if error.len() > 0 %}
+<div class="alert alert-danger" role="alert"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>
+{% endif %}
+
+<div class="d-flex align-items-center gap-2 mb-3">
+    {% if has_parent %}
+    <form method="get" action="{{ explorer_path }}">
+        <input type="hidden" name="drive" value="{{ drive_id }}">
+        <input type="hidden" name="path" value="{{ parent_path }}">
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="direction" value="{{ direction }}">
+        <input type="hidden" name="tag" value="{{ tag_filter }}">
+        <input type="hidden" name="type_filter" value="{{ type_filter }}">
+        <input type="hidden" name="size_filter" value="{{ size_filter }}">
+        <input type="hidden" name="modified_filter" value="{{ modified_filter }}">
+        <input type="hidden" name="owner_filter" value="{{ owner_filter }}">
+        <input type="hidden" name="permission_filter" value="{{ permission_filter }}">
+        <input type="hidden" name="owner_identity_tag" value="{{ owner_identity_tag_filter }}">
+        <input type="hidden" name="permission_identity_tag" value="{{ permission_identity_tag_filter }}">
+        <input type="hidden" name="include_deleted" value="{{ include_deleted }}">
+        <button class="btn btn-sm btn-outline-secondary" type="submit" title="Browse parent folder"><i class="bi bi-arrow-up"></i></button>
+    </form>
+    {% endif %}
+    <span class="small text-body-secondary">Location:</span>
+    <span class="fw-semibold">{{ current_path }}</span>
+</div>
+
+<form id="my-drive-filter-form" method="get" action="{{ explorer_path }}" class="row g-2 mb-3" role="search">
+    <input type="hidden" name="drive" value="{{ drive_id }}">
+    <input type="hidden" name="path" value="{% if has_parent %}{{ current_path }}{% endif %}">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="direction" value="{{ direction }}">
+    <div class="col-sm-4 col-lg-3">
+        <label class="visually-hidden" for="my-drive-tag-filter">Filter by tag</label>
+        <select id="my-drive-tag-filter" class="form-select form-select-sm" name="tag">
+            <option value="">All tags</option>
+            {% for tag in tags %}
+            <option value="{{ tag.slug }}" {% if tag_filter == tag.slug %}selected{% endif %}>{{ tag.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-sm-4 col-lg-3">
+        <label class="visually-hidden" for="my-drive-owner-identity-tag-filter">Filter by owner identity tag</label>
+        <select id="my-drive-owner-identity-tag-filter" class="form-select form-select-sm" name="owner_identity_tag">
+            <option value="">Any owner identity tag</option>
+            {% for tag in tags %}
+            <option value="{{ tag.slug }}" {% if owner_identity_tag_filter == tag.slug %}selected{% endif %}>Owner: {{ tag.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-sm-4 col-lg-3">
+        <label class="visually-hidden" for="my-drive-permission-identity-tag-filter">Filter by permission identity tag</label>
+        <select id="my-drive-permission-identity-tag-filter" class="form-select form-select-sm" name="permission_identity_tag">
+            <option value="">Any permission identity tag</option>
+            {% for tag in tags %}
+            <option value="{{ tag.slug }}" {% if permission_identity_tag_filter == tag.slug %}selected{% endif %}>Shared with: {{ tag.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-auto"><button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-funnel me-1"></i>Apply filters</button></div>
+    <div class="col-auto"><a class="btn btn-sm btn-outline-secondary" href="{{ clear_search_url }}">Clear filters</a></div>
+    <div class="col-auto form-check align-self-center ms-1">
+        <input class="form-check-input" type="checkbox" id="my-drive-include-deleted" name="include_deleted" value="true" {% if include_deleted %}checked{% endif %}>
+        <label class="form-check-label small" for="my-drive-include-deleted">Include deleted items</label>
+    </div>
+    <div class="col-auto small text-body-secondary align-self-center">Prefix Owner with <code>!</code> to exclude a value.</div>
+</form>
+
+<section class="card mb-3" aria-labelledby="explorer-summary-heading">
+    <div class="card-body py-2">
+        <div class="d-flex flex-wrap align-items-center gap-3 gap-lg-4">
+            <span id="explorer-summary-heading" class="small fw-semibold text-body-secondary">Filtered results</span>
+            <span class="small"><strong id="explorer-summary-items">{{ summary.items }}</strong> items</span>
+            <span class="small"><strong id="explorer-summary-files">{{ summary.files }}</strong> files</span>
+            <span class="small"><strong id="explorer-summary-folders">{{ summary.folders }}</strong> folders</span>
+            <span class="small"><strong id="explorer-summary-size" data-size-bytes="{{ summary.size_bytes }}">{{ summary.size_label }}</strong> total size</span>
+            <span class="small"><strong id="explorer-summary-permissions">{{ summary.permissions }}</strong> permission references</span>
+        </div>
+    </div>
+</section>
+
+{% if tagged_count > 0 %}
+<div class="alert alert-success py-2" role="status">
+    <i class="bi bi-tags-fill me-2"></i>Tag applied to {{ tagged_count }} item(s).
+</div>
+{% endif %}
+{% if untagged_count > 0 %}
+<div class="alert alert-success py-2" role="status">
+    <i class="bi bi-tag me-2"></i>Tag removed from {{ untagged_count }} item(s).
+</div>
+{% endif %}
+
+<form method="post" action="{{ tag_action }}" class="d-flex flex-column flex-grow-1 overflow-hidden">
+    <input type="hidden" name="drive" value="{{ drive_id }}">
+    <input type="hidden" name="path" value="{% if has_parent %}{{ current_path }}{% endif %}">
+    <input type="hidden" name="q" value="{{ search }}">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="direction" value="{{ direction }}">
+    <input type="hidden" name="tag_filter" value="{{ tag_filter }}">
+    <input type="hidden" name="type_filter" value="{{ type_filter }}">
+    <input type="hidden" name="size_filter" value="{{ size_filter }}">
+    <input type="hidden" name="modified_filter" value="{{ modified_filter }}">
+    <input type="hidden" name="owner_filter" value="{{ owner_filter }}">
+    <input type="hidden" name="permission_filter" value="{{ permission_filter }}">
+    <input type="hidden" name="owner_identity_tag_filter" value="{{ owner_identity_tag_filter }}">
+    <input type="hidden" name="permission_identity_tag_filter" value="{{ permission_identity_tag_filter }}">
+    <input type="hidden" name="include_deleted" value="{{ include_deleted }}">
+    <input type="hidden" id="my-drive-selected-item-ids" name="selected_item_ids" value="">
+    <div class="d-flex align-items-center gap-2 mb-2">
+        <label class="small fw-semibold" for="my-drive-apply-tag">Apply tag to selected:</label>
+        <select id="my-drive-apply-tag" class="form-select form-select-sm w-auto" name="tag" required>
+            {% for tag in tags %}<option value="{{ tag.slug }}">{{ tag.name }}</option>{% endfor %}
+        </select>
+        <button id="my-drive-apply-tag-button" class="btn btn-sm btn-outline-primary" type="submit" disabled>
+            <i class="bi bi-tag me-1"></i>Apply
+        </button>
+        <button id="my-drive-remove-tag-button" class="btn btn-sm btn-outline-danger" type="submit" formaction="{{ tag_remove_action }}" disabled>
+            <i class="bi bi-tag-fill me-1"></i>Remove
+        </button>
+        <span id="my-drive-selection-count" class="small text-body-secondary">0 selected</span>
+        <a class="btn btn-sm btn-link ms-auto" href="/tags"><i class="bi bi-gear me-1"></i>Manage tags</a>
+    </div>
+
+<div class="card boreal-explorer-card flex-grow-1 overflow-hidden">
+    <div class="table-responsive boreal-explorer-table">
+        <table class="table table-hover align-middle mb-0">
+            <colgroup>
+                <col class="boreal-col-select">
+                <col class="boreal-col-gdrive">
+                <col class="boreal-col-type">
+                <col class="boreal-col-name">
+                <col class="boreal-col-size">
+                <col class="boreal-col-modified">
+                <col class="boreal-col-owner">
+                <col class="boreal-col-permissions">
+            </colgroup>
+            <thead class="table-light">
+                <tr>
+                    <th scope="col" class="text-center">
+                        <input class="form-check-input" type="checkbox" id="my-drive-select-all" title="Select all visible items" aria-label="Select all visible items">
+                    </th>
+                    <th scope="col" class="text-center">GDrive</th>
+                    <th scope="col"><a class="text-body text-decoration-none d-block text-center" href="{{ type_sort_url }}" title="Sort by type">Type {% if sort == "type" %}<i class="bi {% if direction == "desc" %}bi-sort-down-alt{% else %}bi-sort-down{% endif %}"></i>{% endif %}</a><input class="form-control form-control-sm mt-1" form="my-drive-filter-form" name="type_filter" value="{{ type_filter }}" placeholder="Type" aria-label="Filter by type"></th>
+                    <th scope="col"><a class="text-body text-decoration-none d-block" href="{{ name_sort_url }}">Name {% if sort == "name" %}<i class="bi {% if direction == "desc" %}bi-sort-alpha-down-alt{% else %}bi-sort-alpha-down{% endif %}"></i>{% endif %}</a><input class="form-control form-control-sm mt-1" form="my-drive-filter-form" name="q" value="{{ search }}" placeholder="Search name" aria-label="Filter by name"></th>
+                    <th scope="col"><a class="text-body text-decoration-none d-block" href="{{ size_sort_url }}">Size {% if sort == "size" %}<i class="bi {% if direction == "desc" %}bi-sort-numeric-down-alt{% else %}bi-sort-numeric-down{% endif %}"></i>{% endif %}</a><input class="form-control form-control-sm mt-1" form="my-drive-filter-form" name="size_filter" value="{{ size_filter }}" placeholder=">5GB" aria-label="Filter by size expression" title="Examples: >5GB, <=250MB, =0B"></th>
+                    <th scope="col"><a class="text-body text-decoration-none d-block" href="{{ modified_sort_url }}">Modified {% if sort == "modified" %}<i class="bi {% if direction == "desc" %}bi-sort-down-alt{% else %}bi-sort-down{% endif %}"></i>{% endif %}</a><input class="form-control form-control-sm mt-1" form="my-drive-filter-form" name="modified_filter" value="{{ modified_filter }}" placeholder=">2026-01-01" aria-label="Filter by modified-date expression" title="Examples: >2026-01-01, <=2025-12-31"></th>
+                    <th scope="col"><a class="text-body text-decoration-none d-block" href="{{ owner_sort_url }}">Owner {% if sort == "owner" %}<i class="bi {% if direction == "desc" %}bi-sort-alpha-down-alt{% else %}bi-sort-alpha-down{% endif %}"></i>{% endif %}</a><input class="form-control form-control-sm mt-1" form="my-drive-filter-form" name="owner_filter" value="{{ owner_filter }}" placeholder="Owner or !owner" aria-label="Filter or exclude owner"></th>
+                    <th scope="col"><span class="d-block">Permissions</span><input class="form-control form-control-sm mt-1" form="my-drive-filter-form" name="permission_filter" value="{{ permission_filter }}" placeholder="User or domain" aria-label="Filter permissions"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr class="{% if row.is_deleted %}table-secondary opacity-75{% endif %}" data-is-directory="{% if row.is_directory %}true{% else %}false{% endif %}" data-size-bytes="{{ row.size_bytes }}" data-permission-count="{{ row.permission_count }}">
+                    <td class="text-center">
+                        <input class="form-check-input my-drive-item-select" type="checkbox" value="{{ row.item_id }}" aria-label="Select {{ row.name }}" {% if row.is_deleted %}disabled title="Deleted items cannot be tagged"{% endif %}>
+                    </td>
+                    <td class="text-center">
+                        <a href="{{ row.drive_url }}" target="_blank" rel="noopener noreferrer" title="Open in Google Drive" aria-label="Open {{ row.name }} in Google Drive">
+                            <svg class="boreal-google-drive-icon" viewBox="0 0 87.3 78" aria-hidden="true">
+                                <path fill="#0066da" d="m6.6 66.9 3.8 6.6c.8 1.4 2 2.5 3.4 3.3L27.4 53H.2c0 1.6.4 3.2 1.2 4.6z"/>
+                                <path fill="#00ac47" d="M43.7 25.2 30.1 1.4A10 10 0 0 0 26.6 0L13.8 22.3 27.4 46z"/>
+                                <path fill="#ea4335" d="M73.5 76.8a10 10 0 0 0 3.4-3.3l1.6-2.8 7.5-13.1c.8-1.4 1.2-3 1.2-4.6H59.8l5.8 11.4z"/>
+                                <path fill="#00832d" d="M43.7 25.2 57.3 1.4A10 10 0 0 0 53.8 0H33.6c-2.5 0-4.8.5-7 1.4z"/>
+                                <path fill="#2684fc" d="M59.8 53H27.4L13.8 76.8c1.4.8 3 1.2 4.6 1.2h50.5c1.6 0 3.2-.4 4.6-1.2z"/>
+                                <path fill="#ffba00" d="M73.3 26.7 60.7 4.6a10 10 0 0 0-3.4-3.2L43.7 25.2 59.8 53h27.3c0-1.6-.4-3.2-1.2-4.6z"/>
+                            </svg>
+                        </a>
+                    </td>
+                    <td class="text-center"><i class="bi {{ row.type_icon }} fs-5 text-primary" title="{{ row.mime_type }}" aria-label="{{ row.mime_type }}"></i></td>
+                    <th scope="row" class="boreal-name-cell">
+                        <a href="{{ row.name_url }}" {% if row.name_new_tab %}target="_blank" rel="noopener noreferrer"{% endif %} class="text-decoration-none boreal-name-link" title="{% if row.is_directory %}Browse folder in BOREAL{% else %}Open in Google Drive{% endif %}">
+                            {{ row.name }}
+                        </a>
+                        <span class="boreal-item-tags">{% for tag in row.tags %}<span class="badge rounded-pill ms-1" style="background-color: {{ tag.color }}; color: {{ tag.text_color }};">{{ tag.name }}</span>{% endfor %}</span>
+                        {% if row.is_deleted %}<span class="badge rounded-pill text-bg-secondary ms-1">Deleted</span>{% endif %}
+                    </th>
+                    <td class="text-nowrap">{{ row.size }}</td>
+                    <td class="text-nowrap small">{{ row.modified_at }}</td>
+                    <td class="small">
+                        {% if row.owner.directory_url.len() > 0 %}<a href="{{ row.owner.directory_url }}" class="badge rounded-pill boreal-unknown-identity text-decoration-none"
+                              title="{{ row.owner.label }} — {{ row.owner.tag_details }}. Click to add to the directory"><i class="bi bi-person-question me-1" aria-hidden="true"></i>{{ row.owner.label }}</a>{% else %}
+                        <span class="badge rounded-pill {% if row.owner.unknown %}boreal-unknown-identity{% else if !row.owner.tagged %}text-bg-light border text-body{% endif %}"
+                              {% if row.owner.tagged %}style="background-color: {{ row.owner.color }}; color: {{ row.owner.text_color }}"{% endif %}
+                              title="{{ row.owner.label }} — {{ row.owner.tag_details }}">{% if row.owner.unknown %}<i class="bi bi-person-question me-1" aria-hidden="true"></i>{% endif %}{{ row.owner.label }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="small">
+                        {% if row.permissions.is_empty() %}&mdash;{% else %}
+                        <div class="d-flex flex-wrap gap-1">
+                            {% for permission in row.permissions %}
+                            {% if permission.directory_url.len() > 0 %}<a href="{{ permission.directory_url }}" class="badge rounded-pill boreal-unknown-identity text-decoration-none"
+                                  title="{{ permission.label }} — {{ permission.tag_details }}. Click to add to the directory"><i class="bi bi-person-question me-1" aria-hidden="true"></i>{{ permission.label }}</a>{% else %}
+                            <span class="badge rounded-pill {% if permission.unknown %}boreal-unknown-identity{% else if !permission.tagged %}text-bg-light border text-body{% endif %}"
+                                  {% if permission.tagged %}style="background-color: {{ permission.color }}; color: {{ permission.text_color }}"{% endif %}
+                                  title="{{ permission.label }} — {{ permission.tag_details }}">{% if permission.unknown %}<i class="bi bi-person-question me-1" aria-hidden="true"></i>{% endif %}{{ permission.label }}</span>
+                            {% endif %}
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if rows.is_empty() %}
+                <tr><td colspan="8" class="text-center text-body-secondary py-4">This folder contains no indexed items.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+</form>
+
+</div>
+
+<script>
+    (() => {
+        const selectAll = document.getElementById("my-drive-select-all");
+        const itemCheckboxes = Array.from(
+            document.querySelectorAll(".my-drive-item-select:not(:disabled)"),
+        );
+        const visibleRows = Array.from(document.querySelectorAll("tbody tr[data-size-bytes]"));
+        const applyButton = document.getElementById("my-drive-apply-tag-button");
+        const removeButton = document.getElementById("my-drive-remove-tag-button");
+        const selectionCount = document.getElementById("my-drive-selection-count");
+        const selectedItemIds = document.getElementById("my-drive-selected-item-ids");
+
+        if (!selectAll) {
+            return;
+        }
+
+        function updateSelectAll() {
+            const selectedCheckboxes = itemCheckboxes.filter((checkbox) => checkbox.checked);
+            const selected = selectedCheckboxes.length;
+            selectAll.checked = itemCheckboxes.length > 0 && selected === itemCheckboxes.length;
+            selectAll.indeterminate = selected > 0 && selected < itemCheckboxes.length;
+            applyButton.disabled = selected === 0;
+            removeButton.disabled = selected === 0;
+            selectionCount.textContent = `${selected} selected`;
+            selectedItemIds.value = itemCheckboxes
+                .filter((checkbox) => checkbox.checked)
+                .map((checkbox) => checkbox.value)
+                .join(",");
+
+            const summaryRows = selected > 0
+                ? selectedCheckboxes.map((checkbox) => checkbox.closest("tr"))
+                : visibleRows;
+            const files = summaryRows.filter((row) => row.dataset.isDirectory !== "true").length;
+            const folders = summaryRows.length - files;
+            const size = summaryRows.reduce((total, row) => total + Number(row.dataset.sizeBytes || 0), 0);
+            const permissions = summaryRows.reduce((total, row) => total + Number(row.dataset.permissionCount || 0), 0);
+            document.getElementById("explorer-summary-heading").textContent = selected > 0 ? "Selected items" : "Filtered results";
+            document.getElementById("explorer-summary-items").textContent = summaryRows.length;
+            document.getElementById("explorer-summary-files").textContent = files;
+            document.getElementById("explorer-summary-folders").textContent = folders;
+            document.getElementById("explorer-summary-size").textContent = formatExplorerBytes(size);
+            document.getElementById("explorer-summary-permissions").textContent = permissions;
+        }
+
+        function formatExplorerBytes(bytes) {
+            const units = [[1e12, "TB"], [1e9, "GB"], [1e6, "MB"], [1e3, "kB"]];
+            for (const [divisor, unit] of units) {
+                if (bytes >= divisor) return `${(bytes / divisor).toFixed(1)} ${unit}`;
+            }
+            return `${bytes} B`;
+        }
+
+        selectAll.addEventListener("change", () => {
+            for (const checkbox of itemCheckboxes) {
+                checkbox.checked = selectAll.checked;
+            }
+            updateSelectAll();
+        });
+
+        for (const checkbox of itemCheckboxes) {
+            checkbox.addEventListener("change", updateSelectAll);
+        }
+    })();
+</script>
+
+{% endblock %}

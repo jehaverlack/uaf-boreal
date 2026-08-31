@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+{% if setup_percent == 100 %}
+{% include "partials/drive-summaries.html" %}
+{% else %}
+{% include "partials/setup-progress.html" %}
+{% endif %}
+
+{% endblock %}

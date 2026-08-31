@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="row">
+    <div class="col-xl-10 col-xxl-8">
+        <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+            <div>
+                <h1 class="h3 mb-1">Remotes</h1>
+                <p class="text-body-secondary mb-0">
+                    Rclone remotes configured for BOREAL. Credential details are never displayed.
+                </p>
+            </div>
+            <span class="badge text-bg-primary">{{ remotes.len() }} configured</span>
+        </div>
+
+        {% if error.len() > 0 %}
+        <div class="alert alert-danger" role="alert">
+            <i class="bi bi-exclamation-triangle me-2"></i>{{ error }}
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th scope="col">Name</th>
+                            <th scope="col">Backend</th>
+                            <th scope="col">Access</th>
+                            <th scope="col">Purpose</th>
+                            <th scope="col">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for remote in remotes %}
+                        <tr>
+                            <th scope="row"><i class="bi bi-cloud me-2 text-primary"></i>{{ remote.name }}</th>
+                            <td>{{ remote.backend }}</td>
+                            <td>{{ remote.access }}</td>
+                            <td>{{ remote.purpose }}</td>
+                            <td><span class="badge {{ remote.status_class }}">{{ remote.status }}</span></td>
+                        </tr>
+                        {% endfor %}
+                        {% if remotes.is_empty() %}
+                        <tr>
+                            <td colspan="5" class="text-center text-body-secondary py-4">
+                                No configured remotes were found.
+                            </td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

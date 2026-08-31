@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+        <h1 class="h3 mb-1"><i class="bi bi-person-vcard text-primary me-2"></i>Directory</h1>
+        <p class="text-body-secondary mb-0">Organizations, people, groups, accounts, and their Drive associations.</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+    <a class="btn btn-sm btn-outline-primary text-nowrap" href="/directory/new"><i class="bi bi-person-plus me-1"></i>Add entry</a>
+    <form id="directory-import-form" method="post" action="/directory/import/csv" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+        <label class="visually-hidden" for="directory-csv">Directory CSV</label>
+        <input class="form-control form-control-sm" id="directory-csv" name="directory_csv" type="file" accept=".csv,text/csv" required>
+        <button id="directory-import-button" class="btn btn-sm btn-primary text-nowrap" type="submit"><i class="bi bi-upload me-1"></i>Import CSV</button>
+    </form>
+    </div>
+</div>
+
+{% if import_complete %}
+<div class="alert alert-success" role="status">
+    <i class="bi bi-check-circle-fill me-2"></i>Directory import complete:
+    {{ imported_created }} created, {{ imported_updated }} updated, {{ imported_rejected }} rejected.
+</div>
+{% endif %}
+
+<div class="alert alert-light border small" role="note">
+    Required column: <code>email</code>. Optional columns: <code>name</code>, <code>type</code>,
+    <code>status</code>, <code>departure_date</code>, <code>organization</code>, and <code>notes</code>.
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-6 col-lg"><div class="card h-100"><div class="card-body"><div class="small text-body-secondary">Principals</div><div class="fs-3 fw-semibold">{{ summary.principals }}</div></div></div></div>
+    <div class="col-6 col-lg"><div class="card h-100"><div class="card-body"><div class="small text-body-secondary">Organizations</div><div class="fs-3 fw-semibold">{{ summary.organizations }}</div></div></div></div>
+    <div class="col-6 col-lg"><div class="card h-100"><div class="card-body"><div class="small text-body-secondary">Google groups</div><div class="fs-3 fw-semibold">{{ summary.groups }}</div></div></div></div>
+    <div class="col-6 col-lg"><div class="card h-100"><div class="card-body"><div class="small text-body-secondary">Former/departing</div><div class="fs-3 fw-semibold text-danger">{{ summary.former_or_departing }}</div></div></div></div>
+    <div class="col-6 col-lg"><div class="card h-100"><div class="card-body"><div class="small text-body-secondary">Active sources</div><div class="fs-3 fw-semibold">{{ summary.sources }}</div></div></div></div>
+</div>
+
+<section class="mb-4" aria-labelledby="remote-accounts-heading">
+    <h2 class="h5" id="remote-accounts-heading">Authenticated Drive accounts</h2>
+    <p class="text-body-secondary">
+        The primary Google account for which each BOREAL remote is configured. BOREAL verifies this identity through the read-only remote during a metadata update.
+    </p>
+    <div class="card"><div class="table-responsive"><table class="table align-middle mb-0">
+        <thead class="table-light"><tr><th>Remote</th><th>Configured account email</th><th>Name</th><th>Last verified</th></tr></thead>
+        <tbody>
+            {% for account in remote_accounts %}
+            <tr><td><code>{{ account.remote_name }}</code></td><td>{{ account.account_email }}</td><td>{{ account.display_name }}</td><td>{{ account.last_verified_at }} UTC</td></tr>
+            {% endfor %}
+            {% if remote_accounts.is_empty() %}
+            <tr><td colspan="4" class="text-body-secondary text-center py-3">The primary account will be recorded during the next metadata update.</td></tr>
+            {% endif %}
+        </tbody>
+    </table></div></div>
+</section>
+
+<section class="mb-4" aria-labelledby="organizations-heading">
+    <h2 class="h5" id="organizations-heading">
+        <button class="btn btn-link text-body text-decoration-none p-0 d-flex align-items-center gap-2"
+                type="button" data-bs-toggle="collapse" data-bs-target="#directory-organizations"
+                aria-expanded="true" aria-controls="directory-organizations">
+            <i class="bi bi-chevron-down" aria-hidden="true"></i>
+            Organizations
+            <span class="badge text-bg-secondary">{{ summary.organizations }}</span>
+        </button>
+    </h2>
+    <div class="collapse show" id="directory-organizations">
+    <div class="card"><div class="table-responsive"><table class="table align-middle mb-0">
+        <thead class="table-light"><tr><th>Name</th><th>Domain</th><th>Status</th><th>Members</th></tr></thead>
+        <tbody>
+            {% for organization in organizations %}
+            <tr><td>{{ organization.name }}</td><td>{{ organization.primary_domain }}</td><td>{{ organization.status }}</td><td>{{ organization.members }}</td></tr>
+            {% endfor %}
+            {% if organizations.is_empty() %}<tr><td colspan="4" class="text-body-secondary text-center py-3">No organizations have been imported.</td></tr>{% endif %}
+        </tbody>
+    </table></div></div>
+    </div>
+</section>
+
+<section aria-labelledby="principals-heading">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+        <h2 class="h5 mb-0" id="principals-heading">People, groups, and accounts</h2>
+        <form id="directory-filter-form" method="get" action="/directory" class="d-flex gap-2">
+            <button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-funnel me-1"></i>Apply filters</button>
+            <a class="btn btn-sm btn-outline-secondary" href="/directory">Clear filters</a>
+        </form>
+    </div>
+    <form id="directory-tag-form" method="post" action="/directory/tags" class="d-flex align-items-center gap-2 mb-2">
+        <input type="hidden" id="directory-selected-principal-ids" name="selected_principal_ids" value="">
+        <label class="small fw-semibold" for="directory-apply-tag">Apply tag to selected:</label>
+        <select id="directory-apply-tag" class="form-select form-select-sm w-auto" name="tag" required>
+            {% for tag in tags %}<option value="{{ tag.slug }}">{{ tag.name }}</option>{% endfor %}
+        </select>
+        <button id="directory-apply-tag-button" class="btn btn-sm btn-outline-primary" type="submit" disabled><i class="bi bi-tag me-1"></i>Apply</button>
+        <button id="directory-remove-tag-button" class="btn btn-sm btn-outline-danger" type="submit" formaction="/directory/tags/remove" disabled><i class="bi bi-tag-fill me-1"></i>Remove</button>
+        <span id="directory-selection-count" class="small text-body-secondary">0 selected</span>
+    </form>
+    <div class="card"><div class="table-responsive"><table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+            <tr><th><input class="form-check-input" type="checkbox" id="directory-select-all" aria-label="Select all visible identities"></th><th>Name</th><th>Email</th><th>Type</th><th>Status</th><th>Departure</th><th>Organizations</th><th>Members</th><th>Owned items</th><th>Permitted items</th><th>Actions</th></tr>
+            <tr>
+                <th></th>
+                <th><input class="form-control form-control-sm" form="directory-filter-form" name="name_filter" value="{{ name_filter }}" placeholder="Search name" aria-label="Filter name"></th>
+                <th><input class="form-control form-control-sm" form="directory-filter-form" name="email_filter" value="{{ email_filter }}" placeholder="Email or alias" aria-label="Filter email"></th>
+                <th><input class="form-control form-control-sm" form="directory-filter-form" name="type_filter" value="{{ type_filter }}" placeholder="Type" aria-label="Filter type"></th>
+                <th><input class="form-control form-control-sm" form="directory-filter-form" name="status_filter" value="{{ status_filter }}" placeholder="Status" aria-label="Filter status"></th>
+                <th><input class="form-control form-control-sm" form="directory-filter-form" name="departure_filter" value="{{ departure_filter }}" placeholder="&lt;2026-12-31" title="Examples: &lt;2026-12-31, &gt;=2026-09-01" aria-label="Filter departure date"></th>
+                <th><input class="form-control form-control-sm" form="directory-filter-form" name="organization_filter" value="{{ organization_filter }}" placeholder="Organization" aria-label="Filter organization"></th>
+                <th></th><th></th><th></th><th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for principal in principals %}
+            <tr>
+                <td><input class="form-check-input directory-principal-select" type="checkbox" value="{{ principal.id }}" aria-label="Select {{ principal.display_name }}"></td>
+                <td><a href="/directory/principals/{{ principal.id }}" class="text-decoration-none">{{ principal.display_name }}</a>{% for tag in principal.tags %}<span class="badge rounded-pill ms-1" style="background-color: {{ tag.color }}; color: #fff">{{ tag.name }}</span>{% endfor %}</td><td>{{ principal.primary_email }}</td>
+                <td><span class="badge text-bg-secondary">{{ principal.principal_type }}</span></td>
+                <td><span class="badge {% if principal.status == "former" %}text-bg-danger{% else if principal.status == "departing" %}text-bg-warning{% else if principal.status == "active" %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ principal.status }}</span></td>
+                <td>{{ principal.departure_date }}</td><td>{{ principal.organizations }}</td>
+                <td>{{ principal.members }}</td><td>{{ principal.owned_items }}</td><td>{{ principal.permitted_items }}</td>
+                <td><a class="btn btn-sm btn-outline-secondary" href="/directory/principals/{{ principal.id }}/edit" aria-label="Edit {{ principal.display_name }}"><i class="bi bi-pencil me-1"></i>Edit</a></td>
+            </tr>
+            {% endfor %}
+            {% if principals.is_empty() %}<tr><td colspan="11" class="text-body-secondary text-center py-4">No directory identities have been imported yet. Add one manually or import a CSV.</td></tr>{% endif %}
+        </tbody>
+    </table></div></div>
+</section>
+
+<div class="modal fade" id="directoryImportModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false" aria-labelledby="directoryImportModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="directoryImportModalLabel">
+                    <span class="spinner-border spinner-border-sm text-primary me-2" aria-hidden="true"></span>
+                    Importing and indexing directory
+                </h2>
+            </div>
+            <div class="modal-body">
+                <p>BOREAL is importing the CSV and recalculating Drive associations for the people, groups, and accounts it contains.</p>
+                <p class="text-body-secondary">Please be patient and keep BOREAL running. This page will refresh automatically when processing is complete.</p>
+                <div class="progress" role="progressbar" aria-label="Directory import in progress">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated w-100"></div>
+                </div>
+                <div class="small text-body-secondary mt-2">Progress is indeterminate while the CSV is processed as one transaction.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (() => {
+        const organizations = document.getElementById("directory-organizations");
+        const organizationsButton = document.querySelector('[data-bs-target="#directory-organizations"]');
+        const organizationStateKey = "boreal.directory.organizations.expanded";
+        if (organizations && organizationsButton) {
+            try {
+                if (window.localStorage.getItem(organizationStateKey) === "false") {
+                    organizations.classList.remove("show");
+                    organizationsButton.setAttribute("aria-expanded", "false");
+                }
+            } catch (_error) {
+                // Browser storage can be unavailable in private or restricted contexts.
+            }
+            organizations.addEventListener("shown.bs.collapse", () => {
+                try { window.localStorage.setItem(organizationStateKey, "true"); } catch (_error) {}
+            });
+            organizations.addEventListener("hidden.bs.collapse", () => {
+                try { window.localStorage.setItem(organizationStateKey, "false"); } catch (_error) {}
+            });
+        }
+
+        const selectAll = document.getElementById("directory-select-all");
+        const identityCheckboxes = Array.from(document.querySelectorAll(".directory-principal-select"));
+        const tagButton = document.getElementById("directory-apply-tag-button");
+        const removeTagButton = document.getElementById("directory-remove-tag-button");
+        const selectedIds = document.getElementById("directory-selected-principal-ids");
+        const selectionCount = document.getElementById("directory-selection-count");
+        const updateIdentitySelection = () => {
+            const selected = identityCheckboxes.filter((checkbox) => checkbox.checked);
+            selectAll.checked = identityCheckboxes.length > 0 && selected.length === identityCheckboxes.length;
+            selectAll.indeterminate = selected.length > 0 && selected.length < identityCheckboxes.length;
+            tagButton.disabled = selected.length === 0;
+            removeTagButton.disabled = selected.length === 0;
+            selectedIds.value = selected.map((checkbox) => checkbox.value).join(",");
+            selectionCount.textContent = `${selected.length} selected`;
+        };
+        if (selectAll) {
+            selectAll.addEventListener("change", () => {
+                identityCheckboxes.forEach((checkbox) => { checkbox.checked = selectAll.checked; });
+                updateIdentitySelection();
+            });
+            identityCheckboxes.forEach((checkbox) => checkbox.addEventListener("change", updateIdentitySelection));
+        }
+
+        const form = document.getElementById("directory-import-form");
+        const button = document.getElementById("directory-import-button");
+        const modalElement = document.getElementById("directoryImportModal");
+        if (form && button && modalElement) form.addEventListener("submit", () => {
+            button.disabled = true;
+            button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Importing…';
+            bootstrap.Modal.getOrCreateInstance(modalElement).show();
+        });
+    })();
+</script>
+
+{% endblock %}

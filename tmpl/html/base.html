@@ -1,0 +1,778 @@
+<!doctype html>
+
+<html
+    lang="en"
+    data-bs-theme="light"
+>
+
+<head>
+
+    <meta charset="utf-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1"
+    >
+
+    <title>{{ title }}</title>
+
+    <!-- BOREAL folder-symlink favicon -->
+    <link
+        rel="icon"
+        type="image/svg+xml"
+        href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%230d6efd' d='m11.798 8.271-3.182 1.97c-.27.166-.616-.036-.616-.372V9.1s-2.571-.3-4 2.4c.571-4.8 3.143-4.8 4-4.8v-.769c0-.336.346-.538.616-.371l3.182 1.969c.27.166.27.576 0 .742'%2F%3E%3Cpath fill='%230d6efd' d='m.5 3 .04.87a2 2 0 0 0-.342 1.311l.637 7A2 2 0 0 0 2.826 14h10.348a2 2 0 0 0 1.991-1.819l.637-7A2 2 0 0 0 13.81 3H9.828a2 2 0 0 1-1.414-.586l-.828-.828A2 2 0 0 0 6.172 1H2.5a2 2 0 0 0-2 2m.694 2.09A1 1 0 0 1 2.19 4h11.62a1 1 0 0 1 .996 1.09l-.636 7a1 1 0 0 1-.996.91H2.826a1 1 0 0 1-.995-.91zM6.172 2a1 1 0 0 1 .707.293L7.586 3H2.19q-.362.002-.683.12L1.5 2.98a1 1 0 0 1 1-.98z'%2F%3E%3C%2Fsvg%3E"
+    >
+
+    <!-- Bootstrap -->
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+    >
+
+    <!-- Bootstrap Icons -->
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css"
+        rel="stylesheet"
+    >
+
+    <style>
+        main .text-body-secondary {
+            color: #495057 !important;
+        }
+
+        #metadataUpdateModal .modal-content {
+            color: #212529;
+        }
+
+        #metadataUpdateModal .text-body-secondary {
+            color: #495057 !important;
+        }
+
+        .navbar .nav-link:not(.disabled) {
+            color: #495057;
+        }
+
+        .navbar .nav-link.active,
+        .navbar .nav-link:hover,
+        .navbar .nav-link:focus {
+            color: #212529;
+        }
+
+        .navbar .nav-link.active {
+            font-weight: 700;
+        }
+
+        .boreal-metadata-age.text-warning {
+            color: #a15c00 !important;
+        }
+
+        #boreal-status {
+            position: sticky;
+            bottom: 0;
+            z-index: 1030;
+        }
+
+        .boreal-explorer-table {
+            height: 100%;
+            overflow: auto;
+        }
+
+        .boreal-explorer-table table {
+            min-width: 58rem;
+            table-layout: fixed;
+        }
+
+        .boreal-col-select { width: 2.75rem; }
+        .boreal-col-gdrive { width: 4.5rem; }
+        .boreal-col-type { width: 5rem; }
+        .boreal-col-name { width: 30%; }
+        .boreal-col-size { width: 7rem; }
+        .boreal-col-modified { width: 12rem; }
+        .boreal-col-owner { width: 11rem; }
+        .boreal-col-permissions { width: 14rem; }
+        .boreal-shared-name { width: 22%; }
+        .boreal-shared-tags { width: 9rem; }
+        .boreal-shared-count { width: 5.5rem; }
+        .boreal-shared-size { width: 7rem; }
+        .boreal-shared-managers { width: 14rem; }
+        .boreal-shared-permissions { width: 22rem; }
+
+        .boreal-name-cell {
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
+        .boreal-name-cell .boreal-name-link {
+            display: inline-block;
+            max-width: 65%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            vertical-align: middle;
+        }
+
+        .boreal-explorer-table thead th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: var(--bs-table-bg);
+            vertical-align: top;
+        }
+
+        .boreal-google-drive-icon {
+            width: 1.15rem;
+            height: 1.15rem;
+        }
+
+        .boreal-unknown-identity {
+            background-color: #fff3cd;
+            border: 1px dashed #b7791f;
+            color: #664d03;
+        }
+
+        .navbar .boreal-update-nav {
+            color: var(--bs-primary) !important;
+        }
+
+        .navbar .boreal-update-nav:hover,
+        .navbar .boreal-update-nav:focus {
+            color: #0a58ca !important;
+        }
+
+        .navbar .boreal-drive-nav,
+        .navbar .boreal-drive-nav.active {
+            color: var(--bs-success) !important;
+        }
+
+        .navbar .boreal-drive-nav:hover,
+        .navbar .boreal-drive-nav:focus {
+            color: #146c43 !important;
+        }
+    </style>
+
+</head>
+
+<body class="d-flex flex-column min-vh-100{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" %} vh-100 overflow-hidden{% endif %}">
+
+    <nav
+        class="navbar navbar-expand-lg bg-body-tertiary border-bottom"
+    >
+
+        <div class="container-fluid">
+
+            <a
+                class="navbar-brand fw-semibold"
+                href="/"
+            >
+                <i class="bi bi-folder-symlink me-2"></i>
+                BOREAL
+            </a>
+
+            <button
+                class="navbar-toggler"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#borealNavbar"
+                aria-controls="borealNavbar"
+                aria-expanded="false"
+                aria-label="Toggle navigation"
+            >
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <div
+                class="collapse navbar-collapse"
+                id="borealNavbar"
+            >
+
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+
+                    <li class="nav-item">
+
+                        <a
+                            class="nav-link{% if active_page == "dashboard" %} active{% endif %}"
+                            {% if active_page == "dashboard" %}
+                            aria-current="page"
+                            {% endif %}
+                            href="/"
+                            title="Dashboard"
+                        >
+                            Dashboard
+                        </a>
+
+                    </li>
+
+                    <li class="nav-item">
+
+                        <a
+                            class="nav-link{% if active_page == "rclone" %} active{% endif %}"
+                            href="/rclone-gui"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Open Rclone WebGUI"
+                        >
+                            Rclone
+                        </a>
+
+                    </li>
+
+                    <li class="nav-item">
+                        <a
+                            class="nav-link boreal-drive-nav{% if active_page == "my-drive" %} active{% endif %}"
+                            {% if active_page == "my-drive" %}aria-current="page"{% endif %}
+                            href="/my-drive"
+                            title="Explore My Drive"
+                        >
+                            My Drive
+                        </a>
+                    </li>
+
+                    <li class="nav-item">
+                        <a class="nav-link boreal-drive-nav{% if active_page == "shared-drives" %} active{% endif %}"
+                           {% if active_page == "shared-drives" %}aria-current="page"{% endif %}
+                           href="/shared-drives" title="Explore Shared Drives">Shared Drives</a>
+                    </li>
+
+                    <li class="nav-item">
+                        <a
+                            class="nav-link boreal-drive-nav{% if active_page == "shared-with-me" %} active{% endif %}"
+                            {% if active_page == "shared-with-me" %}aria-current="page"{% endif %}
+                            href="/shared-with-me"
+                            title="Explore Shared with me"
+                        >
+                            Shared with me
+                        </a>
+                    </li>
+
+                    <li class="nav-item">
+                        <a
+                            class="nav-link{% if active_page == "directory" %} active{% endif %}"
+                            {% if active_page == "directory" %}aria-current="page"{% endif %}
+                            href="/directory"
+                            title="People, groups, organizations, and accounts"
+                        >
+                            Directory
+                        </a>
+                    </li>
+
+                    <li class="nav-item">
+                        <a
+                            class="nav-link{% if active_page == "remotes" %} active{% endif %}"
+                            {% if active_page == "remotes" %}aria-current="page"{% endif %}
+                            href="/remotes"
+                            title="View Remotes"
+                        >
+                            Remotes
+                        </a>
+                    </li>
+
+                    <li class="nav-item">
+                        <button
+                            class="nav-link boreal-update-nav"
+                            type="button"
+                            data-bs-toggle="modal"
+                            data-bs-target="#metadataUpdateModal"
+                            title="Update Metadata"
+                        >
+                            Update
+                        </button>
+                    </li>
+
+                </ul>
+
+                <ul class="navbar-nav ms-auto">
+
+                    <li class="nav-item dropdown">
+
+                        <a
+                            class="nav-link dropdown-toggle{% if active_page == "about" || active_page == "settings" || active_page == "tags" %} active{% endif %}"
+                            href="#"
+                            role="button"
+                            data-bs-toggle="dropdown"
+                            aria-expanded="false"
+                            title="Application Menu"
+                        >
+                            App
+                        </a>
+
+                        <ul
+                            class="dropdown-menu dropdown-menu-end"
+                        >
+
+                            <li>
+
+                                <a
+                                    class="dropdown-item{% if active_page == "tags" %} active{% endif %}"
+                                    href="/tags"
+                                >
+                                    <i class="bi bi-tags me-2"></i>
+                                    Tags
+                                </a>
+
+                            </li>
+
+                            <li>
+
+                                <a
+                                    class="dropdown-item{% if active_page == "settings" %} active{% endif %}"
+                                    href="/settings"
+                                >
+                                    <i class="bi bi-gear me-2"></i>
+                                    Settings
+                                </a>
+
+                            </li>
+
+                            <li>
+                                <hr class="dropdown-divider">
+                            </li>
+
+                            <li>
+
+                                <a
+                                    class="dropdown-item{% if active_page == "about" %} active{% endif %}"
+                                    href="/about"
+                                >
+                                    <i class="bi bi-info-circle me-2"></i>
+                                    About
+                                </a>
+
+                            </li>
+
+                            <li>
+                                <hr class="dropdown-divider">
+                            </li>
+
+                            <li>
+
+                                <button
+                                    class="dropdown-item"
+                                    type="button"
+                                    id="boreal-quit"
+                                >
+                                    <i class="bi bi-power me-2"></i>
+                                    Quit BOREAL
+                                </button>
+
+                            </li>
+
+                        </ul>
+
+                    </li>
+
+                </ul>
+
+            </div>
+
+        </div>
+
+    </nav>
+
+    {% include "partials/alerts.html" %}
+
+    <main class="container-fluid py-4 flex-grow-1{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" %} overflow-hidden{% endif %}">
+
+        {% block content %}
+        {% endblock %}
+
+    </main>
+
+    {% include "partials/status.html" %}
+
+    {% include "partials/google-client-modal.html" %}
+
+    <div
+        class="modal fade"
+        id="metadataUpdateModal"
+        tabindex="-1"
+        aria-labelledby="metadataUpdateModalLabel"
+        aria-hidden="true"
+    >
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div id="metadata-update-modal-content" data-updating="false">
+                <div class="modal-header">
+                    <h2 class="modal-title fs-5" id="metadataUpdateModalLabel">
+                        <i class="bi bi-database-down me-2"></i>
+                        Update metadata inventory?
+                    </h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Select one or more metadata sources. Unselected inventories retain their existing data and timestamps.</p>
+                    <div class="list-group mb-3">
+                        <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="my_drive" value="true" checked>My Drive</label>
+                        <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="shared_drives" value="true" checked>Shared Drives</label>
+                        <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="shared_with_me" value="true" checked>Shared with me</label>
+                        <label class="list-group-item text-body-secondary"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="directory_info" value="true" disabled>Directory Info <span class="small">— checking configuration…</span></label>
+                    </div>
+                    <p class="mb-0">
+                        Large Drives can take several hours to update. Keep BOREAL running until the update completes; you may continue using this browser tab.
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <form id="metadata-update-form" method="post" action="/metadata/update">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-play-circle me-1"></i>
+                            Start update
+                        </button>
+                    </form>
+                </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- BOREAL stopped modal -->
+    <div
+        class="modal fade"
+        id="borealStoppedModal"
+        tabindex="-1"
+        data-bs-backdrop="static"
+        data-bs-keyboard="false"
+        aria-labelledby="borealStoppedModalLabel"
+        aria-hidden="true"
+    >
+
+        <div class="modal-dialog modal-dialog-centered">
+
+            <div class="modal-content">
+
+                <div class="modal-header">
+
+                    <h1
+                        class="modal-title fs-5"
+                        id="borealStoppedModalLabel"
+                    >
+                        <i class="bi bi-power text-danger me-2"></i>
+                        BOREAL has stopped
+                    </h1>
+
+                </div>
+
+                <div class="modal-body">
+
+                    <p class="mb-0">
+                        The BOREAL application is no longer running.
+                        You may close this browser tab.
+                    </p>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- HTMX -->
+    <script
+        src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js"
+    ></script>
+
+    <!-- Bootstrap -->
+    <script
+        src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
+    ></script>
+
+    <script>
+        (() => {
+            function formatDataAge(seconds) {
+                if (seconds < 60) {
+                    return "just now";
+                }
+
+                const units = [
+                    [86400, "day"],
+                    [3600, "hour"],
+                    [60, "minute"],
+                ];
+
+                for (const [unitSeconds, label] of units) {
+                    if (seconds >= unitSeconds) {
+                        const value = Math.floor(seconds / unitSeconds);
+                        return `${value} ${label}${value === 1 ? "" : "s"}`;
+                    }
+                }
+
+                return "just now";
+            }
+
+            function refreshDataAges() {
+                for (const element of document.querySelectorAll(".boreal-data-age")) {
+                    const timestamp = element.dataset.synchronizedAt;
+                    const synchronizedAt = Date.parse(
+                        timestamp.replace(" ", "T") + "Z",
+                    );
+
+                    if (Number.isNaN(synchronizedAt)) {
+                        element.textContent = "unknown";
+                        continue;
+                    }
+
+                    const seconds = Math.max(
+                        0,
+                        Math.floor((Date.now() - synchronizedAt) / 1000),
+                    );
+                    element.textContent = formatDataAge(seconds);
+                }
+            }
+
+            function refreshMetadataStatusAge() {
+                for (const element of document.querySelectorAll(".boreal-metadata-age")) {
+                    const timestamp = element.dataset.synchronizedAt;
+                    const synchronizedAt = Date.parse(
+                        timestamp.replace(" ", "T") + "Z",
+                    );
+
+                    if (Number.isNaN(synchronizedAt)) {
+                        element.textContent = "unknown";
+                        element.classList.remove("text-success", "text-warning");
+                        element.classList.add("text-danger");
+                        continue;
+                    }
+
+                    const totalSeconds = Math.max(
+                        0,
+                        Math.floor((Date.now() - synchronizedAt) / 1000),
+                    );
+                    const hours = Math.floor(totalSeconds / 3600);
+                    const minutes = Math.floor((totalSeconds % 3600) / 60);
+                    const seconds = totalSeconds % 60;
+                    element.textContent = [hours, minutes, seconds]
+                        .map((value) => String(value).padStart(2, "0"))
+                        .join(":");
+
+                    element.classList.remove("text-success", "text-warning", "text-danger");
+                    element.classList.add(
+                        totalSeconds < 86400
+                            ? "text-success"
+                            : totalSeconds < 604800
+                                ? "text-warning"
+                                : "text-danger",
+                    );
+                }
+            }
+
+            refreshDataAges();
+            refreshMetadataStatusAge();
+            document.body.addEventListener("htmx:afterSwap", () => {
+                refreshDataAges();
+                refreshMetadataStatusAge();
+            });
+            window.setInterval(refreshDataAges, 60000);
+            window.setInterval(refreshMetadataStatusAge, 1000);
+
+            const metadataModalElement = document.getElementById("metadataUpdateModal");
+            const metadataModal = metadataModalElement
+                ? bootstrap.Modal.getOrCreateInstance(metadataModalElement)
+                : null;
+            let metadataModalDismissed = false;
+            let metadataRefreshPending = false;
+
+            async function replaceFromEndpoint(url, selector) {
+                const current = document.querySelector(selector);
+                if (!current) return;
+                const response = await fetch(url, { cache: "no-store" });
+                if (!response.ok) return;
+                const holder = document.createElement("div");
+                holder.innerHTML = await response.text();
+                const replacement = holder.querySelector(selector);
+                if (!replacement) return;
+                current.replaceWith(replacement);
+                if (window.htmx) htmx.process(replacement);
+            }
+
+            async function refreshMetadataUi() {
+                await Promise.all([
+                    replaceFromEndpoint("/ui/status", "#boreal-status"),
+                    replaceFromEndpoint("/ui/drive-summaries", "#boreal-drive-summaries"),
+                ]);
+                refreshDataAges();
+                refreshMetadataStatusAge();
+            }
+
+            async function refreshMetadataModal(autoShow = false) {
+                if (!metadataModalElement) return;
+                try {
+                    const response = await fetch("/ui/metadata-update-modal", { cache: "no-store" });
+                    if (!response.ok) return;
+                    const modalContent = metadataModalElement.querySelector(".modal-content");
+                    const wasUpdating = modalContent
+                        .querySelector("#metadata-update-modal-content")
+                        ?.dataset.updating === "true";
+                    const responseHtml = await response.text();
+                    const parsed = document.createElement("div");
+                    parsed.innerHTML = responseHtml;
+                    const isUpdating = parsed
+                        .querySelector("#metadata-update-modal-content")
+                        ?.dataset.updating === "true";
+                    const completed = parsed
+                        .querySelector("#metadata-update-modal-content")
+                        ?.dataset.complete === "true";
+                    modalContent.innerHTML = responseHtml;
+                    if (wasUpdating && !isUpdating && completed) {
+                        metadataRefreshPending = true;
+                        modalContent.innerHTML = `
+                            <div class="modal-header">
+                                <h2 class="modal-title fs-5"><i class="bi bi-check-circle-fill text-success me-2"></i>Metadata update complete</h2>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">The local metadata inventory has finished updating.</div>
+                            <div class="modal-footer"><button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button></div>`;
+                        return;
+                    }
+                    const updating = metadataModalElement
+                        .querySelector("#metadata-update-modal-content")
+                        ?.dataset.updating === "true";
+                    if (updating && autoShow && !metadataModalDismissed) metadataModal.show();
+                } catch (_error) {
+                    // The footer heartbeat reports application connectivity failures.
+                }
+            }
+
+            if (metadataModalElement) {
+                metadataModalElement.addEventListener("hide.bs.modal", () => {
+                    metadataModalDismissed = true;
+                });
+                metadataModalElement.addEventListener("hidden.bs.modal", () => {
+                    if (!metadataRefreshPending) return;
+                    metadataRefreshPending = false;
+                    refreshMetadataUi();
+                });
+                metadataModalElement.addEventListener("show.bs.modal", () => {
+                    metadataModalDismissed = false;
+                    refreshMetadataModal(false);
+                });
+                metadataModalElement.addEventListener("submit", async (event) => {
+                    if (event.target.id !== "metadata-update-form") return;
+                    event.preventDefault();
+                    const button = event.target.querySelector("button[type=submit]");
+                    const selectedSources = Array.from(event.target.elements)
+                        .filter((control) => control.type === "checkbox" && control.checked);
+                    if (selectedSources.length === 0) {
+                        button.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Select at least one';
+                        return;
+                    }
+                    button.disabled = true;
+                    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Starting…';
+                    try {
+                        const response = await fetch(event.target.action, {
+                            method: "POST",
+                            body: new URLSearchParams(new FormData(event.target)),
+                        });
+                        if (!response.ok) throw new Error("Unable to start metadata update");
+                        metadataModalDismissed = false;
+                        await refreshMetadataModal(false);
+                    } catch (_error) {
+                        button.disabled = false;
+                        button.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Try again';
+                    }
+                });
+                refreshMetadataModal(true);
+                window.setInterval(() => {
+                    const updating = metadataModalElement
+                        .querySelector("#metadata-update-modal-content")
+                        ?.dataset.updating === "true";
+                    if (updating) refreshMetadataModal(false);
+                }, 1000);
+            }
+
+            const quitButton =
+                document.getElementById("boreal-quit");
+
+            const stoppedModalElement =
+                document.getElementById("borealStoppedModal");
+
+            const stoppedModal =
+                new bootstrap.Modal(stoppedModalElement);
+
+            let heartbeatFailures = 0;
+            let stopped = false;
+
+            function showStopped() {
+                if (stopped) {
+                    return;
+                }
+
+                stopped = true;
+                stoppedModal.show();
+            }
+
+            async function checkBoreal() {
+                if (stopped) {
+                    return;
+                }
+
+                try {
+                    const response = await fetch(
+                        "/status",
+                        {
+                            method: "GET",
+                            cache: "no-store",
+                        },
+                    );
+
+                    if (!response.ok) {
+                        heartbeatFailures++;
+                    } else {
+                        heartbeatFailures = 0;
+                    }
+                } catch (_error) {
+                    heartbeatFailures++;
+                }
+
+                /*
+                 * Require two consecutive failures so a single transient
+                 * request failure does not report BOREAL as stopped.
+                 */
+                if (heartbeatFailures >= 2) {
+                    showStopped();
+                }
+            }
+
+            if (quitButton) {
+                quitButton.addEventListener(
+                    "click",
+                    async () => {
+                        quitButton.disabled = true;
+
+                        try {
+                            await fetch(
+                                "/app/quit",
+                                {
+                                    method: "POST",
+                                    cache: "no-store",
+                                },
+                            );
+                        } catch (_error) {
+                            /*
+                             * The server may disappear while the shutdown
+                             * response is still being processed. That is
+                             * acceptable for a Quit request.
+                             */
+                        }
+
+                        /*
+                         * Do not wait for two heartbeat failures when the
+                         * user explicitly requested shutdown.
+                         */
+                        window.setTimeout(
+                            showStopped,
+                            500,
+                        );
+                    },
+                );
+            }
+
+            window.setInterval(
+                checkBoreal,
+                2000,
+            );
+        })();
+    </script>
+
+</body>
+
+</html>

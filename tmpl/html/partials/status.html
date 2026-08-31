@@ -1,0 +1,82 @@
+<footer
+    id="boreal-status"
+    class="border-top bg-body-tertiary"
+    {% if poll_rclone %}
+    hx-get="/ui/status"
+    hx-trigger="every 1s"
+    hx-swap="outerHTML"
+    {% endif %}
+>
+
+    <div
+        class="container-fluid py-2 d-flex align-items-center flex-wrap gap-3"
+    >
+
+        <span
+            class="small fw-semibold text-body"
+        >
+            Status
+        </span>
+
+        {% for item in status_items %}
+
+        <span
+            class="small text-body d-inline-flex align-items-center"
+        >
+            {% if item.spinner %}
+            <span
+                class="spinner-border spinner-border-sm text-primary me-1"
+                role="status"
+                aria-hidden="true"
+            ></span>
+            {% else %}
+            <i class="bi {{ item.icon }} me-1"></i>
+            {% endif %}
+
+            <span class="fw-semibold me-1">
+                {{ item.label }}:
+            </span>
+
+            {% if item.value_url.is_empty() %}
+
+            <span
+                class="{{ item.value_class }}"
+                {% if item.age_timestamp.len() > 0 %}
+                data-synchronized-at="{{ item.age_timestamp }}"
+                title="Metadata age (green under 24 hours, amber under 7 days, red after 7 days)"
+                {% endif %}
+            >
+                {{ item.value }}
+            </span>
+
+            {% else %}
+
+            <a
+                class="{{ item.value_class }}"
+                href="{{ item.value_url }}"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open Rclone WebGUI"
+            >
+                {{ item.value }}
+                <i class="bi bi-box-arrow-up-right ms-1"></i>
+            </a>
+
+            {% endif %}
+        </span>
+
+        {% endfor %}
+
+        <a
+            class="small text-body text-decoration-none ms-auto"
+            href="https://github.com/jehaverlack/uaf-boreal"
+            target="_blank"
+            rel="noopener noreferrer"
+        >
+            <i class="bi bi-github me-1"></i>
+            github.com/jehaverlack/uaf-boreal
+        </a>
+
+    </div>
+
+</footer>
