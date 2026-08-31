@@ -666,8 +666,8 @@ fn import_csv_source(
         let principal_type = type_index
             .map(|index| cell(row, index).trim())
             .filter(|value| !value.is_empty())
-            .map(canonical_principal_type)
-            .unwrap_or_else(|| "person".to_string());
+            .map(canonical_principal_type);
+        let type_was_supplied = principal_type.is_some();
         let status = status_index
             .map(|index| cell(row, index).trim())
             .filter(|value| !value.is_empty())
@@ -687,9 +687,9 @@ fn import_csv_source(
         transaction.execute(
             "INSERT INTO principals (
                 principal_type, primary_email, display_name, status, departure_date, notes, source
-             ) VALUES (?1, ?2, NULLIF(?3, ''), ?4, ?5, ?6, ?7)
+             ) VALUES (COALESCE(?1, 'person'), ?2, NULLIF(?3, ''), ?4, ?5, ?6, ?7)
              ON CONFLICT(primary_email) DO UPDATE SET
-                principal_type = excluded.principal_type,
+                principal_type = CASE WHEN ?8 THEN excluded.principal_type ELSE principals.principal_type END,
                 display_name = COALESCE(excluded.display_name, principals.display_name),
                 status = excluded.status,
                 departure_date = excluded.departure_date,
@@ -703,7 +703,8 @@ fn import_csv_source(
                 status,
                 departure,
                 notes,
-                source_name
+                source_name,
+                type_was_supplied,
             ],
         )?;
         let principal_id: i64 = transaction.query_row(
@@ -806,7 +807,7 @@ fn canonical_principal_type(value: &str) -> String {
         "service_acct" | "service_account" => "service_acct",
         "dept_acct" | "department_account" | "departmental_account" | "departmental_acct" => "dept_acct",
         "other" => "other",
-        _ => normalized.as_str(),
+        _ => value.trim(),
     }
     .to_string()
 }
@@ -901,6 +902,7 @@ mod tests {
         assert_eq!(canonical_principal_type("Google Group"), "group");
         assert_eq!(canonical_principal_type("service account"), "service_acct");
         assert_eq!(canonical_principal_type("departmental_acct"), "dept_acct");
-        assert_eq!(canonical_principal_type("Staff"), "staff");
+        assert_eq!(canonical_principal_type("Staff"), "Staff");
+        assert_eq!(canonical_principal_type("Affiliate Researcher"), "Affiliate Researcher");
     }
 }

@@ -431,6 +431,25 @@ mod tests {
     }
 
     #[test]
+    fn directory_csv_preserves_custom_types_and_ignores_blank_type_updates() {
+        let root = temporary_directory();
+        let database = Database::initialize(&runtime(&root)).expect("database should initialize");
+        directory::import_csv(
+            &database,
+            "directory.csv",
+            b"email,name,type,status\nresearcher@example.edu,Researcher,Affiliate Researcher,Active\nresearcher@example.edu,Researcher,,Active\n",
+        )
+        .expect("directory CSV should import");
+        let principal = directory::list_principals(&database)
+            .expect("directory should load")
+            .into_iter()
+            .find(|principal| principal.primary_email == "researcher@example.edu")
+            .expect("researcher should exist");
+        assert_eq!(principal.principal_type, "Affiliate Researcher");
+        fs::remove_dir_all(root).expect("temporary database directory should be removable");
+    }
+
+    #[test]
     fn manual_directory_entries_can_be_created_and_edited() {
         let root = temporary_directory();
         let database = Database::initialize(&runtime(&root)).expect("database should initialize");
