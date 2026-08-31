@@ -60,8 +60,8 @@
                 {% if metadata.updating || metadata.completed_at.len() > 0 %}
 
                 <div class="d-flex flex-wrap gap-3 small mt-3">
-                    <span><strong>{{ metadata.files_scanned }}</strong> files</span>
-                    <span><strong>{{ metadata.folders_scanned }}</strong> folders</span>
+                    <span><strong>{{ metadata.progress_files_scanned }}</strong> files</span>
+                    <span><strong>{{ metadata.progress_folders_scanned }}</strong> folders</span>
                     {% if metadata.completed_at.len() > 0 %}
                     <span>
                         <strong
@@ -71,8 +71,8 @@
                         data age
                     </span>
                     {% endif %}
-                    <span><strong>{{ metadata.permissions_scanned }}</strong> permissions</span>
-                    <span><strong>{{ metadata.size_label }}</strong> total size</span>
+                    <span><strong>{{ metadata.progress_permissions_scanned }}</strong> permissions</span>
+                    <span><strong>{{ metadata.progress_size_label }}</strong> total size</span>
                     <span><strong>{{ metadata.errors }}</strong> errors</span>
                 </div>
 

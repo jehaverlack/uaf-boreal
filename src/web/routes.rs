@@ -107,6 +107,10 @@ pub struct MetadataView {
     pub folders_scanned: u64,
     pub permissions_scanned: u64,
     pub size_label: String,
+    pub progress_files_scanned: u64,
+    pub progress_folders_scanned: u64,
+    pub progress_permissions_scanned: u64,
+    pub progress_size_label: String,
     pub errors: u64,
     pub completed_at: String,
     pub shared_drives_indexed: bool,
@@ -737,6 +741,7 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
             &metadata_state,
             setup_percent == 100,
             should_poll_setup(&rclone_state, &google_remotes_state),
+            latest_my_drive_summary(&state).as_ref(),
             shared_summary.as_ref(),
             latest_shared_drives_summary(&state).as_ref(),
             shared_drive_count(&state),
@@ -908,10 +913,12 @@ fn build_metadata_view(
     state: &MetadataState,
     available: bool,
     poll_for_setup: bool,
+    my_drive_summary: Option<&database::inventory::InventorySummary>,
     shared_summary: Option<&database::inventory::InventorySummary>,
     shared_drives_summary: Option<&database::inventory::InventorySummary>,
     shared_drives_count: usize,
 ) -> MetadataView {
+    let my_drive = my_drive_summary.cloned().unwrap_or_default();
     let shared_indexed = shared_summary.is_some();
     let shared = shared_summary.cloned().unwrap_or_default();
     let shared_drives_indexed = shared_drives_summary.is_some();
@@ -928,6 +935,10 @@ fn build_metadata_view(
             folders_scanned: 0,
             permissions_scanned: 0,
             size_label: "0 B".to_string(),
+            progress_files_scanned: 0,
+            progress_folders_scanned: 0,
+            progress_permissions_scanned: 0,
+            progress_size_label: "0 B".to_string(),
             errors: 0,
             completed_at: String::new(),
             shared_drives_indexed,
@@ -952,12 +963,16 @@ fn build_metadata_view(
             state_label: "Updating".to_string(),
             state_class: "text-bg-primary",
             phase: progress.phase.to_string(),
-            files_scanned: progress.files_scanned,
-            folders_scanned: progress.folders_scanned,
-            permissions_scanned: progress.permissions_scanned,
-            size_label: format_bytes(progress.bytes_discovered),
+            files_scanned: my_drive.files_scanned,
+            folders_scanned: my_drive.folders_scanned,
+            permissions_scanned: my_drive.permissions_scanned,
+            size_label: format_bytes(my_drive.bytes_discovered),
+            progress_files_scanned: progress.files_scanned,
+            progress_folders_scanned: progress.folders_scanned,
+            progress_permissions_scanned: progress.permissions_scanned,
+            progress_size_label: format_bytes(progress.bytes_discovered),
             errors: progress.errors,
-            completed_at: String::new(),
+            completed_at: my_drive.completed_at.clone(),
             shared_drives_indexed,
             shared_drives_count,
             shared_drives_files_scanned: shared_drives.files_scanned,
@@ -984,6 +999,10 @@ fn build_metadata_view(
             folders_scanned: summary.folders_scanned,
             permissions_scanned: summary.permissions_scanned,
             size_label: format_bytes(summary.bytes_discovered),
+            progress_files_scanned: summary.files_scanned,
+            progress_folders_scanned: summary.folders_scanned,
+            progress_permissions_scanned: summary.permissions_scanned,
+            progress_size_label: format_bytes(summary.bytes_discovered),
             errors: 0,
             completed_at: summary.completed_at.clone(),
             shared_drives_indexed,
@@ -1008,12 +1027,16 @@ fn build_metadata_view(
             state_label: "Update failed".to_string(),
             state_class: "text-bg-danger",
             phase: error.clone(),
-            files_scanned: 0,
-            folders_scanned: 0,
-            permissions_scanned: 0,
-            size_label: "0 B".to_string(),
+            files_scanned: my_drive.files_scanned,
+            folders_scanned: my_drive.folders_scanned,
+            permissions_scanned: my_drive.permissions_scanned,
+            size_label: format_bytes(my_drive.bytes_discovered),
+            progress_files_scanned: 0,
+            progress_folders_scanned: 0,
+            progress_permissions_scanned: 0,
+            progress_size_label: "0 B".to_string(),
             errors: 1,
-            completed_at: String::new(),
+            completed_at: my_drive.completed_at.clone(),
             shared_drives_indexed,
             shared_drives_count,
             shared_drives_files_scanned: shared_drives.files_scanned,
@@ -2580,6 +2603,7 @@ async fn ui_drive_summaries(
             &metadata_state,
             true,
             false,
+            latest_my_drive_summary(&state).as_ref(),
             shared_summary.as_ref(),
             latest_shared_drives_summary(&state).as_ref(),
             shared_drive_count(&state),
@@ -2602,6 +2626,7 @@ async fn ui_metadata_progress(
             &metadata_state,
             available,
             should_poll_setup(&rclone_state, &remotes),
+            latest_my_drive_summary(&state).as_ref(),
             shared_summary.as_ref(),
             latest_shared_drives_summary(&state).as_ref(),
             shared_drive_count(&state),
@@ -2633,6 +2658,7 @@ async fn ui_metadata_update_modal(
             &metadata_state,
             available,
             should_poll_setup(&rclone_state, &remotes),
+            latest_my_drive_summary(&state).as_ref(),
             shared_summary.as_ref(),
             latest_shared_drives_summary(&state).as_ref(),
             shared_drive_count(&state),
@@ -2703,6 +2729,13 @@ fn format_duration(seconds: u64) -> String {
 fn latest_shared_summary(state: &AppState) -> Option<database::inventory::InventorySummary> {
     let database = state.database().ok()?;
     database::inventory::latest_summary_for(&database, "shared-with-me")
+        .ok()
+        .flatten()
+}
+
+fn latest_my_drive_summary(state: &AppState) -> Option<database::inventory::InventorySummary> {
+    let database = state.database().ok()?;
+    database::inventory::latest_summary(&database)
         .ok()
         .flatten()
 }
@@ -3068,4 +3101,39 @@ where
 
         StatusCode::INTERNAL_SERVER_ERROR
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::MetadataProgress;
+
+    #[test]
+    fn active_scope_progress_does_not_replace_my_drive_summary() {
+        let my_drive = database::inventory::InventorySummary {
+            completed_at: "2026-08-30 12:00:00".to_string(),
+            files_scanned: 10,
+            folders_scanned: 2,
+            permissions_scanned: 15,
+            bytes_discovered: 1_000,
+            deleted_items: 0,
+        };
+        let state = MetadataState::Updating(MetadataProgress {
+            phase: "Scanning Shared Drive 1 of 1: Research".to_string(),
+            files_scanned: 500,
+            folders_scanned: 75,
+            permissions_scanned: 900,
+            bytes_discovered: 8_000_000,
+            errors: 0,
+        });
+
+        let view = build_metadata_view(&state, true, false, Some(&my_drive), None, None, 1);
+
+        assert_eq!(view.files_scanned, 10);
+        assert_eq!(view.folders_scanned, 2);
+        assert_eq!(view.permissions_scanned, 15);
+        assert_eq!(view.progress_files_scanned, 500);
+        assert_eq!(view.progress_folders_scanned, 75);
+        assert_eq!(view.progress_permissions_scanned, 900);
+    }
 }

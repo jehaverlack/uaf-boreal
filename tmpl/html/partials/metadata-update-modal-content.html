@@ -30,10 +30,10 @@
         <div class="small text-body-secondary mb-3">Approximate progress based on the current update phase. A time estimate will appear after one update completes.</div>
         {% endif %}
         <div class="row g-2 small">
-            <div class="col-6"><strong>{{ metadata.files_scanned }}</strong> files scanned</div>
-            <div class="col-6"><strong>{{ metadata.folders_scanned }}</strong> folders scanned</div>
-            <div class="col-6"><strong>{{ metadata.permissions_scanned }}</strong> permissions</div>
-            <div class="col-6"><strong>{{ metadata.size_label }}</strong> discovered</div>
+            <div class="col-6"><strong>{{ metadata.progress_files_scanned }}</strong> files scanned</div>
+            <div class="col-6"><strong>{{ metadata.progress_folders_scanned }}</strong> folders scanned</div>
+            <div class="col-6"><strong>{{ metadata.progress_permissions_scanned }}</strong> permissions</div>
+            <div class="col-6"><strong>{{ metadata.progress_size_label }}</strong> discovered</div>
         </div>
         {% else if metadata.errors > 0 %}
         <p class="mb-0 text-danger">{{ metadata.phase }}</p>
