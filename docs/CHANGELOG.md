@@ -11,6 +11,12 @@
 
 ## v0.1.0 - 2026-08-31 (BETA)
 
+- Added Download Status
+- Added Download Feature
+- Adding Per Resource Tags
+- Adding Per Resource Tags
+- Cleaned up Dashboard Columns
+- Starting v1.0.1
 - Start v0.1.0
 - Fixing Dist Download Links
 - Fixing Dist Download Links
@@ -130,6 +136,12 @@
 **Summary**
 Project Initialization
 
+- Added Download Status
+- Added Download Feature
+- Adding Per Resource Tags
+- Adding Per Resource Tags
+- Cleaned up Dashboard Columns
+- Starting v1.0.1
 - Start v0.1.0
 - Fixing Dist Download Links
 - Fixing Dist Download Links
