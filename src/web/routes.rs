@@ -84,15 +84,7 @@ pub struct SetupStep {
     pub state_class: &'static str,
     pub complete: bool,
     pub modal_target: &'static str,
-    pub remote_actions: Vec<RemoteAction>,
-}
-
-#[allow(dead_code)]
-pub struct RemoteAction {
-    pub label: &'static str,
     pub action: &'static str,
-    pub state_label: &'static str,
-    pub state_class: &'static str,
     pub disabled: bool,
     pub detail: String,
 }
@@ -882,7 +874,9 @@ fn build_setup_progress(
             state_class: "text-bg-warning",
             complete: false,
             modal_target: "",
-            remote_actions: Vec::new(),
+            action: "",
+            disabled: true,
+            detail: String::new(),
         },
 
         RcloneState::Ready(status) => SetupStep {
@@ -893,7 +887,9 @@ fn build_setup_progress(
             state_class: "text-bg-success",
             complete: true,
             modal_target: "",
-            remote_actions: Vec::new(),
+            action: "",
+            disabled: true,
+            detail: String::new(),
         },
 
         RcloneState::Error(error) => SetupStep {
@@ -904,7 +900,9 @@ fn build_setup_progress(
             state_class: "text-bg-danger",
             complete: false,
             modal_target: "",
-            remote_actions: Vec::new(),
+            action: "",
+            disabled: true,
+            detail: String::new(),
         },
     };
 
@@ -919,7 +917,9 @@ fn build_setup_progress(
             state_class: "text-bg-warning",
             complete: false,
             modal_target: "googleClientSetupModal",
-            remote_actions: Vec::new(),
+            action: "",
+            disabled: false,
+            detail: String::new(),
         },
 
         GoogleClientState::Ready(
@@ -934,7 +934,9 @@ fn build_setup_progress(
             state_class: "text-bg-success",
             complete: true,
             modal_target: "",
-            remote_actions: Vec::new(),
+            action: "",
+            disabled: true,
+            detail: String::new(),
         },
 
         GoogleClientState::Error(
@@ -949,7 +951,9 @@ fn build_setup_progress(
             state_class: "text-bg-danger",
             complete: false,
             modal_target: "googleClientSetupModal",
-            remote_actions: Vec::new(),
+            action: "",
+            disabled: false,
+            detail: String::new(),
         },
     };
 
@@ -968,15 +972,25 @@ fn build_setup_progress(
         state_class: if remote_complete { "text-bg-success" } else { "text-bg-warning" },
         complete: remote_complete,
         modal_target: "",
-        remote_actions: vec![
-            build_remote_action(
-                "Setup My Drive RO",
-                "/setup/remotes/my-drive-ro",
-                &google_remotes_state.ro,
-                prerequisites_ready,
-                remote_busy,
+        action: if remote_complete {
+            ""
+        } else {
+            "/setup/remotes/my-drive-ro"
+        },
+        disabled: !prerequisites_ready
+            || remote_busy
+            || matches!(
+                google_remotes_state.ro,
+                RemoteState::Ready | RemoteState::Conflict(_)
             ),
-        ],
+        detail: match &google_remotes_state.ro {
+            RemoteState::Conflict(error) | RemoteState::Error(error) => error.clone(),
+            RemoteState::Configuring => {
+                "Complete the Google authorization in the browser tab opened by Rclone."
+                    .to_string()
+            }
+            _ => String::new(),
+        },
     };
 
     let steps = vec![rclone_step, google_step, remote_step];
@@ -986,40 +1000,6 @@ fn build_setup_progress(
     let setup_percent = (complete_count * 100 / 4) as u8;
 
     (steps, setup_percent)
-}
-
-fn build_remote_action(
-    label: &'static str,
-    action: &'static str,
-    state: &RemoteState,
-    prerequisites_ready: bool,
-    remote_busy: bool,
-) -> RemoteAction {
-    let (state_label, state_class) = match state {
-        RemoteState::Ready => ("Complete", "text-bg-success"),
-        RemoteState::Configuring => ("Authorizing…", "text-bg-warning"),
-        RemoteState::Conflict(_) => ("Conflict", "text-bg-danger"),
-        RemoteState::Error(_) => ("Retry", "text-bg-danger"),
-        RemoteState::Waiting => ("Waiting", "text-bg-secondary"),
-        RemoteState::NotConfigured => ("Setup", "text-bg-primary"),
-    };
-
-    RemoteAction {
-        label,
-        action,
-        state_label,
-        state_class,
-        disabled: !prerequisites_ready
-            || remote_busy
-            || matches!(state, RemoteState::Ready | RemoteState::Conflict(_)),
-        detail: match state {
-            RemoteState::Conflict(error) | RemoteState::Error(error) => error.clone(),
-            RemoteState::Configuring => {
-                "Complete the Google authorization in the browser tab opened by Rclone.".to_string()
-            }
-            _ => String::new(),
-        },
-    }
 }
 
 fn build_metadata_view(

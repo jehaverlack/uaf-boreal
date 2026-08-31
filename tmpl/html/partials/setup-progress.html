@@ -134,6 +134,18 @@
                                         {{ step.state_label }}
                                     </button>
 
+                                    {% else if step.action.len() > 0 %}
+
+                                    <form method="post" action="{{ step.action }}">
+                                        <button
+                                            type="submit"
+                                            class="badge {{ step.state_class }} border-0"
+                                            {% if step.disabled %}disabled{% endif %}
+                                        >
+                                            {{ step.state_label }}
+                                        </button>
+                                    </form>
+
                                     {% else %}
 
                                     <span class="badge {{ step.state_class }}">
@@ -148,35 +160,10 @@
                                     {{ step.description }}
                                 </p>
 
-                                {% if step.remote_actions.len() > 0 %}
-
-                                <div class="d-flex flex-wrap gap-2 mt-3">
-
-                                    {% for remote in step.remote_actions %}
-
-                                    <form method="post" action="{{ remote.action }}">
-                                        <button
-                                            type="submit"
-                                            class="btn btn-sm btn-outline-primary"
-                                            {% if remote.disabled %}disabled{% endif %}
-                                        >
-                                            {{ remote.label }}
-                                            <span class="badge {{ remote.state_class }} ms-1">
-                                                {{ remote.state_label }}
-                                            </span>
-                                        </button>
-
-                                        {% if remote.detail.len() > 0 %}
-                                        <div class="small text-body-secondary mt-1">
-                                            {{ remote.detail }}
-                                        </div>
-                                        {% endif %}
-                                    </form>
-
-                                    {% endfor %}
-
+                                {% if step.detail.len() > 0 %}
+                                <div class="small text-body-secondary mt-1">
+                                    {{ step.detail }}
                                 </div>
-
                                 {% endif %}
 
                             </div>
