@@ -37,6 +37,7 @@ pub struct PrincipalRow {
 
 #[derive(Debug, Clone)]
 pub struct IdentityTag {
+    pub slug: String,
     pub name: String,
     pub color: String,
 }
@@ -229,17 +230,33 @@ pub fn list_principals_filtered(
     drop(statement);
     for principal in &mut principals {
         let mut tag_statement = connection.prepare(
-            "SELECT t.name, t.color
+            "SELECT t.slug, t.name, t.color
              FROM principal_tags pt JOIN tags t ON t.id = pt.tag_id
              WHERE pt.principal_id = ?1 ORDER BY t.name COLLATE NOCASE",
         )?;
         principal.tags = tag_statement
             .query_map([principal.id], |row| Ok(IdentityTag {
-                name: row.get(0)?, color: row.get(1)?,
+                slug: row.get(0)?, name: row.get(1)?, color: row.get(2)?,
             }))?
             .collect::<Result<Vec<_>, _>>()?;
     }
     Ok(principals)
+}
+
+pub fn list_principal_types(database: &Database) -> Result<Vec<String>, DatabaseError> {
+    let connection = database.connect()?;
+    let mut types = ["person", "group", "service_acct", "dept_acct", "other"]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut statement = connection.prepare(
+        "SELECT DISTINCT principal_type FROM principals
+         WHERE principal_type IS NOT NULL AND trim(principal_type) <> ''",
+    )?;
+    for principal_type in statement.query_map([], |row| row.get::<_, String>(0))? {
+        types.insert(principal_type?);
+    }
+    Ok(types.into_iter().collect())
 }
 
 pub fn apply_principal_tag(
@@ -301,6 +318,9 @@ pub fn save_manual_principal(
     let email = email.trim().to_ascii_lowercase();
     if !valid_email(&email) {
         return Err("A valid primary email address is required".into());
+    }
+    if principal_type.trim().is_empty() {
+        return Err("A directory identity type is required".into());
     }
     let principal_type = canonical_principal_type(principal_type);
     let status = if status.trim().is_empty() { "unknown".to_string() } else { normalize_value(status) };
@@ -779,13 +799,14 @@ pub fn record_linked_sheet_failure(
 }
 
 fn canonical_principal_type(value: &str) -> String {
-    match normalize_value(value).as_str() {
+    let normalized = normalize_value(value);
+    match normalized.as_str() {
         "person" | "user" => "person",
         "group" | "google_group" => "group",
         "service_acct" | "service_account" => "service_acct",
         "dept_acct" | "department_account" | "departmental_account" | "departmental_acct" => "dept_acct",
         "other" => "other",
-        _ => "other",
+        _ => normalized.as_str(),
     }
     .to_string()
 }
@@ -880,6 +901,6 @@ mod tests {
         assert_eq!(canonical_principal_type("Google Group"), "group");
         assert_eq!(canonical_principal_type("service account"), "service_acct");
         assert_eq!(canonical_principal_type("departmental_acct"), "dept_acct");
-        assert_eq!(canonical_principal_type("unexpected"), "other");
+        assert_eq!(canonical_principal_type("Staff"), "staff");
     }
 }

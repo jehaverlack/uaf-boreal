@@ -17,6 +17,37 @@
         <div class="alert alert-danger" role="alert"><i class="bi bi-exclamation-triangle-fill me-2"></i>{{ error }}</div>
         {% endif %}
 
+        {% if principal_id > 0 %}
+        <section class="card mb-3" aria-labelledby="directory-entry-tags-heading">
+            <div class="card-body">
+                <h2 class="h5" id="directory-entry-tags-heading">Identity tags</h2>
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    {% for tag in principal_tags %}
+                    <form method="post" action="/directory/principals/{{ principal_id }}/edit/tags/remove" class="d-inline">
+                        <input type="hidden" name="selected_principal_ids" value="{{ principal_id }}">
+                        <input type="hidden" name="tag" value="{{ tag.slug }}">
+                        <button class="badge rounded-pill border-0" style="background-color: {{ tag.color }}; color: #fff" type="submit" title="Remove {{ tag.name }}">
+                            {{ tag.name }} <span class="ms-1" aria-hidden="true">&times;</span><span class="visually-hidden">Remove tag</span>
+                        </button>
+                    </form>
+                    {% endfor %}
+                    {% if principal_tags.is_empty() %}<span class="text-body-secondary small">No tags assigned.</span>{% endif %}
+                </div>
+                <form method="post" action="/directory/principals/{{ principal_id }}/edit/tags" class="d-flex flex-wrap align-items-center gap-2">
+                    <input type="hidden" name="selected_principal_ids" value="{{ principal_id }}">
+                    <label class="form-label mb-0" for="directory-entry-add-tag">Add tag</label>
+                    <select class="form-select form-select-sm w-auto" id="directory-entry-add-tag" name="tag" required>
+                        {% for tag in tags %}<option value="{{ tag.slug }}">{{ tag.name }}</option>{% endfor %}
+                    </select>
+                    <button class="btn btn-sm btn-outline-primary" type="submit"><i class="bi bi-plus-lg me-1"></i>Add</button>
+                    <a class="btn btn-sm btn-link" href="/tags">Manage tags</a>
+                </form>
+            </div>
+        </section>
+        {% else %}
+        <div class="alert alert-light border mb-3"><i class="bi bi-tags me-2"></i>Save this directory entry before assigning identity tags.</div>
+        {% endif %}
+
         <form method="post" action="{{ action }}" class="card">
             <div class="card-body">
                 <div class="row g-3">
@@ -30,13 +61,11 @@
                     </div>
                     <div class="col-md-4">
                         <label class="form-label" for="directory-type">Type</label>
-                        <select class="form-select" id="directory-type" name="principal_type">
-                            <option value="person" {% if principal_type == "person" %}selected{% endif %}>Person</option>
-                            <option value="group" {% if principal_type == "group" %}selected{% endif %}>Google group</option>
-                            <option value="service_acct" {% if principal_type == "service_acct" %}selected{% endif %}>Service account</option>
-                            <option value="dept_acct" {% if principal_type == "dept_acct" %}selected{% endif %}>Department account</option>
-                            <option value="other" {% if principal_type == "other" %}selected{% endif %}>Other</option>
-                        </select>
+                        <input class="form-control" id="directory-type" name="principal_type" value="{{ principal_type }}" list="directory-type-options" required autocomplete="off">
+                        <datalist id="directory-type-options">
+                            {% for item_type in principal_types %}<option value="{{ item_type }}">{% endfor %}
+                        </datalist>
+                        <div class="form-text">Start typing to match an existing type, or enter a new one.</div>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label" for="directory-status">Status</label>
@@ -67,6 +96,7 @@
                 <button class="btn btn-primary" type="submit"><i class="bi bi-check-lg me-1"></i>Save entry</button>
             </div>
         </form>
+
     </div>
 </div>
 

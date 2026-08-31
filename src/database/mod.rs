@@ -439,7 +439,7 @@ mod tests {
             None,
             "new.user@example.edu",
             "New User",
-            "person",
+            "staff",
             "active",
             "",
             "ACEP, UAF",
@@ -451,7 +451,7 @@ mod tests {
             Some(principal_id),
             "new.user@example.edu",
             "Updated User",
-            "person",
+            "staff",
             "departing",
             "2026-12-31",
             "ACEP",
@@ -462,6 +462,7 @@ mod tests {
             .expect("identity should load")
             .expect("identity should exist");
         assert_eq!(principal.display_name, "Updated User");
+        assert_eq!(principal.principal_type, "staff");
         assert_eq!(principal.status, "departing");
         assert_eq!(principal.departure_date, "2026-12-31");
         assert_eq!(principal.organizations, "ACEP");

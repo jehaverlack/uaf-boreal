@@ -346,6 +346,9 @@ struct DirectoryEditTemplate {
     organization: String,
     notes: String,
     error: String,
+    principal_types: Vec<String>,
+    principal_tags: Vec<database::directory::IdentityTag>,
+    tags: Vec<database::inventory::Tag>,
 }
 
 #[allow(dead_code)]
@@ -554,6 +557,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/directory/new", get(new_principal_page).post(create_manual_principal))
         .route("/directory/principals/{principal_id}", get(principal_page))
         .route("/directory/principals/{principal_id}/edit", get(edit_principal_page).post(update_manual_principal))
+        .route("/directory/principals/{principal_id}/edit/tags", post(apply_principal_editor_tag))
+        .route("/directory/principals/{principal_id}/edit/tags/remove", post(remove_principal_editor_tag))
         .route("/directory/tags", post(apply_directory_tag))
         .route("/directory/tags/remove", post(remove_directory_tag))
         .route("/directory/principals/{principal_id}/tags", post(apply_principal_tag))
@@ -1805,6 +1810,28 @@ async fn remove_principal_tag(
     Ok(Redirect::to(&format!("/directory/principals/{principal_id}")))
 }
 
+async fn apply_principal_editor_tag(
+    State(state): State<Arc<AppState>>,
+    Path(principal_id): Path<i64>,
+    Form(form): Form<ApplyPrincipalTagForm>,
+) -> Result<Redirect, StatusCode> {
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::directory::apply_principal_tag(&database, &[principal_id], &form.tag)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    Ok(Redirect::to(&format!("/directory/principals/{principal_id}/edit")))
+}
+
+async fn remove_principal_editor_tag(
+    State(state): State<Arc<AppState>>,
+    Path(principal_id): Path<i64>,
+    Form(form): Form<ApplyPrincipalTagForm>,
+) -> Result<Redirect, StatusCode> {
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::directory::remove_principal_tag(&database, &[principal_id], &form.tag)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    Ok(Redirect::to(&format!("/directory/principals/{principal_id}/edit")))
+}
+
 async fn new_principal_page(
     State(state): State<Arc<AppState>>,
     Query(query): Query<NewPrincipalQuery>,
@@ -1892,6 +1919,19 @@ fn render_principal_editor(
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
     let metadata_state = state.metadata_state();
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let principal_types = database::directory::list_principal_types(&database)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tags = database::inventory::list_tags(&database)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let principal_tags = if principal_id > 0 {
+        database::directory::get_principal(&database, principal_id)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .map(|principal| principal.tags)
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     render_template(&DirectoryEditTemplate {
         title: if is_new { "New Directory Entry - BOREAL".to_string() } else { "Edit Directory Entry - BOREAL".to_string() },
         active_page: "directory",
@@ -1905,6 +1945,7 @@ fn render_principal_editor(
         action: if is_new { "/directory/new".to_string() } else { format!("/directory/principals/{principal_id}/edit") },
         principal_id, email, display_name, principal_type, status, departure_date,
         organization, notes, error,
+        principal_types, principal_tags, tags,
     })
 }
 
