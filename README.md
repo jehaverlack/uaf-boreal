@@ -53,15 +53,15 @@ Download the binary matching your operating system and processor from the
 
 | System | Processor | Download |
 | --- | --- | --- |
-| Linux | x86_64 / AMD64 | [boreal-v0.0.2-linux-x86_64](https://github.com/jehaverlack/uaf-boreal/releases/download/v0.0.2/boreal-v0.0.2-linux-x86_64) |
-| Linux | ARM64 / AArch64 | [boreal-v0.0.2-linux-aarch64](https://github.com/jehaverlack/uaf-boreal/releases/download/v0.0.2/boreal-v0.0.2-linux-aarch64) |
-| Linux | ARMv7 32-bit | [boreal-v0.0.2-linux-armv7](https://github.com/jehaverlack/uaf-boreal/releases/download/v0.0.2/boreal-v0.0.2-linux-armv7) |
-| Windows | x86_64 / AMD64 | [boreal-v0.0.2-windows-x86_64.exe](https://github.com/jehaverlack/uaf-boreal/releases/download/v0.0.2/boreal-v0.0.2-windows-x86_64.exe) |
-| macOS | Apple Silicon / ARM64 | [boreal-v0.0.2-macos-aarch64](https://github.com/jehaverlack/uaf-boreal/releases/download/v0.0.2/boreal-v0.0.2-macos-aarch64) |
-| macOS | Intel x86_64 | [boreal-v0.0.2-macos-x86_64](https://github.com/jehaverlack/uaf-boreal/releases/download/v0.0.2/boreal-v0.0.2-macos-x86_64) |
+| Linux | x86_64 / AMD64 | [boreal-v0.0.2-linux-x86_64](dist/boreal-v0.0.2-linux-x86_64) |
+| Linux | ARM64 / AArch64 | [boreal-v0.0.2-linux-aarch64](dist/boreal-v0.0.2-linux-aarch64) |
+| Linux | ARMv7 32-bit | [boreal-v0.0.2-linux-armv7](dist/boreal-v0.0.2-linux-armv7) |
+| Windows | x86_64 / AMD64 | [boreal-v0.0.2-windows-x86_64.exe](dist/boreal-v0.0.2-windows-x86_64.exe) |
+| macOS | Apple Silicon / ARM64 | [boreal-v0.0.2-macos-aarch64](dist/boreal-v0.0.2-macos-aarch64) |
+| macOS | Intel x86_64 | [boreal-v0.0.2-macos-x86_64](dist/boreal-v0.0.2-macos-x86_64) |
 
 The release also provides
-[SHA256SUMS](https://github.com/jehaverlack/uaf-boreal/releases/download/v0.0.2/SHA256SUMS)
+[SHA256SUMS](dist/SHA256SUMS)
 for verifying downloads.
 
 ### Identify Your Processor
