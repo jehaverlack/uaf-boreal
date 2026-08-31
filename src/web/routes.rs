@@ -136,6 +136,8 @@ struct DashboardTemplate {
     setup_percent: u8,
     poll_rclone: bool,
     metadata: MetadataView,
+    directory_sheet_enabled: bool,
+    directory_sheet_url: String,
 }
 
 #[allow(dead_code)]
@@ -405,6 +407,8 @@ struct SetupProgressTemplate {
     setup_steps: Vec<SetupStep>,
     setup_percent: u8,
     poll_rclone: bool,
+    directory_sheet_enabled: bool,
+    directory_sheet_url: String,
 }
 
 #[allow(dead_code)]
@@ -560,18 +564,22 @@ struct TagForm {
 
 #[derive(serde::Deserialize)]
 struct SettingsForm {
-    #[serde(default)]
-    automatic_updates: Option<String>,
     refresh_interval_hours: u32,
     full_reconciliation_days: u32,
-    #[serde(default)]
-    update_when_overdue_at_startup: Option<String>,
     #[serde(default)]
     permission_scanning: Option<String>,
     #[serde(default)]
     directory_sheet_enabled: Option<String>,
     #[serde(default)]
     directory_sheet_url: String,
+}
+
+#[derive(serde::Deserialize)]
+struct SetupDirectoryForm {
+    #[serde(default)]
+    directory_sheet_url: String,
+    #[serde(default)]
+    skip: Option<String>,
 }
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -616,6 +624,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/ui/drive-summaries", get(ui_drive_summaries))
         .route("/setup/google-client/import", post(import_google_client))
         .route("/setup/remotes/my-drive-ro", post(setup_my_drive_ro))
+        .route("/setup/directory", post(save_setup_directory))
         .route("/metadata/update", post(start_metadata_update))
         .route("/app/quit", post(quit))
 }
@@ -658,8 +667,16 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         authenticated_google_email(&state),
     );
 
-    let (setup_steps, setup_percent) =
-        build_setup_progress(&rclone_state, &google_client_state, &google_remotes_state);
+    let setup_settings = state.database().ok()
+        .and_then(|database| database::settings::load(&database).ok())
+        .unwrap_or_default();
+    let directory_setup_decided = setup_settings.directory_sheet_enabled
+        || state.database().ok()
+            .and_then(|database| database::settings::directory_setup_skipped(&database).ok())
+            .unwrap_or(false);
+    let (setup_steps, setup_percent) = build_setup_progress(
+        &rclone_state, &google_client_state, &google_remotes_state, directory_setup_decided,
+    );
 
     let poll_rclone = should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state);
 
@@ -680,6 +697,8 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
             latest_shared_drives_summary(&state).as_ref(),
             shared_drive_count(&state),
         ),
+        directory_sheet_enabled: setup_settings.directory_sheet_enabled,
+        directory_sheet_url: setup_settings.directory_sheet_url,
     };
 
     render_template(&template)
@@ -689,6 +708,7 @@ fn build_setup_progress(
     rclone_state: &RcloneState,
     google_client_state: &GoogleClientState,
     google_remotes_state: &GoogleRemotesState,
+    directory_setup_decided: bool,
 ) -> (Vec<SetupStep>, u8) {
     let rclone_step = match rclone_state {
         RcloneState::Initializing => SetupStep {
@@ -799,9 +819,9 @@ fn build_setup_progress(
 
     let steps = vec![rclone_step, google_step, remote_step];
 
-    let complete_count = steps.iter().filter(|step| step.complete).count();
-
-    let setup_percent = (complete_count * 100 / steps.len()) as u8;
+    let complete_count = steps.iter().filter(|step| step.complete).count()
+        + usize::from(directory_setup_decided);
+    let setup_percent = (complete_count * 100 / 4) as u8;
 
     (steps, setup_percent)
 }
@@ -1000,10 +1020,10 @@ async fn save_settings(
     Form(form): Form<SettingsForm>,
 ) -> Result<axum::response::Response, StatusCode> {
     let inventory_settings = InventorySettings {
-        automatic_updates: form.automatic_updates.is_some(),
+        automatic_updates: false,
         refresh_interval_hours: form.refresh_interval_hours,
         full_reconciliation_days: form.full_reconciliation_days,
-        update_when_overdue_at_startup: form.update_when_overdue_at_startup.is_some(),
+        update_when_overdue_at_startup: false,
         permission_scanning: form.permission_scanning.is_some(),
         directory_sheet_enabled: form.directory_sheet_enabled.is_some(),
         directory_sheet_url: form.directory_sheet_url.trim().to_string(),
@@ -1033,10 +1053,10 @@ async fn test_directory_sheet(
     Form(form): Form<SettingsForm>,
 ) -> Result<axum::response::Response, StatusCode> {
     let inventory_settings = InventorySettings {
-        automatic_updates: form.automatic_updates.is_some(),
+        automatic_updates: false,
         refresh_interval_hours: form.refresh_interval_hours,
         full_reconciliation_days: form.full_reconciliation_days,
-        update_when_overdue_at_startup: form.update_when_overdue_at_startup.is_some(),
+        update_when_overdue_at_startup: false,
         permission_scanning: form.permission_scanning.is_some(),
         directory_sheet_enabled: form.directory_sheet_enabled.is_some(),
         directory_sheet_url: form.directory_sheet_url.trim().to_string(),
@@ -2288,13 +2308,23 @@ async fn ui_setup_progress(State(state): State<Arc<AppState>>) -> Result<Html<St
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
 
-    let (setup_steps, setup_percent) =
-        build_setup_progress(&rclone_state, &google_client_state, &google_remotes_state);
+    let setup_settings = state.database().ok()
+        .and_then(|database| database::settings::load(&database).ok())
+        .unwrap_or_default();
+    let directory_setup_decided = setup_settings.directory_sheet_enabled
+        || state.database().ok()
+            .and_then(|database| database::settings::directory_setup_skipped(&database).ok())
+            .unwrap_or(false);
+    let (setup_steps, setup_percent) = build_setup_progress(
+        &rclone_state, &google_client_state, &google_remotes_state, directory_setup_decided,
+    );
 
     let template = SetupProgressTemplate {
         setup_steps,
         setup_percent,
         poll_rclone: should_poll_setup(&rclone_state, &google_remotes_state),
+        directory_sheet_enabled: setup_settings.directory_sheet_enabled,
+        directory_sheet_url: setup_settings.directory_sheet_url,
     };
 
     render_template(&template)
@@ -2490,6 +2520,36 @@ async fn import_google_client(
 
 async fn setup_my_drive_ro(State(state): State<Arc<AppState>>) -> Result<Redirect, StatusCode> {
     start_remote_setup(state, RemoteKind::MyDriveRo)
+}
+
+async fn save_setup_directory(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<SetupDirectoryForm>,
+) -> Result<Redirect, StatusCode> {
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let mut settings = database::settings::load(&database)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if form.skip.is_some() {
+        database::settings::set_directory_setup_skipped(&database, true)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        log::info!("Optional directory spreadsheet setup skipped");
+        return Ok(Redirect::to("/"));
+    }
+    let url = form.directory_sheet_url.trim();
+    if !url.is_empty() {
+        crate::rclone::identity::parse_google_sheet_url(url)
+            .map_err(|_| StatusCode::BAD_REQUEST)?;
+    }
+    settings.directory_sheet_enabled = !url.is_empty();
+    settings.directory_sheet_url = url.to_string();
+    settings.automatic_updates = false;
+    settings.update_when_overdue_at_startup = false;
+    database::settings::save(&database, &settings)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    database::settings::set_directory_setup_skipped(&database, false)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    log::info!("Optional setup directory URL {}", if url.is_empty() { "cleared" } else { "saved" });
+    Ok(Redirect::to("/"))
 }
 
 fn start_remote_setup(state: Arc<AppState>, kind: RemoteKind) -> Result<Redirect, StatusCode> {

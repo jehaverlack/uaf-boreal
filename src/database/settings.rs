@@ -23,10 +23,10 @@ pub struct InventorySettings {
 impl Default for InventorySettings {
     fn default() -> Self {
         Self {
-            automatic_updates: true,
+            automatic_updates: false,
             refresh_interval_hours: 24,
             full_reconciliation_days: 7,
-            update_when_overdue_at_startup: true,
+            update_when_overdue_at_startup: false,
             permission_scanning: true,
             directory_sheet_enabled: false,
             directory_sheet_url: String::new(),
@@ -176,6 +176,19 @@ pub fn save(
     Ok(
         (),
     )
+}
+
+pub fn directory_setup_skipped(database: &Database) -> Result<bool, DatabaseError> {
+    let connection = database.connect()?;
+    get_bool(&connection, "directory.setup_skipped", false)
+}
+
+pub fn set_directory_setup_skipped(database: &Database, skipped: bool) -> Result<(), DatabaseError> {
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    set(&transaction, "directory.setup_skipped", bool_value(skipped))?;
+    transaction.commit()?;
+    Ok(())
 }
 
 fn get_bool(

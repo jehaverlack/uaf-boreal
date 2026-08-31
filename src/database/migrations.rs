@@ -71,6 +71,16 @@ const MIGRATIONS: &[Migration] = &[
         name: "shared_drives",
         sql: include_str!("migrations/0009_shared_drives.sql"),
     },
+    Migration {
+        version: 10,
+        name: "manual_metadata_updates",
+        sql: include_str!("migrations/0010_manual_metadata_updates.sql"),
+    },
+    Migration {
+        version: 11,
+        name: "directory_setup_choice",
+        sql: include_str!("migrations/0011_directory_setup_choice.sql"),
+    },
 ];
 
 pub fn apply(

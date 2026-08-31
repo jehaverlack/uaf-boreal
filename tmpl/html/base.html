@@ -111,6 +111,20 @@
             border: 1px dashed #b7791f;
             color: #664d03;
         }
+
+        .navbar .boreal-update-nav {
+            background-color: var(--bs-primary);
+            border-radius: var(--bs-border-radius-sm);
+            color: #fff;
+            margin: .25rem .35rem;
+            padding: .25rem .75rem;
+        }
+
+        .navbar .boreal-update-nav:hover,
+        .navbar .boreal-update-nav:focus {
+            background-color: #0b5ed7;
+            color: #fff;
+        }
     </style>
 
 </head>
@@ -166,12 +180,6 @@
                     </li>
 
                     <li class="nav-item">
-                        <a class="nav-link{% if active_page == "shared-drives" %} active{% endif %}"
-                           {% if active_page == "shared-drives" %}aria-current="page"{% endif %}
-                           href="/shared-drives" title="Explore Shared Drives">Shared Drives</a>
-                    </li>
-
-                    <li class="nav-item">
 
                         <a
                             class="nav-link{% if active_page == "rclone" %} active{% endif %}"
@@ -194,6 +202,12 @@
                         >
                             My Drive
                         </a>
+                    </li>
+
+                    <li class="nav-item">
+                        <a class="nav-link{% if active_page == "shared-drives" %} active{% endif %}"
+                           {% if active_page == "shared-drives" %}aria-current="page"{% endif %}
+                           href="/shared-drives" title="Explore Shared Drives">Shared Drives</a>
                     </li>
 
                     <li class="nav-item">
@@ -231,7 +245,7 @@
 
                     <li class="nav-item">
                         <button
-                            class="nav-link"
+                            class="nav-link boreal-update-nav"
                             type="button"
                             data-bs-toggle="modal"
                             data-bs-target="#metadataUpdateModal"

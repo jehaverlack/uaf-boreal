@@ -277,7 +277,7 @@ mod tests {
 
         assert_eq!(
             migration_count,
-            9,
+            11,
         );
 
         fs::remove_dir_all(
