@@ -17,10 +17,15 @@ analysis.
 | **Author** | John Haverlack |
 | **License** | MIT |
 | **Version** | 0.0.2 |
+| **Maturity** | BETA |
 | **Date** | 2026-08-31 |
 
 > AI Attestation: Generative AI was used in the development of this codebase.
 > The architecture and design goals are those of the author.
+
+## Screenshot
+
+![Boreal Dashboard](docs/boreal-dashboard.png)
 
 ## What BOREAL Does
 

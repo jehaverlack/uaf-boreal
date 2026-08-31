@@ -17,6 +17,7 @@ NAME=$(jq -r '.METADATA.description' metadata.json)
 PROJECT_NAME=$(jq -r '.METADATA.name' metadata.json)
 ABBR=$(jq -r '.METADATA.abbr' metadata.json)
 VERSION=$(jq -r '.METADATA.version' metadata.json)
+MATURITY=$(jq -r '.METADATA.maturity' metadata.json)
 DATE=$(jq -r '.METADATA.version_date' metadata.json)
 AUTHOR=$(jq -r '.METADATA.author' metadata.json)
 LICENSE=$(jq -r '.METADATA.license' metadata.json)
@@ -51,6 +52,7 @@ find_merge() {
   echo "| **Author** | ${AUTHOR} |"
   echo "| **License** | ${LICENSE} |"
   echo "| **Version** | ${VERSION} |"
+  echo "| **Maturity** | ${MATURITY} |"
   echo "| **Date** | ${DATE} |"
   echo ""
 } > "$OUT_FILE"

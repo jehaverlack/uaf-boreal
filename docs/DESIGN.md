@@ -4,6 +4,7 @@
 | **Author** | John Haverlack |
 | **License** | MIT |
 | **Version** | 0.0.2 |
+| **Maturity** | BETA |
 | **Date** | 2026-08-31 |
 
 # BOREAL design

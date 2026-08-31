@@ -29,6 +29,7 @@
       "**Project**": "project",
       "**Description**": "description",
       "**Version**": "version",
+      "**Maturity**": "maturity",
       "**Date**": "version_date",
       "**Author**": "author",
       "**License**": "license",
