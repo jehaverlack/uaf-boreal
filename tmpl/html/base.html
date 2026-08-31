@@ -660,7 +660,7 @@
                     try {
                         const response = await fetch(event.target.action, {
                             method: "POST",
-                            body: new FormData(event.target),
+                            body: new URLSearchParams(new FormData(event.target)),
                         });
                         if (!response.ok) throw new Error("Unable to start metadata update");
                         metadataModalDismissed = false;
