@@ -1,61 +1,100 @@
-# Developer Workflow
+# Developer and Release Workflow
 
-## 1. Start from clean main branch
+The `main` branch represents the most recent released version. Annotated
+`vX.Y.Z` tags preserve each release. Development for the next release occurs on
+a matching `vX.Y.Z` branch.
 
-```bash
-git checkout main
-git pull
-```
+## 1. Develop on the version branch
 
-Ensure no local changes
-
-```bash
-git status -s
-```
-
-## 2. Generate new branch
+Commit and test changes on the active version branch:
 
 ```bash
-./tools/new-version.sh
+git status --short
+cargo check
+cargo test
 ```
 
-## 3. Commit changes
+## 2. Finalize metadata and changelog
 
-```bash
-git add <files>
-git commit -m "feat: <description>"
-```
-
-## 4. Update Changelog
+Update the active changelog entry and propagate current metadata into managed
+files:
 
 ```bash
 ./tools/changelog-update.sh
 ```
 
-**Optionally**: Update changelog.json Summary and Notes
-
-Generate CHANGELOG.md
+Review and edit the active release summary and notes in `changelog.json` when
+needed, then regenerate the Markdown changelog:
 
 ```bash
 ./tools/genmd-changelog.sh
 ```
 
-## 5. Merge into main
+Commit the final documentation and metadata changes before building release
+artifacts.
+
+## 3. Build release binaries
+
+On the macOS build host:
+
+```bash
+./tools/build-release.sh
+```
+
+Copy the versioned macOS binaries from `build/` to the Linux build host's
+`build/` directory.
+
+On the Linux build host:
+
+```bash
+./tools/build-release.sh
+```
+
+The Linux host produces the enabled Linux and Windows targets. The collected
+`build/` directory should then contain every target enabled in `metadata.json`.
+
+## 4. Stage the release
+
+Validate the complete artifact set, copy the versioned binaries into `dist/`,
+and generate `dist/SHA256SUMS`:
+
+```bash
+./tools/stage-release.sh
+```
+
+Smoke-test the staged binaries on their target operating systems before
+publishing the release.
+
+## 5. Merge, tag, and push the release
+
+The version branch and working tree must be clean:
 
 ```bash
 ./tools/main-merge.sh
-```
-
-## 6. Push to GitHub
-
-```bash
 git push origin main
-```
-
-## 7. Push Tags to GitHub
-
-```bash
 git push origin --tags
 ```
 
+`main-merge.sh` merges the version branch into `main`, creates the annotated
+version tag, and removes the local version branch.
 
+## 6. Publish the GitHub release
+
+Create a GitHub release from the new version tag. Upload:
+
+- Every versioned binary from `dist/`.
+- `dist/SHA256SUMS`.
+- Release notes based on the current changelog entry.
+
+Verify that every README download link works after the assets finish uploading.
+
+## 7. Start the next version
+
+From the clean, current `main` branch:
+
+```bash
+./tools/new-version.sh
+```
+
+This creates the next version branch and updates version metadata. README
+release filenames and links are updated by `tools/metadata-update.sh`.

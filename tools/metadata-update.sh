@@ -84,6 +84,25 @@ update_markdown() {
 }
 
 # -----------------------------
+# Update current README release links and filenames
+# -----------------------------
+update_readme_release_links() {
+  local file="$1"
+  local version
+
+  version="$(get_meta version)"
+
+  sed -i -E \
+    -e "s#(releases/tag/v)[0-9]+\.[0-9]+\.[0-9]+#\1${version}#g" \
+    -e "s#(releases/download/v)[0-9]+\.[0-9]+\.[0-9]+#\1${version}#g" \
+    -e "s#(boreal-v)[0-9]+\.[0-9]+\.[0-9]+#\1${version}#g" \
+    -e "s#(BOREAL v)[0-9]+\.[0-9]+\.[0-9]+#\1${version}#g" \
+    "$file"
+
+  echo "Updated README release links for v${version}"
+}
+
+# -----------------------------
 # Update Cargo.toml
 # -----------------------------
 update_cargo_toml() {
@@ -131,6 +150,10 @@ jq -r '.MANIFEST[]' "$META_FILE" | while read -r rel_path; do
       ;;
     *.md)
       update_markdown "$file"
+
+      if [[ "$(basename "$file")" == "README.md" ]]; then
+        update_readme_release_links "$file"
+      fi
       ;;
     *)
       echo "WARN: No handler for $rel_path"
