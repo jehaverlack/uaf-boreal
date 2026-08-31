@@ -3,7 +3,6 @@
 | Attribute | Value |
 | --- | --- |
 | **Author** | John Haverlack |
-| **Copyright** | 2026 University of Alaska Fairbanks |
 | **License** | MIT |
 | **Version** | 0.0.1 |
 | **Date** | 2026-08-27 |
