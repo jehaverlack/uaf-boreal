@@ -83,6 +83,7 @@ pub enum MetadataState {
 
 #[derive(Debug, Clone)]
 pub struct MetadataProgress {
+    pub selection: MetadataUpdateSelection,
     pub phase: String,
     pub files_scanned: u64,
     pub folders_scanned: u64,
@@ -534,6 +535,7 @@ impl AppState {
         );
 
         state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+            selection,
             phase: "Connecting".to_string(),
             files_scanned: 0,
             folders_scanned: 0,
@@ -570,6 +572,7 @@ impl AppState {
                     }
                     if let Some(sheet_url) = directory_sheet_url.as_deref() {
                         worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                            selection,
                             phase: "Downloading directory spreadsheet".to_string(),
                             files_scanned: 0,
                             folders_scanned: 0,
@@ -583,6 +586,7 @@ impl AppState {
                         ) {
                             Ok((location, csv)) => {
                                 worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                                    selection,
                                     phase: "Importing directory spreadsheet".to_string(),
                                     files_scanned: 0,
                                     folders_scanned: 0,
@@ -626,6 +630,7 @@ impl AppState {
                     }
                     let items = if selection.my_drive {
                         worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                            selection,
                             phase: "Fetching My Drive metadata".to_string(),
                             files_scanned: 0, folders_scanned: 0, permissions_scanned: 0,
                             bytes_discovered: 0, errors: 0,
@@ -661,6 +666,7 @@ impl AppState {
                     let mut shared_drives_summary = database::inventory::InventorySummary::default();
                     if selection.shared_drives {
                     worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                        selection,
                         phase: "Discovering Shared Drives".to_string(),
                         files_scanned: files,
                         folders_scanned: folders,
@@ -680,6 +686,7 @@ impl AppState {
                     let mut shared_drive_errors = 0_u64;
                     for (index, drive) in shared_drives.iter().enumerate() {
                         worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                            selection,
                             phase: format!(
                                 "Scanning Shared Drive {} of {}: {}",
                                 index + 1, shared_drives.len(), drive.name,
@@ -738,6 +745,7 @@ impl AppState {
                     }
                     let shared_items = if selection.shared_with_me {
                     worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                        selection,
                         phase: "Fetching Shared with me metadata".to_string(),
                         files_scanned: files,
                         folders_scanned: folders,
@@ -754,6 +762,7 @@ impl AppState {
                     } else { Vec::new() };
                     let my_drive_summary = if selection.my_drive {
                     worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                        selection,
                         phase: "Saving My Drive metadata".to_string(),
                         files_scanned: files,
                         folders_scanned: folders,
@@ -770,6 +779,7 @@ impl AppState {
                     } else { database::inventory::latest_summary(&database)?.unwrap_or_default() };
                     let shared_summary = if selection.shared_with_me {
                     worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                        selection,
                         phase: "Saving Shared with me metadata".to_string(),
                         files_scanned: my_drive_summary.files_scanned,
                         folders_scanned: my_drive_summary.folders_scanned,

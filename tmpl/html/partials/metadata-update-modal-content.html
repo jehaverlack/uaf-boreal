@@ -14,21 +14,23 @@
     </div>
     <div class="modal-body">
         {% if metadata.updating %}
-        <p class="mb-2"><strong>{{ metadata.phase }}</strong></p>
         <p class="text-body-secondary">
             Large Drives can take up to an hour. Please be patient and keep BOREAL running. You may continue using the application while this completes.
         </p>
-        <div class="progress mb-2" role="progressbar" aria-label="Approximate metadata update progress" aria-valuenow="{{ progress_percent }}" aria-valuemin="0" aria-valuemax="100">
-            <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: {{ progress_percent }}%">{{ progress_percent }}%</div>
+        <div class="vstack gap-3 mb-3">
+            {% for scope in scopes %}
+            <div class="{% if !scope.selected %}opacity-50{% endif %}">
+                <div class="d-flex justify-content-between align-items-center small mb-1">
+                    <strong>{{ scope.name }}</strong>
+                    <span>{% if scope.active %}<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>{% endif %}{{ scope.status }}</span>
+                </div>
+                <div class="progress" role="progressbar" aria-label="{{ scope.name }} progress" aria-valuenow="{{ scope.percent }}" aria-valuemin="0" aria-valuemax="100">
+                    <div class="progress-bar{% if scope.active %} progress-bar-striped progress-bar-animated{% else if scope.complete %} bg-success{% endif %}" style="width: {{ scope.percent }}%">{% if scope.percent > 0 %}{{ scope.percent }}%{% endif %}</div>
+                </div>
+                {% if scope.selected %}<div class="small text-body-secondary mt-1">{{ scope.elapsed_label }}{% if scope.estimate_label.len() > 0 %} &middot; {{ scope.estimate_label }}{% endif %}</div>{% endif %}
+            </div>
+            {% endfor %}
         </div>
-        {% if timing_available %}
-        <div class="small text-body-secondary mb-3">
-            {{ elapsed_label }} elapsed &middot; about {{ remaining_label }} remaining &middot;
-            {{ estimated_total_label }} average from {{ timing_samples }} previous update{% if timing_samples != 1 %}s{% endif %}.
-        </div>
-        {% else %}
-        <div class="small text-body-secondary mb-3">Approximate progress based on the current update phase. A time estimate will appear after one update completes.</div>
-        {% endif %}
         <div class="row g-2 small">
             <div class="col-6"><strong>{{ metadata.progress_files_scanned }}</strong> files scanned</div>
             <div class="col-6"><strong>{{ metadata.progress_folders_scanned }}</strong> folders scanned</div>

@@ -430,13 +430,20 @@ struct MetadataProgressTemplate {
 )]
 struct MetadataUpdateModalTemplate {
     metadata: MetadataView,
-    progress_percent: u8,
-    timing_available: bool,
-    elapsed_label: String,
-    estimated_total_label: String,
-    remaining_label: String,
-    timing_samples: u64,
+    scopes: Vec<MetadataScopeProgressView>,
     directory_available: bool,
+}
+
+#[allow(dead_code)]
+struct MetadataScopeProgressView {
+    name: &'static str,
+    selected: bool,
+    active: bool,
+    complete: bool,
+    status: String,
+    percent: u8,
+    elapsed_label: String,
+    estimate_label: String,
 }
 
 #[allow(dead_code)]
@@ -2642,16 +2649,7 @@ async fn ui_metadata_update_modal(
     let metadata_state = state.metadata_state();
     let shared_summary = latest_shared_summary(&state);
     let available = matches!(remotes.ro, RemoteState::Ready);
-    let timing = if matches!(metadata_state, MetadataState::Updating(_)) {
-        state.database().ok().and_then(|database| {
-            database::inventory::scan_timing_estimate(&database, "shared-with-me")
-                .ok()
-                .flatten()
-        })
-    } else {
-        None
-    };
-    let progress_percent = metadata_progress_percent(&metadata_state, timing.as_ref());
+    let scopes = metadata_scope_progress_views(&state, &metadata_state);
 
     render_template(&MetadataUpdateModalTemplate {
         metadata: build_metadata_view(
@@ -2663,18 +2661,7 @@ async fn ui_metadata_update_modal(
             latest_shared_drives_summary(&state).as_ref(),
             shared_drive_count(&state),
         ),
-        progress_percent,
-        timing_available: timing.is_some(),
-        elapsed_label: format_duration(timing.map(|value| value.elapsed_seconds).unwrap_or(0)),
-        estimated_total_label: format_duration(
-            timing.map(|value| value.average_seconds).unwrap_or(0),
-        ),
-        remaining_label: format_duration(
-            timing
-                .map(|value| value.average_seconds.saturating_sub(value.elapsed_seconds))
-                .unwrap_or(0),
-        ),
-        timing_samples: timing.map(|value| value.sample_count).unwrap_or(0),
+        scopes,
         directory_available: state
             .database()
             .ok()
@@ -2686,33 +2673,154 @@ async fn ui_metadata_update_modal(
     })
 }
 
-fn metadata_progress_percent(
-    state: &MetadataState,
-    timing: Option<&database::inventory::ScanTimingEstimate>,
-) -> u8 {
-    let phase_percent = match state {
-        MetadataState::Updating(progress) => match progress.phase.as_str() {
-            "Connecting" => 5,
-            "Downloading directory spreadsheet" => 8,
-            "Importing directory spreadsheet" => 12,
-            "Fetching My Drive metadata" => 15,
-            "Discovering Shared Drives" => 30,
-            "Fetching Shared Drive metadata" => 45,
-            "Fetching Shared with me metadata" => 65,
-            "Saving My Drive metadata" => 75,
-            "Saving Shared with me metadata" => 90,
-            phase if phase.starts_with("Scanning Shared Drive ") => 45,
-            _ => 10,
-        },
-        MetadataState::Synchronized(_) => 100,
-        _ => 0,
+fn metadata_scope_progress_views(
+    state: &AppState,
+    metadata_state: &MetadataState,
+) -> Vec<MetadataScopeProgressView> {
+    let MetadataState::Updating(progress) = metadata_state else {
+        return Vec::new();
     };
-    let elapsed_percent = timing
-        .map(|value| {
-            ((value.elapsed_seconds.saturating_mul(100) / value.average_seconds).min(95)) as u8
-        })
-        .unwrap_or(0);
-    phase_percent.max(elapsed_percent)
+    let phase = progress.phase.as_str();
+    let selection = progress.selection;
+    let shared_drive_percent = if let Some(rest) = phase.strip_prefix("Scanning Shared Drive ") {
+        rest.split_once(" of ")
+            .and_then(|(current, rest)| {
+                let total = rest.split(':').next()?.trim().parse::<u64>().ok()?;
+                let current = current.trim().parse::<u64>().ok()?;
+                (total > 0).then_some((10 + current.saturating_mul(80) / total).min(90) as u8)
+            })
+            .unwrap_or(45)
+    } else {
+        20
+    };
+
+    let directory = if matches!(
+        phase,
+        "Downloading directory spreadsheet" | "Importing directory spreadsheet"
+    ) {
+        (
+            true,
+            false,
+            if phase.starts_with("Downloading") {
+                40
+            } else {
+                80
+            },
+            phase.to_string(),
+        )
+    } else if phase == "Connecting" {
+        (false, false, 0, "Waiting".to_string())
+    } else {
+        (false, true, 100, "Complete".to_string())
+    };
+    let my_drive = match phase {
+        "Fetching My Drive metadata" => (true, false, 40, phase.to_string()),
+        "Saving My Drive metadata" => (true, false, 85, phase.to_string()),
+        "Saving Shared with me metadata" => (false, true, 100, "Complete".to_string()),
+        "Connecting" | "Downloading directory spreadsheet" | "Importing directory spreadsheet" => {
+            (false, false, 0, "Waiting".to_string())
+        }
+        _ => (false, false, 65, "Downloaded; waiting to index".to_string()),
+    };
+    let shared_drives =
+        if phase == "Discovering Shared Drives" || phase.starts_with("Scanning Shared Drive ") {
+            (true, false, shared_drive_percent, phase.to_string())
+        } else if matches!(
+            phase,
+            "Fetching Shared with me metadata"
+                | "Saving My Drive metadata"
+                | "Saving Shared with me metadata"
+        ) {
+            (false, true, 100, "Complete".to_string())
+        } else {
+            (false, false, 0, "Waiting".to_string())
+        };
+    let shared_with_me = match phase {
+        "Fetching Shared with me metadata" => (true, false, 45, phase.to_string()),
+        "Saving My Drive metadata" => {
+            (false, false, 65, "Downloaded; waiting to index".to_string())
+        }
+        "Saving Shared with me metadata" => (true, false, 85, phase.to_string()),
+        _ => (false, false, 0, "Waiting".to_string()),
+    };
+
+    [
+        ("My Drive", selection.my_drive, "my-drive", my_drive),
+        (
+            "Shared Drives",
+            selection.shared_drives,
+            "shared-drives",
+            shared_drives,
+        ),
+        (
+            "Shared with me",
+            selection.shared_with_me,
+            "shared-with-me",
+            shared_with_me,
+        ),
+        ("Directory Info", selection.directory_info, "", directory),
+    ]
+    .into_iter()
+    .map(
+        |(name, selected, scan_type, (mut active, mut complete, mut percent, mut status))| {
+            if !selected {
+                active = false;
+                complete = false;
+                percent = 0;
+                status = "Not requested".to_string();
+            }
+            let timing = selected
+                .then(|| state.database().ok())
+                .flatten()
+                .and_then(|database| {
+                    (!scan_type.is_empty())
+                        .then(|| {
+                            database::inventory::scan_timing_estimate(&database, scan_type)
+                                .ok()
+                                .flatten()
+                        })
+                        .flatten()
+                });
+            if active {
+                if let Some(timing) = timing.as_ref() {
+                    let time_percent = (timing.elapsed_seconds.saturating_mul(100)
+                        / timing.average_seconds.max(1))
+                    .min(95) as u8;
+                    percent = percent.max(time_percent);
+                }
+            }
+            MetadataScopeProgressView {
+                name,
+                selected,
+                active,
+                complete,
+                status,
+                percent,
+                elapsed_label: timing
+                    .as_ref()
+                    .map(|value| format!("{} elapsed", format_duration(value.elapsed_seconds)))
+                    .unwrap_or_else(|| {
+                        if active {
+                            "Timing this update…".to_string()
+                        } else {
+                            String::new()
+                        }
+                    }),
+                estimate_label: timing
+                    .as_ref()
+                    .map(|value| {
+                        format!(
+                            "about {} average from {} update{}",
+                            format_duration(value.average_seconds),
+                            value.sample_count,
+                            if value.sample_count == 1 { "" } else { "s" }
+                        )
+                    })
+                    .unwrap_or_default(),
+            }
+        },
+    )
+    .collect()
 }
 
 fn format_duration(seconds: u64) -> String {
@@ -3119,6 +3227,12 @@ mod tests {
             deleted_items: 0,
         };
         let state = MetadataState::Updating(MetadataProgress {
+            selection: crate::app::MetadataUpdateSelection {
+                my_drive: false,
+                shared_drives: true,
+                shared_with_me: false,
+                directory_info: false,
+            },
             phase: "Scanning Shared Drive 1 of 1: Research".to_string(),
             files_scanned: 500,
             folders_scanned: 75,
