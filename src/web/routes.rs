@@ -308,6 +308,8 @@ struct SharedDrivesTemplate {
     status_items: Vec<StatusItem>,
     poll_rclone: bool,
     drives: Vec<SharedDriveView>,
+    show_inaccessible: bool,
+    inaccessible_count: usize,
 }
 
 #[allow(dead_code)]
@@ -517,6 +519,8 @@ struct DrivePathQuery {
     permission_identity_tag: String,
     #[serde(default)]
     include_deleted: bool,
+    #[serde(default)]
+    show_inaccessible: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -1416,9 +1420,15 @@ async fn shared_drives_page(
         .database()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     if query.drive.is_empty() {
-        let drives = database::inventory::list_shared_drives(&database)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        let all_drives = database::inventory::list_shared_drives(&database)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let inaccessible_count = all_drives
+            .iter()
+            .filter(|drive| !drive.is_accessible)
+            .count();
+        let drives = all_drives
             .into_iter()
+            .filter(|drive| query.show_inaccessible || drive.is_accessible)
             .map(|drive| SharedDriveView {
                 drive_id: drive.drive_id,
                 name: drive.name,
@@ -1449,6 +1459,8 @@ async fn shared_drives_page(
             ),
             poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
             drives,
+            show_inaccessible: query.show_inaccessible,
+            inaccessible_count,
         });
     }
     let drive = database::inventory::get_shared_drive(&database, &query.drive)
