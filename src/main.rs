@@ -47,10 +47,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     AppState::initialize_rclone(Arc::clone(&state));
 
-    state.wait_for_initialization().await;
-
-    println!("BOREAL initialization checks completed.");
-
     let web_result = web::run(Arc::clone(&state)).await;
 
     state.request_shutdown();

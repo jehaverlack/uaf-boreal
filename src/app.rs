@@ -258,6 +258,8 @@ impl AppState {
             match state.rclone.write() {
                 Ok(mut rclone) => {
                     *rclone = new_state;
+
+                    println!("BOREAL initialization checks completed.");
                 }
 
                 Err(error) => {
@@ -274,19 +276,6 @@ impl AppState {
             Err(error) => {
                 RcloneState::Error(format!("Unable to read Rclone application state: {error}"))
             }
-        }
-    }
-
-    /// Wait until the asynchronous startup check has produced a final Rclone
-    /// state. The WebUI uses this boundary before opening the dashboard so the
-    /// first page never races the initialization sequence.
-    pub async fn wait_for_initialization(&self) {
-        loop {
-            if !matches!(self.rclone_state(), RcloneState::Initializing) {
-                return;
-            }
-
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
     }
 
