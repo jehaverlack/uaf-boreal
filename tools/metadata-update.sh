@@ -95,6 +95,7 @@ update_readme_release_links() {
   sed -i -E \
     -e "s#(releases/tag/v)[0-9]+\.[0-9]+\.[0-9]+#\1${version}#g" \
     -e "s#(releases/download/v)[0-9]+\.[0-9]+\.[0-9]+#\1${version}#g" \
+    -e "s#(refs/tags/v)[0-9]+\.[0-9]+\.[0-9]+#\1${version}#g" \
     -e "s#(boreal-v)[0-9]+\.[0-9]+\.[0-9]+#\1${version}#g" \
     -e "s#(BOREAL v)[0-9]+\.[0-9]+\.[0-9]+#\1${version}#g" \
     "$file"
