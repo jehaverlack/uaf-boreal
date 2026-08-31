@@ -46,6 +46,20 @@ root privileges for normal use. The WebUI listens only on the local machine.
 BOREAL is not a replacement for Rclone. Rclone performs Google Drive access;
 BOREAL adds a local administrative, inventory, and audit interface.
 
+## Use Cases
+
+BOREAL can help answer questions such as:
+
+- Which files in **Shared with me** belong to former users and may be at risk
+  of being purged?
+- Which large files in **My Drive** can be migrated or deleted?
+- If I am leaving UAF or a department, which permissions should be transferred
+  or removed?
+- Which permissions held by former users still need to be removed?
+- Which **My Drive** or **Shared Drive** documents need to be handed off to
+  someone else?
+- Which **My Drive** documents should be moved to a **Shared Drive**?
+
 ## Download
 
 Download the binary matching your operating system and processor from the
