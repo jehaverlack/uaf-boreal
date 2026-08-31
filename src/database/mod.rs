@@ -372,22 +372,11 @@ mod tests {
             false,
         )
         .expect("first Shared Drive should synchronize");
-        let mut root_metadata = BTreeMap::new();
-        root_metadata.insert(
-            "permissions".to_string(),
-            r#"[{"id":"manager-1","type":"user","role":"organizer","emailAddress":"manager@example.edu"},{"id":"viewer-1","type":"user","role":"reader","emailAddress":"viewer@example.edu"}]"#.to_string(),
-        );
-        let root_item = DriveItem {
-            id: "drive-a".to_string(),
-            name: "Projects".to_string(),
-            path: String::new(),
-            is_dir: true,
-            size: -1,
-            mime_type: "inode/directory".to_string(),
-            mod_time: String::new(),
-            metadata: root_metadata,
-        };
-        inventory::record_shared_drive_permissions(&database, "drive-a", &root_item)
+        let root_permissions = serde_json::from_str::<Vec<serde_json::Value>>(
+            r#"[{"id":"manager-1","type":"user","role":"organizer","emailAddress":"manager@example.edu"},{"id":"viewer-1","type":"user","role":"reader","emailAddress":"viewer@example.edu"}]"#,
+        )
+        .expect("root permissions should parse");
+        inventory::record_shared_drive_permissions(&database, "drive-a", &root_permissions)
             .expect("Shared Drive root permissions should synchronize");
         let mut second_item = item;
         second_item.id = "file-b".to_string();

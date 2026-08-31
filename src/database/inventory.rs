@@ -273,7 +273,7 @@ pub fn record_shared_drive_scan(
 pub fn record_shared_drive_permissions(
     database: &Database,
     drive_id: &str,
-    root: &DriveItem,
+    drive_permissions: &[Value],
 ) -> Result<(), DatabaseError> {
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
@@ -281,7 +281,7 @@ pub fn record_shared_drive_permissions(
         "DELETE FROM shared_drive_permissions WHERE drive_id = ?1",
         [drive_id],
     )?;
-    for permission in permissions(root)? {
+    for permission in drive_permissions {
         transaction.execute(
             "INSERT INTO shared_drive_permissions (
                 drive_id, permission_key, permission_id, permission_type, role,

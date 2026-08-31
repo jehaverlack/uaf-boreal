@@ -702,13 +702,19 @@ impl AppState {
                             index + 1, shared_drives.len(), drive.id, drive.name,
                         );
                         let drive_scan_id = database.start_scan_run(&format!("shared-drive:{}", drive.id))?;
-                        let shared_drive_root = if permission_scanning {
-                            match rclone::inventory::fetch_shared_drive_root(
+                        let shared_drive_permissions = if permission_scanning {
+                            match rclone::identity::fetch_shared_drive_permissions(
                                 &worker_state.runtime,
-                                &rclone_path,
                                 &drive.id,
                             ) {
-                                Ok(root) => Some(root),
+                                Ok(permissions) => {
+                                    log::info!(
+                                        "Shared Drive membership fetched: drive_id={}, permissions={}",
+                                        drive.id,
+                                        permissions.len(),
+                                    );
+                                    Some(permissions)
+                                }
                                 Err(error) => {
                                     log::warn!(
                                         "Unable to refresh Shared Drive root permissions: drive_id={}, name={}, error={error}",
@@ -732,11 +738,11 @@ impl AppState {
                                 &drive_items,
                                 permission_scanning,
                             ).map_err(|error| error.to_string())?;
-                            if let Some(root) = shared_drive_root.as_ref() {
+                            if let Some(permissions) = shared_drive_permissions.as_ref() {
                                 database::inventory::record_shared_drive_permissions(
                                     &database,
                                     &drive.id,
-                                    root,
+                                    permissions,
                                 ).map_err(|error| error.to_string())?;
                             }
                             Ok(summary)

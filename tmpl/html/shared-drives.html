@@ -11,6 +11,7 @@
     </div>
 
     <form id="shared-drive-filter-form" method="get" action="/shared-drives" class="row g-2 align-items-center mb-3" role="search">
+        <input type="hidden" id="shared-drive-sort" name="sort" value="{{ sort }}"><input type="hidden" id="shared-drive-direction" name="direction" value="{{ direction }}">
         <div class="col-auto"><button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-funnel me-1"></i>Apply filters</button></div>
         <div class="col-auto"><a class="btn btn-sm btn-outline-secondary" href="/shared-drives">Clear</a></div>
         <div class="col-auto form-check ms-2"><input class="form-check-input" type="checkbox" id="show-inaccessible-shared-drives" name="show_inaccessible" value="true" {% if show_inaccessible %}checked{% endif %} onchange="this.form.submit()"><label class="form-check-label text-nowrap small" for="show-inaccessible-shared-drives">Show inaccessible{% if inaccessible_count > 0 %} ({{ inaccessible_count }}){% endif %}</label></div>
@@ -30,7 +31,7 @@
     </div></div></section>
 
     <form method="post" action="/shared-drives/manage-tags" class="d-flex flex-column flex-grow-1 overflow-hidden">
-        <input type="hidden" name="q" value="{{ search }}"><input type="hidden" name="tag_filter" value="{{ tag_filter }}"><input type="hidden" name="show_inaccessible" value="{{ show_inaccessible }}"><input type="hidden" name="files_filter" value="{{ files_filter }}"><input type="hidden" name="folders_filter" value="{{ folders_filter }}"><input type="hidden" name="size_filter" value="{{ size_filter }}"><input type="hidden" name="manager_filter" value="{{ manager_filter }}"><input type="hidden" name="permissions_filter" value="{{ permissions_filter }}"><input type="hidden" id="shared-drive-selected-ids" name="selected_drive_ids" value="">
+        <input type="hidden" name="q" value="{{ search }}"><input type="hidden" name="tag_filter" value="{{ tag_filter }}"><input type="hidden" name="show_inaccessible" value="{{ show_inaccessible }}"><input type="hidden" name="files_filter" value="{{ files_filter }}"><input type="hidden" name="folders_filter" value="{{ folders_filter }}"><input type="hidden" name="size_filter" value="{{ size_filter }}"><input type="hidden" name="manager_filter" value="{{ manager_filter }}"><input type="hidden" name="permissions_filter" value="{{ permissions_filter }}"><input type="hidden" name="sort" value="{{ sort }}"><input type="hidden" name="direction" value="{{ direction }}"><input type="hidden" id="shared-drive-selected-ids" name="selected_drive_ids" value="">
         <div class="d-flex align-items-center gap-2 mb-2">
             <label class="small fw-semibold" for="shared-drive-apply-tag">Apply tag to selected:</label>
             <select id="shared-drive-apply-tag" class="form-select form-select-sm w-auto" name="tag" required>{% for tag in tags %}<option value="{{ tag.slug }}">{{ tag.name }}</option>{% endfor %}</select>
@@ -42,15 +43,16 @@
         <div class="card boreal-explorer-card flex-grow-1 overflow-hidden">
             <div class="table-responsive boreal-explorer-table">
                 <table class="table table-hover align-middle mb-0">
+                    <colgroup><col style="width:3rem"><col class="boreal-shared-name"><col class="boreal-shared-tags"><col class="boreal-shared-count"><col class="boreal-shared-count"><col class="boreal-shared-size"><col class="boreal-shared-managers"><col class="boreal-shared-permissions"></colgroup>
                     <thead class="table-light"><tr>
                         <th class="text-center" style="width: 3rem"><input class="form-check-input" type="checkbox" id="shared-drive-select-all" title="Select all visible Shared Drives" aria-label="Select all visible Shared Drives"></th>
-                        <th>Name / Drive ID<input class="form-control form-control-sm mt-1" form="shared-drive-filter-form" type="search" name="q" value="{{ search }}" placeholder="Name or ID" aria-label="Filter by Drive name or ID"></th>
-                        <th>Tags<select class="form-select form-select-sm mt-1" form="shared-drive-filter-form" name="tag" aria-label="Filter by tag"><option value="">All</option>{% for tag in tags %}<option value="{{ tag.slug }}" {% if tag_filter == tag.slug %}selected{% endif %}>{{ tag.name }}</option>{% endfor %}</select></th>
-                        <th>Files<input class="form-control form-control-sm mt-1" form="shared-drive-filter-form" name="files_filter" value="{{ files_filter }}" placeholder=">100" aria-label="Filter by file count"></th>
-                        <th>Folders<input class="form-control form-control-sm mt-1" form="shared-drive-filter-form" name="folders_filter" value="{{ folders_filter }}" placeholder=">10" aria-label="Filter by folder count"></th>
-                        <th>Total size<input class="form-control form-control-sm mt-1" form="shared-drive-filter-form" name="size_filter" value="{{ size_filter }}" placeholder=">5GB" aria-label="Filter by total size"></th>
-                        <th>Managers<input class="form-control form-control-sm mt-1" form="shared-drive-filter-form" type="search" name="shared_drive_manager_filter" value="{{ manager_filter }}" placeholder="Manager email" aria-label="Filter by Shared Drive manager"></th>
-                        <th>Permissions<input class="form-control form-control-sm mt-1" form="shared-drive-filter-form" type="search" name="shared_drive_permission_filter" value="{{ permissions_filter }}" placeholder="User or group" aria-label="Filter by permitted user or group"></th>
+                        <th><button class="btn btn-link p-0 fw-semibold text-body text-decoration-none" type="button" onclick="sortSharedDrives('name')">Name / Drive ID {% if sort == "name" %}<i class="bi bi-sort-{% if direction == "desc" %}down{% else %}up{% endif %}"></i>{% endif %}</button><input class="form-control form-control-sm mt-1" form="shared-drive-filter-form" type="search" name="q" value="{{ search }}" placeholder="Name or ID" aria-label="Filter by Drive name or ID"></th>
+                        <th><button class="btn btn-link p-0 fw-semibold text-body text-decoration-none" type="button" onclick="sortSharedDrives('tags')">Tags {% if sort == "tags" %}<i class="bi bi-sort-{% if direction == "desc" %}down{% else %}up{% endif %}"></i>{% endif %}</button><select class="form-select form-select-sm mt-1" form="shared-drive-filter-form" name="tag" aria-label="Filter by tag"><option value="">All</option>{% for tag in tags %}<option value="{{ tag.slug }}" {% if tag_filter == tag.slug %}selected{% endif %}>{{ tag.name }}</option>{% endfor %}</select></th>
+                        <th><button class="btn btn-link p-0 fw-semibold text-body text-decoration-none" type="button" onclick="sortSharedDrives('files')">Files {% if sort == "files" %}<i class="bi bi-sort-{% if direction == "desc" %}down{% else %}up{% endif %}"></i>{% endif %}</button><input class="form-control form-control-sm mt-1" form="shared-drive-filter-form" name="files_filter" value="{{ files_filter }}" placeholder=">100" aria-label="Filter by file count"></th>
+                        <th><button class="btn btn-link p-0 fw-semibold text-body text-decoration-none" type="button" onclick="sortSharedDrives('folders')">Folders {% if sort == "folders" %}<i class="bi bi-sort-{% if direction == "desc" %}down{% else %}up{% endif %}"></i>{% endif %}</button><input class="form-control form-control-sm mt-1" form="shared-drive-filter-form" name="folders_filter" value="{{ folders_filter }}" placeholder=">10" aria-label="Filter by folder count"></th>
+                        <th><button class="btn btn-link p-0 fw-semibold text-body text-decoration-none" type="button" onclick="sortSharedDrives('size')">Total size {% if sort == "size" %}<i class="bi bi-sort-{% if direction == "desc" %}down{% else %}up{% endif %}"></i>{% endif %}</button><input class="form-control form-control-sm mt-1" form="shared-drive-filter-form" name="size_filter" value="{{ size_filter }}" placeholder=">5GB" aria-label="Filter by total size"></th>
+                        <th><button class="btn btn-link p-0 fw-semibold text-body text-decoration-none" type="button" onclick="sortSharedDrives('managers')">Managers {% if sort == "managers" %}<i class="bi bi-sort-{% if direction == "desc" %}down{% else %}up{% endif %}"></i>{% endif %}</button><input class="form-control form-control-sm mt-1" form="shared-drive-filter-form" type="search" name="shared_drive_manager_filter" value="{{ manager_filter }}" placeholder="Manager email" aria-label="Filter by Shared Drive manager"></th>
+                        <th><button class="btn btn-link p-0 fw-semibold text-body text-decoration-none" type="button" onclick="sortSharedDrives('permissions')">Permissions {% if sort == "permissions" %}<i class="bi bi-sort-{% if direction == "desc" %}down{% else %}up{% endif %}"></i>{% endif %}</button><input class="form-control form-control-sm mt-1" form="shared-drive-filter-form" type="search" name="shared_drive_permission_filter" value="{{ permissions_filter }}" placeholder="User or group" aria-label="Filter by permitted user or group"></th>
                     </tr></thead>
                     <tbody>
                         {% for drive in drives %}
@@ -72,6 +74,15 @@
 </div>
 
 <script>
+    function sortSharedDrives(column) {
+        const form = document.getElementById("shared-drive-filter-form");
+        const sort = document.getElementById("shared-drive-sort");
+        const direction = document.getElementById("shared-drive-direction");
+        direction.value = sort.value === column && direction.value === "asc" ? "desc" : "asc";
+        sort.value = column;
+        form.submit();
+    }
+
     window.addEventListener("DOMContentLoaded", () => {
         document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((element) => {
             bootstrap.Tooltip.getOrCreateInstance(element);

@@ -327,6 +327,8 @@ struct SharedDrivesTemplate {
     size_filter: String,
     manager_filter: String,
     permissions_filter: String,
+    sort: String,
+    direction: String,
     error: String,
     summary: ExplorerSummary,
 }
@@ -594,6 +596,10 @@ struct SharedDriveTagForm {
     manager_filter: String,
     #[serde(default)]
     permissions_filter: String,
+    #[serde(default)]
+    sort: String,
+    #[serde(default)]
+    direction: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -1495,10 +1501,51 @@ async fn shared_drives_page(
             .iter()
             .filter(|drive| !drive.is_accessible)
             .count();
-        let filtered_drives = all_drives
+        let mut filtered_drives = all_drives
             .into_iter()
             .filter(|drive| query.show_inaccessible || drive.is_accessible)
             .collect::<Vec<_>>();
+        let sort = match query.sort.as_str() {
+            "tags" | "files" | "folders" | "size" | "managers" | "permissions" => {
+                query.sort.clone()
+            }
+            _ => "name".to_string(),
+        };
+        filtered_drives.sort_by(|left, right| {
+            let ordering = match sort.as_str() {
+                "tags" => left
+                    .tags
+                    .first()
+                    .map(|tag| tag.name.to_ascii_lowercase())
+                    .cmp(&right.tags.first().map(|tag| tag.name.to_ascii_lowercase())),
+                "files" => left.files_scanned.cmp(&right.files_scanned),
+                "folders" => left.folders_scanned.cmp(&right.folders_scanned),
+                "size" => left.bytes_discovered.cmp(&right.bytes_discovered),
+                "managers" => {
+                    shared_drive_manager_sort_key(left).cmp(&shared_drive_manager_sort_key(right))
+                }
+                "permissions" => left
+                    .permission_identities
+                    .first()
+                    .map(|identity| identity.label.to_ascii_lowercase())
+                    .cmp(
+                        &right
+                            .permission_identities
+                            .first()
+                            .map(|identity| identity.label.to_ascii_lowercase()),
+                    ),
+                _ => left
+                    .name
+                    .to_ascii_lowercase()
+                    .cmp(&right.name.to_ascii_lowercase()),
+            };
+            if query.direction.eq_ignore_ascii_case("desc") {
+                ordering.reverse()
+            } else {
+                ordering
+            }
+            .then_with(|| left.drive_id.cmp(&right.drive_id))
+        });
         let summary_size = filtered_drives
             .iter()
             .map(|drive| drive.bytes_discovered)
@@ -1594,6 +1641,12 @@ async fn shared_drives_page(
             size_filter: query.size_filter,
             manager_filter: query.shared_drive_manager_filter,
             permissions_filter: query.shared_drive_permission_filter,
+            sort,
+            direction: if query.direction.eq_ignore_ascii_case("desc") {
+                "desc".to_string()
+            } else {
+                "asc".to_string()
+            },
             error,
             summary,
         });
@@ -1618,6 +1671,20 @@ async fn shared_drives_page(
         "/shared-drives/tags/remove",
         drive.drive_id,
     )
+}
+
+fn shared_drive_manager_sort_key(drive: &database::inventory::SharedDriveRow) -> Option<String> {
+    drive
+        .permission_identities
+        .iter()
+        .filter(|identity| {
+            identity
+                .roles
+                .iter()
+                .any(|role| role.eq_ignore_ascii_case("organizer"))
+        })
+        .map(|identity| identity.label.to_ascii_lowercase())
+        .min()
 }
 
 fn shared_drive_identity_view(
@@ -2087,7 +2154,7 @@ fn change_shared_drive_list_tag(
         drive_ids.len(),
     );
     let url = format!(
-        "/shared-drives?q={}&tag={}&show_inaccessible={}&files_filter={}&folders_filter={}&size_filter={}&shared_drive_manager_filter={}&shared_drive_permission_filter={}&{}={changed}",
+        "/shared-drives?q={}&tag={}&show_inaccessible={}&files_filter={}&folders_filter={}&size_filter={}&shared_drive_manager_filter={}&shared_drive_permission_filter={}&sort={}&direction={}&{}={changed}",
         encode_query_value(&form.q),
         encode_query_value(&form.tag_filter),
         form.show_inaccessible,
@@ -2096,6 +2163,8 @@ fn change_shared_drive_list_tag(
         encode_query_value(&form.size_filter),
         encode_query_value(&form.manager_filter),
         encode_query_value(&form.permissions_filter),
+        encode_query_value(&form.sort),
+        encode_query_value(&form.direction),
         if remove { "untagged" } else { "tagged" },
     );
     Ok(Redirect::to(&url))

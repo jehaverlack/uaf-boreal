@@ -80,6 +80,61 @@ pub fn download_google_sheet_csv(
     Ok((location, bytes.to_vec()))
 }
 
+pub fn fetch_shared_drive_permissions(
+    runtime: &Runtime,
+    drive_id: &str,
+) -> Result<Vec<Value>, RcloneError> {
+    let config_path = config::path(runtime)?;
+    let access_token = read_access_token(&config_path)?;
+    let client = google_client()?;
+    let mut page_token: Option<String> = None;
+    let mut permissions = Vec::new();
+    loop {
+        let mut url = reqwest::Url::parse(&format!(
+            "https://www.googleapis.com/drive/v3/files/{drive_id}/permissions"
+        ))
+        .map_err(|error| format!("Unable to build Shared Drive permissions URL: {error}"))?;
+        url.query_pairs_mut()
+            .append_pair("supportsAllDrives", "true")
+            .append_pair("pageSize", "100")
+            .append_pair(
+                "fields",
+                "nextPageToken,permissions(id,type,role,emailAddress,displayName,domain)",
+            );
+        if let Some(token) = page_token.as_deref() {
+            url.query_pairs_mut().append_pair("pageToken", token);
+        }
+        let response = client
+            .get(url)
+            .bearer_auth(&access_token)
+            .send()
+            .map_err(|error| format!("Shared Drive permission lookup failed: {error}"))?;
+        let status = response.status();
+        let body = response
+            .text()
+            .map_err(|error| format!("Unable to read Shared Drive permissions: {error}"))?;
+        if !status.is_success() {
+            return Err(format!(
+                "Shared Drive permission lookup returned {status} for drive {drive_id}: {body}"
+            )
+            .into());
+        }
+        let value: Value = serde_json::from_str(&body)
+            .map_err(|error| format!("Invalid Shared Drive permissions response: {error}"))?;
+        if let Some(page) = value.get("permissions").and_then(Value::as_array) {
+            permissions.extend(page.iter().cloned());
+        }
+        page_token = value
+            .get("nextPageToken")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        if page_token.is_none() {
+            break;
+        }
+    }
+    Ok(permissions)
+}
+
 pub fn fetch_read_only_account(
     runtime: &Runtime,
     executable: &Path,
