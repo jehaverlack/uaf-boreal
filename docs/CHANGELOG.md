@@ -11,6 +11,13 @@
 
 ## v0.0.2 - 2026-08-31 (BETA)
 
+- Adding Dist
+- Ignoring Syncthing conflicts
+- Fixing Mac Rclone On start
+- Fixing Mac Rclone Bin
+- doc cleanup
+- doc cleanup
+- WIP Stage Release
 - Stage Release
 - Doc Updates
 - Build Release
@@ -109,6 +116,13 @@
 
 ## v0.0.1 - 2026-08-27 (ALPHA)
 
+- Adding Dist
+- Ignoring Syncthing conflicts
+- Fixing Mac Rclone On start
+- Fixing Mac Rclone Bin
+- doc cleanup
+- doc cleanup
+- WIP Stage Release
 - Stage Release
 - Doc Updates
 - Build Release
@@ -210,6 +224,13 @@
 **Summary**
 Project Initialization
 
+- Adding Dist
+- Ignoring Syncthing conflicts
+- Fixing Mac Rclone On start
+- Fixing Mac Rclone Bin
+- doc cleanup
+- doc cleanup
+- WIP Stage Release
 - Stage Release
 - Doc Updates
 - Build Release
@@ -305,3 +326,4 @@ Project Initialization
 - Start v0.0.1
 - Project Initialization
 - Initial commit
+
