@@ -131,6 +131,24 @@ impl Database {
             (),
         )
     }
+
+    pub fn complete_scan_run(
+        &self,
+        id: i64,
+        summary: &inventory::InventorySummary,
+    ) -> Result<(), DatabaseError> {
+        let connection = self.connect()?;
+        connection.execute(
+            "UPDATE scan_runs SET status = 'complete', completed_at = CURRENT_TIMESTAMP,
+                    error_message = NULL, files_scanned = ?2, folders_scanned = ?3,
+                    permissions_scanned = ?4, bytes_discovered = ?5, deleted_items = ?6
+             WHERE id = ?1",
+            params![id, summary.files_scanned as i64, summary.folders_scanned as i64,
+                    summary.permissions_scanned as i64, summary.bytes_discovered as i64,
+                    summary.deleted_items as i64],
+        )?;
+        Ok(())
+    }
 }
 
 fn path(
@@ -259,7 +277,7 @@ mod tests {
 
         assert_eq!(
             migration_count,
-            8,
+            9,
         );
 
         fs::remove_dir_all(
@@ -300,6 +318,7 @@ mod tests {
             "directory_sources",
             "directory_import_runs",
             "remote_accounts",
+            "shared_drives",
         ] {
             let exists: bool = connection.query_row(
                 "SELECT EXISTS(
@@ -446,6 +465,50 @@ mod tests {
             .find(|principal| principal.primary_email == "researcher@example.edu")
             .expect("researcher should exist");
         assert_eq!(principal.principal_type, "Affiliate Researcher");
+        fs::remove_dir_all(root).expect("temporary database directory should be removable");
+    }
+
+    #[test]
+    fn shared_drive_inventories_are_isolated_and_discovery_is_reconciled() {
+        let root = temporary_directory();
+        let database = Database::initialize(&runtime(&root)).expect("database should initialize");
+        inventory::reconcile_shared_drives(&database, &[
+            ("drive-a".to_string(), "Projects".to_string()),
+            ("drive-b".to_string(), "Projects".to_string()),
+        ]).expect("Shared Drives should reconcile");
+        let item = DriveItem {
+            id: "file-a".to_string(), name: "Report.pdf".to_string(),
+            path: "Reports/Report.pdf".to_string(), is_dir: false, size: 100,
+            mime_type: "application/pdf".to_string(), mod_time: String::new(),
+            metadata: BTreeMap::new(),
+        };
+        let scan_a = database.start_scan_run("shared-drive:drive-a").expect("scan should start");
+        inventory::synchronize_drive(
+            &database, &inventory::shared_drive_scope("drive-a"), scan_a,
+            &[item.clone()], false,
+        ).expect("first Shared Drive should synchronize");
+        let mut second_item = item;
+        second_item.id = "file-b".to_string();
+        let scan_b = database.start_scan_run("shared-drive:drive-b").expect("scan should start");
+        inventory::synchronize_drive(
+            &database, &inventory::shared_drive_scope("drive-b"), scan_b,
+            &[second_item], false,
+        ).expect("second Shared Drive should synchronize");
+        assert_eq!(inventory::list_drive_directory(
+            &database, &inventory::shared_drive_scope("drive-a"), Some("Reports"),
+            "", "", "", "", "", "", false, "", "", "", false, "name", false,
+        ).expect("first drive should list").len(), 1);
+        assert_eq!(inventory::list_drive_directory(
+            &database, &inventory::shared_drive_scope("drive-b"), Some("Reports"),
+            "", "", "", "", "", "", false, "", "", "", false, "name", false,
+        ).expect("second drive should list").len(), 1);
+        inventory::reconcile_shared_drives(
+            &database, &[("drive-a".to_string(), "Renamed Projects".to_string())],
+        ).expect("Shared Drive discovery should reconcile again");
+        let drives = inventory::list_shared_drives(&database).expect("Shared Drives should load");
+        assert!(drives.iter().find(|drive| drive.drive_id == "drive-a").unwrap().is_accessible);
+        assert!(!drives.iter().find(|drive| drive.drive_id == "drive-b").unwrap().is_accessible);
+        assert_eq!(drives.iter().find(|drive| drive.drive_id == "drive-a").unwrap().name, "Renamed Projects");
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
 

@@ -115,7 +115,7 @@ pub enum MetadataState {
 
 #[derive(Debug, Clone)]
 pub struct MetadataProgress {
-    pub phase: &'static str,
+    pub phase: String,
     pub files_scanned: u64,
     pub folders_scanned: u64,
     pub permissions_scanned: u64,
@@ -739,15 +739,24 @@ impl AppState {
                 return Err(error.to_string());
             }
         };
+        let shared_drives_scan_id = match database.start_scan_run("shared-drives") {
+            Ok(id) => id,
+            Err(error) => {
+                let _ = database.fail_scan_run(scan_id, &error.to_string());
+                let _ = database.fail_scan_run(shared_scan_id, &error.to_string());
+                state.finish_metadata_job();
+                return Err(error.to_string());
+            }
+        };
 
         println!(
-            "Metadata update started: my_drive_scan_id={scan_id}, shared_with_me_scan_id={shared_scan_id}, remote=my-drive-ro, permissions={permission_scanning}"
+            "Metadata update started: my_drive_scan_id={scan_id}, shared_drives_scan_id={shared_drives_scan_id}, shared_with_me_scan_id={shared_scan_id}, remote=my-drive-ro, permissions={permission_scanning}"
         );
 
         state.set_metadata_state(
             MetadataState::Updating(
                 MetadataProgress {
-                    phase: "Connecting",
+                    phase: "Connecting".to_string(),
                     files_scanned: 0,
                     folders_scanned: 0,
                     permissions_scanned: 0,
@@ -786,7 +795,7 @@ impl AppState {
                     }
                     if let Some(sheet_url) = directory_sheet_url.as_deref() {
                         worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
-                            phase: "Downloading directory spreadsheet",
+                            phase: "Downloading directory spreadsheet".to_string(),
                             files_scanned: 0,
                             folders_scanned: 0,
                             permissions_scanned: 0,
@@ -799,7 +808,7 @@ impl AppState {
                         ) {
                             Ok((location, csv)) => {
                                 worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
-                                    phase: "Importing directory spreadsheet",
+                                    phase: "Importing directory spreadsheet".to_string(),
                                     files_scanned: 0,
                                     folders_scanned: 0,
                                     permissions_scanned: 0,
@@ -841,7 +850,7 @@ impl AppState {
                         }
                     }
                     worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
-                        phase: "Fetching My Drive metadata",
+                        phase: "Fetching My Drive metadata".to_string(),
                         files_scanned: 0,
                         folders_scanned: 0,
                         permissions_scanned: 0,
@@ -877,7 +886,83 @@ impl AppState {
                         unique_ids.len(),
                     );
                     worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
-                        phase: "Fetching Shared with me metadata",
+                        phase: "Discovering Shared Drives".to_string(),
+                        files_scanned: files,
+                        folders_scanned: folders,
+                        permissions_scanned: 0,
+                        bytes_discovered: bytes,
+                        errors: 0,
+                    }));
+                    let shared_drives = rclone::inventory::discover_shared_drives(
+                        &worker_state.runtime,
+                        &rclone_path,
+                    )?;
+                    let discovered = shared_drives.iter()
+                        .map(|drive| (drive.id.clone(), drive.name.clone()))
+                        .collect::<Vec<_>>();
+                    database::inventory::reconcile_shared_drives(&database, &discovered)?;
+                    log::info!("Shared Drive discovery completed: drives={}", shared_drives.len());
+                    let mut shared_drives_summary = database::inventory::InventorySummary::default();
+                    let mut shared_drive_errors = 0_u64;
+                    for (index, drive) in shared_drives.iter().enumerate() {
+                        worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                            phase: format!(
+                                "Scanning Shared Drive {} of {}: {}",
+                                index + 1, shared_drives.len(), drive.name,
+                            ),
+                            files_scanned: shared_drives_summary.files_scanned,
+                            folders_scanned: shared_drives_summary.folders_scanned,
+                            permissions_scanned: shared_drives_summary.permissions_scanned,
+                            bytes_discovered: shared_drives_summary.bytes_discovered,
+                            errors: shared_drive_errors,
+                        }));
+                        log::info!(
+                            "Shared Drive scan started: drive_index={}, drive_count={}, drive_id={}, name={}",
+                            index + 1, shared_drives.len(), drive.id, drive.name,
+                        );
+                        let drive_scan_id = database.start_scan_run(&format!("shared-drive:{}", drive.id))?;
+                        let drive_result = rclone::inventory::fetch_shared_drive(
+                            &worker_state.runtime, &rclone_path, drive_scan_id, &drive.id,
+                            permission_scanning,
+                        ).map_err(|error| error.to_string()).and_then(|drive_items| {
+                            database::inventory::synchronize_drive(
+                                &database,
+                                &database::inventory::shared_drive_scope(&drive.id),
+                                drive_scan_id,
+                                &drive_items,
+                                permission_scanning,
+                            ).map_err(|error| error.to_string())
+                        });
+                        match drive_result {
+                            Ok(drive_summary) => {
+                                database::inventory::record_shared_drive_scan(
+                                    &database, &drive.id, &drive_summary,
+                                )?;
+                                shared_drives_summary.files_scanned += drive_summary.files_scanned;
+                                shared_drives_summary.folders_scanned += drive_summary.folders_scanned;
+                                shared_drives_summary.permissions_scanned += drive_summary.permissions_scanned;
+                                shared_drives_summary.bytes_discovered = shared_drives_summary.bytes_discovered
+                                    .saturating_add(drive_summary.bytes_discovered);
+                                shared_drives_summary.deleted_items += drive_summary.deleted_items;
+                                log::info!(
+                                    "Shared Drive scan completed: drive_id={}, name={}, files={}, folders={}, bytes={}, permissions={}",
+                                    drive.id, drive.name, drive_summary.files_scanned,
+                                    drive_summary.folders_scanned, drive_summary.bytes_discovered,
+                                    drive_summary.permissions_scanned,
+                                );
+                            }
+                            Err(error) => {
+                                shared_drive_errors += 1;
+                                let _ = database.fail_scan_run(drive_scan_id, &error);
+                                let _ = database::inventory::record_shared_drive_error(&database, &drive.id, &error);
+                                log::error!("Shared Drive scan failed: drive_id={}, name={}, error={error}", drive.id, drive.name);
+                            }
+                        }
+                    }
+                    shared_drives_summary = database::inventory::shared_drives_aggregate(&database)?;
+                    database.complete_scan_run(shared_drives_scan_id, &shared_drives_summary)?;
+                    worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                        phase: "Fetching Shared with me metadata".to_string(),
                         files_scanned: files,
                         folders_scanned: folders,
                         permissions_scanned: 0,
@@ -891,7 +976,7 @@ impl AppState {
                         permission_scanning,
                     )?;
                     worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
-                        phase: "Saving My Drive metadata",
+                        phase: "Saving My Drive metadata".to_string(),
                         files_scanned: files,
                         folders_scanned: folders,
                         permissions_scanned: 0,
@@ -905,7 +990,7 @@ impl AppState {
                         permission_scanning,
                     )?;
                     worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
-                        phase: "Saving Shared with me metadata",
+                        phase: "Saving Shared with me metadata".to_string(),
                         files_scanned: my_drive_summary.files_scanned,
                         folders_scanned: my_drive_summary.folders_scanned,
                         permissions_scanned: my_drive_summary.permissions_scanned,
@@ -919,11 +1004,19 @@ impl AppState {
                         &shared_items,
                         permission_scanning,
                     )?;
-                    Ok::<_, crate::database::DatabaseError>((my_drive_summary, shared_summary))
+                    Ok::<_, crate::database::DatabaseError>((my_drive_summary, shared_drives_summary, shared_summary))
                 }).await;
 
                 match result {
-                    Ok(Ok((summary, shared_summary))) => {
+                    Ok(Ok((summary, shared_drives_summary, shared_summary))) => {
+                        println!(
+                            "Shared Drives update completed: scan_id={shared_drives_scan_id}, files={}, folders={}, permissions={}, bytes={}, deleted_items={}",
+                            shared_drives_summary.files_scanned,
+                            shared_drives_summary.folders_scanned,
+                            shared_drives_summary.permissions_scanned,
+                            shared_drives_summary.bytes_discovered,
+                            shared_drives_summary.deleted_items,
+                        );
                         println!(
                             "Metadata update completed: scan_id={scan_id}, files={}, folders={}, permissions={}, bytes={}, deleted_items={}",
                             summary.files_scanned,
@@ -966,6 +1059,7 @@ impl AppState {
                             );
                         }
                         let _ = failure_database.fail_scan_run(shared_scan_id, &message);
+                        let _ = failure_database.fail_scan_run(shared_drives_scan_id, &message);
 
                         state.set_metadata_state(
                             MetadataState::Error(
@@ -984,6 +1078,7 @@ impl AppState {
                             );
                         }
                         let _ = failure_database.fail_scan_run(shared_scan_id, &message);
+                        let _ = failure_database.fail_scan_run(shared_drives_scan_id, &message);
                         state.set_metadata_state(MetadataState::Error(message));
                     }
                 }

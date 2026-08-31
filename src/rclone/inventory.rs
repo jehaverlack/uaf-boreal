@@ -32,13 +32,52 @@ pub struct DriveItem {
     pub metadata: BTreeMap<String, String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct SharedDrive {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    #[serde(rename = "kind")]
+    pub _kind: String,
+}
+
+pub fn discover_shared_drives(
+    runtime: &Runtime,
+    executable: &Path,
+) -> Result<Vec<SharedDrive>, RcloneError> {
+    if !executable.is_file() {
+        return Err(format!("Rclone executable does not exist: {}", executable.display()).into());
+    }
+    let config_path = config::path(runtime)?;
+    let output = Command::new(executable).args([
+        "backend", "drives", &format!("{}:", RemoteKind::MyDriveRo.name()),
+        "--json", "--config", config_path.to_string_lossy().as_ref(),
+    ]).output().map_err(|error| format!("Unable to discover Shared Drives: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("Rclone Shared Drive discovery failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()).into());
+    }
+    serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("Unable to parse Shared Drive discovery: {error}").into())
+}
+
+pub fn fetch_shared_drive(
+    runtime: &Runtime,
+    executable: &Path,
+    scan_id: i64,
+    drive_id: &str,
+    include_permissions: bool,
+) -> Result<Vec<DriveItem>, RcloneError> {
+    fetch_drive_with_options(runtime, executable, scan_id, include_permissions, false, Some(drive_id))
+}
+
 pub fn fetch_my_drive(
     runtime: &Runtime,
     executable: &Path,
     scan_id: i64,
     include_permissions: bool,
 ) -> Result<Vec<DriveItem>, RcloneError> {
-    fetch_drive(runtime, executable, scan_id, include_permissions, false)
+    fetch_drive_with_options(runtime, executable, scan_id, include_permissions, false, None)
 }
 
 pub fn fetch_shared_with_me(
@@ -47,15 +86,16 @@ pub fn fetch_shared_with_me(
     scan_id: i64,
     include_permissions: bool,
 ) -> Result<Vec<DriveItem>, RcloneError> {
-    fetch_drive(runtime, executable, scan_id, include_permissions, true)
+    fetch_drive_with_options(runtime, executable, scan_id, include_permissions, true, None)
 }
 
-fn fetch_drive(
+fn fetch_drive_with_options(
     runtime: &Runtime,
     executable: &Path,
     scan_id: i64,
     include_permissions: bool,
     shared_with_me: bool,
+    shared_drive_id: Option<&str>,
 ) -> Result<Vec<DriveItem>, RcloneError> {
     if !executable.is_file() {
         return Err(format!("Rclone executable does not exist: {}", executable.display()).into());
@@ -64,7 +104,7 @@ fn fetch_drive(
     let cache_dir = runtime.directories.get("CACHE")
         .ok_or("BOREAL CACHE directory is not configured")?;
     fs::create_dir_all(cache_dir)?;
-    let scope = if shared_with_me { "shared-with-me" } else { "my-drive" };
+    let scope = if shared_with_me { "shared-with-me" } else if shared_drive_id.is_some() { "shared-drive" } else { "my-drive" };
     let cache_path = cache_dir.join(format!("{scope}-inventory-{scan_id}.json"));
     let output_file = File::create(&cache_path)?;
     let config_path = config::path(runtime)?;
@@ -85,6 +125,9 @@ fn fetch_drive(
     }
     if shared_with_me {
         command.arg("--drive-shared-with-me");
+    }
+    if let Some(drive_id) = shared_drive_id {
+        command.args(["--drive-team-drive", drive_id, "--drive-root-folder-id", ""]);
     }
 
     let output = command.stdout(Stdio::from(output_file)).stderr(Stdio::piped()).output()
@@ -118,7 +161,7 @@ fn parse(path: &PathBuf) -> Result<Vec<DriveItem>, RcloneError> {
 
 #[cfg(test)]
 mod tests {
-    use super::DriveItem;
+    use super::{DriveItem, SharedDrive};
 
     #[test]
     fn parses_rclone_uppercase_drive_id() {
@@ -139,5 +182,15 @@ mod tests {
         assert_eq!(item.id, "1AbCdEf");
         assert_eq!(item.path, "2026-08-27/Report.docx");
         assert!(!item.is_dir);
+    }
+
+    #[test]
+    fn parses_shared_drive_discovery() {
+        let drives: Vec<SharedDrive> = serde_json::from_str(
+            r#"[{"id":"0ABC123","kind":"drive#drive","name":"ACEP Projects"}]"#,
+        ).expect("Shared Drive discovery should parse");
+        assert_eq!(drives.len(), 1);
+        assert_eq!(drives[0].id, "0ABC123");
+        assert_eq!(drives[0].name, "ACEP Projects");
     }
 }

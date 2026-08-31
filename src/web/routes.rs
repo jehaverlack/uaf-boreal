@@ -109,6 +109,13 @@ pub struct MetadataView {
     pub size_label: String,
     pub errors: u64,
     pub completed_at: String,
+    pub shared_drives_indexed: bool,
+    pub shared_drives_count: usize,
+    pub shared_drives_files_scanned: u64,
+    pub shared_drives_folders_scanned: u64,
+    pub shared_drives_permissions_scanned: u64,
+    pub shared_drives_size_label: String,
+    pub shared_drives_completed_at: String,
     pub shared_indexed: bool,
     pub shared_files_scanned: u64,
     pub shared_folders_scanned: u64,
@@ -233,7 +240,7 @@ pub struct TagPill {
 #[derive(Template)]
 #[template(path = "my-drive.html", config = "askama.toml")]
 struct MyDriveTemplate {
-    title: &'static str,
+    title: String,
     active_page: &'static str,
     alerts: Vec<AlertItem>,
     status_items: Vec<StatusItem>,
@@ -264,13 +271,37 @@ struct MyDriveTemplate {
     owner_identity_tag_filter: String,
     permission_identity_tag_filter: String,
     include_deleted: bool,
-    heading: &'static str,
-    description: &'static str,
-    root_label: &'static str,
-    explorer_path: &'static str,
+    heading: String,
+    description: String,
+    root_label: String,
+    explorer_path: String,
+    drive_id: String,
     tag_action: &'static str,
     tag_remove_action: &'static str,
     summary: ExplorerSummary,
+}
+
+pub struct SharedDriveView {
+    pub drive_id: String,
+    pub name: String,
+    pub is_accessible: bool,
+    pub last_scanned_at: String,
+    pub last_error: String,
+    pub files: u64,
+    pub folders: u64,
+    pub permissions: u64,
+    pub size_label: String,
+}
+
+#[derive(Template)]
+#[template(path = "shared-drives.html", config = "askama.toml")]
+struct SharedDrivesTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+    drives: Vec<SharedDriveView>,
 }
 
 #[allow(dead_code)]
@@ -436,6 +467,8 @@ struct DirectoryQuery {
 #[derive(serde::Deserialize, Default)]
 struct DrivePathQuery {
     #[serde(default)]
+    drive: String,
+    #[serde(default)]
     path: String,
     #[serde(default)]
     q: String,
@@ -471,6 +504,8 @@ struct DrivePathQuery {
 struct ApplyTagForm {
     #[serde(default)]
     selected_item_ids: String,
+    #[serde(default)]
+    drive: String,
     tag: String,
     path: String,
     q: String,
@@ -549,6 +584,9 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/my-drive", get(my_drive_page))
         .route("/my-drive/tags", post(apply_my_drive_tag))
         .route("/my-drive/tags/remove", post(remove_my_drive_tag))
+        .route("/shared-drives", get(shared_drives_page))
+        .route("/shared-drives/tags", post(apply_shared_drive_tag))
+        .route("/shared-drives/tags/remove", post(remove_shared_drive_tag))
         .route("/shared-with-me", get(shared_with_me_page))
         .route("/shared-with-me/tags", post(apply_shared_with_me_tag))
         .route("/shared-with-me/tags/remove", post(remove_shared_with_me_tag))
@@ -639,6 +677,8 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
             setup_percent == 100,
             should_poll_setup(&rclone_state, &google_remotes_state),
             shared_summary.as_ref(),
+            latest_shared_drives_summary(&state).as_ref(),
+            shared_drive_count(&state),
         ),
     };
 
@@ -805,9 +845,13 @@ fn build_metadata_view(
     available: bool,
     poll_for_setup: bool,
     shared_summary: Option<&database::inventory::InventorySummary>,
+    shared_drives_summary: Option<&database::inventory::InventorySummary>,
+    shared_drives_count: usize,
 ) -> MetadataView {
     let shared_indexed = shared_summary.is_some();
     let shared = shared_summary.cloned().unwrap_or_default();
+    let shared_drives_indexed = shared_drives_summary.is_some();
+    let shared_drives = shared_drives_summary.cloned().unwrap_or_default();
     match state {
         MetadataState::NotSynchronized => MetadataView {
             available,
@@ -822,6 +866,12 @@ fn build_metadata_view(
             size_label: "0 B".to_string(),
             errors: 0,
             completed_at: String::new(),
+            shared_drives_indexed, shared_drives_count,
+            shared_drives_files_scanned: shared_drives.files_scanned,
+            shared_drives_folders_scanned: shared_drives.folders_scanned,
+            shared_drives_permissions_scanned: shared_drives.permissions_scanned,
+            shared_drives_size_label: format_bytes(shared_drives.bytes_discovered),
+            shared_drives_completed_at: shared_drives.completed_at.clone(),
             shared_indexed,
             shared_files_scanned: shared.files_scanned,
             shared_folders_scanned: shared.folders_scanned,
@@ -843,6 +893,12 @@ fn build_metadata_view(
             size_label: format_bytes(progress.bytes_discovered),
             errors: progress.errors,
             completed_at: String::new(),
+            shared_drives_indexed, shared_drives_count,
+            shared_drives_files_scanned: shared_drives.files_scanned,
+            shared_drives_folders_scanned: shared_drives.folders_scanned,
+            shared_drives_permissions_scanned: shared_drives.permissions_scanned,
+            shared_drives_size_label: format_bytes(shared_drives.bytes_discovered),
+            shared_drives_completed_at: shared_drives.completed_at.clone(),
             shared_indexed,
             shared_files_scanned: shared.files_scanned,
             shared_folders_scanned: shared.folders_scanned,
@@ -864,6 +920,12 @@ fn build_metadata_view(
             size_label: format_bytes(summary.bytes_discovered),
             errors: 0,
             completed_at: summary.completed_at.clone(),
+            shared_drives_indexed, shared_drives_count,
+            shared_drives_files_scanned: shared_drives.files_scanned,
+            shared_drives_folders_scanned: shared_drives.folders_scanned,
+            shared_drives_permissions_scanned: shared_drives.permissions_scanned,
+            shared_drives_size_label: format_bytes(shared_drives.bytes_discovered),
+            shared_drives_completed_at: shared_drives.completed_at.clone(),
             shared_indexed,
             shared_files_scanned: shared.files_scanned,
             shared_folders_scanned: shared.folders_scanned,
@@ -885,6 +947,12 @@ fn build_metadata_view(
             size_label: "0 B".to_string(),
             errors: 1,
             completed_at: String::new(),
+            shared_drives_indexed, shared_drives_count,
+            shared_drives_files_scanned: shared_drives.files_scanned,
+            shared_drives_folders_scanned: shared_drives.folders_scanned,
+            shared_drives_permissions_scanned: shared_drives.permissions_scanned,
+            shared_drives_size_label: format_bytes(shared_drives.bytes_discovered),
+            shared_drives_completed_at: shared_drives.completed_at.clone(),
             shared_indexed,
             shared_files_scanned: shared.files_scanned,
             shared_folders_scanned: shared.folders_scanned,
@@ -1186,6 +1254,7 @@ async fn my_drive_page(
         "/my-drive",
         "/my-drive/tags",
         "/my-drive/tags/remove",
+        String::new(),
     )
 }
 
@@ -1204,20 +1273,65 @@ async fn shared_with_me_page(
         "/shared-with-me",
         "/shared-with-me/tags",
         "/shared-with-me/tags/remove",
+        String::new(),
+    )
+}
+
+async fn shared_drives_page(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<DrivePathQuery>,
+) -> Result<Html<String>, StatusCode> {
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if query.drive.is_empty() {
+        let drives = database::inventory::list_shared_drives(&database)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .into_iter().map(|drive| SharedDriveView {
+                drive_id: drive.drive_id, name: drive.name,
+                is_accessible: drive.is_accessible, last_scanned_at: drive.last_scanned_at,
+                last_error: drive.last_error, files: drive.files_scanned,
+                folders: drive.folders_scanned, permissions: drive.permissions_scanned,
+                size_label: format_bytes(drive.bytes_discovered),
+            }).collect();
+        let rclone_state = state.rclone_state();
+        let google_client_state = state.google_client_state();
+        let google_remotes_state = state.google_remotes_state();
+        let metadata_state = state.metadata_state();
+        return render_template(&SharedDrivesTemplate {
+            title: "Shared Drives - BOREAL", active_page: "shared-drives",
+            alerts: build_alerts(&rclone_state, &google_client_state),
+            status_items: build_status_items(
+                &rclone_state, &google_client_state, &google_remotes_state, &metadata_state,
+                configured_remote_count(&state.runtime, &rclone_state), authenticated_google_email(&state),
+            ),
+            poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+            drives,
+        });
+    }
+    let drive = database::inventory::get_shared_drive(&database, &query.drive)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let explorer_path = format!("/shared-drives?drive={}", encode_query_value(&drive.drive_id));
+    render_drive_explorer(
+        &state, query, &drive.inventory_scope, "shared-drives",
+        &format!("{} — Shared Drive Explorer", drive.name),
+        "Browse the latest local metadata inventory for this Shared Drive.",
+        &drive.name, &explorer_path, "/shared-drives/tags",
+        "/shared-drives/tags/remove", drive.drive_id,
     )
 }
 
 fn render_drive_explorer(
     state: &AppState,
     query: DrivePathQuery,
-    inventory_scope: &'static str,
+    inventory_scope: &str,
     active_page: &'static str,
-    heading: &'static str,
-    description: &'static str,
-    root_label: &'static str,
-    explorer_path: &'static str,
+    heading: &str,
+    description: &str,
+    root_label: &str,
+    explorer_path: &str,
     tag_action: &'static str,
     tag_remove_action: &'static str,
+    drive_id: String,
 ) -> Result<Html<String>, StatusCode> {
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
@@ -1353,7 +1467,7 @@ fn render_drive_explorer(
     })?;
 
     let template = MyDriveTemplate {
-        title: heading,
+        title: heading.to_string(),
         active_page,
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
@@ -1414,10 +1528,11 @@ fn render_drive_explorer(
         owner_identity_tag_filter: query.owner_identity_tag,
         permission_identity_tag_filter: query.permission_identity_tag,
         include_deleted: query.include_deleted,
-        heading,
-        description,
-        root_label,
-        explorer_path,
+        heading: heading.to_string(),
+        description: description.to_string(),
+        root_label: root_label.to_string(),
+        explorer_path: explorer_path.to_string(),
+        drive_id,
         tag_action,
         tag_remove_action,
         summary,
@@ -1510,7 +1625,8 @@ fn explorer_url(
     include_deleted: bool,
 ) -> String {
     format!(
-        "{explorer_path}?path={}&q={}&tag={}&type_filter={}&size_filter={}&modified_filter={}&owner_filter={}&permission_filter={}&owner_identity_tag={}&permission_identity_tag={}&sort={}&direction={}&include_deleted={include_deleted}",
+        "{explorer_path}{}path={}&q={}&tag={}&type_filter={}&size_filter={}&modified_filter={}&owner_filter={}&permission_filter={}&owner_identity_tag={}&permission_identity_tag={}&sort={}&direction={}&include_deleted={include_deleted}",
+        if explorer_path.contains('?') { "&" } else { "?" },
         encode_query_value(path),
         encode_query_value(search),
         encode_query_value(tag),
@@ -1580,6 +1696,33 @@ async fn apply_shared_with_me_tag(
         "/shared-with-me",
         false,
     )
+}
+
+async fn apply_shared_drive_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<ApplyTagForm>,
+) -> Result<Redirect, StatusCode> {
+    change_shared_drive_tag(&state, form, false)
+}
+
+async fn remove_shared_drive_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<ApplyTagForm>,
+) -> Result<Redirect, StatusCode> {
+    change_shared_drive_tag(&state, form, true)
+}
+
+fn change_shared_drive_tag(
+    state: &AppState,
+    form: ApplyTagForm,
+    remove: bool,
+) -> Result<Redirect, StatusCode> {
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let drive = database::inventory::get_shared_drive(&database, &form.drive)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let explorer_path = format!("/shared-drives?drive={}", encode_query_value(&drive.drive_id));
+    change_drive_tag(state, form, &drive.inventory_scope, &explorer_path, remove)
 }
 
 async fn remove_my_drive_tag(
@@ -2163,7 +2306,10 @@ async fn ui_drive_summaries(
     let metadata_state = state.metadata_state();
     let shared_summary = latest_shared_summary(&state);
     let template = DriveSummariesTemplate {
-        metadata: build_metadata_view(&metadata_state, true, false, shared_summary.as_ref()),
+        metadata: build_metadata_view(
+            &metadata_state, true, false, shared_summary.as_ref(),
+            latest_shared_drives_summary(&state).as_ref(), shared_drive_count(&state),
+        ),
     };
     render_template(&template)
 }
@@ -2183,6 +2329,8 @@ async fn ui_metadata_progress(
             available,
             should_poll_setup(&rclone_state, &remotes),
             shared_summary.as_ref(),
+            latest_shared_drives_summary(&state).as_ref(),
+            shared_drive_count(&state),
         ),
     })
 }
@@ -2212,6 +2360,8 @@ async fn ui_metadata_update_modal(
             available,
             should_poll_setup(&rclone_state, &remotes),
             shared_summary.as_ref(),
+            latest_shared_drives_summary(&state).as_ref(),
+            shared_drive_count(&state),
         ),
         progress_percent,
         timing_available: timing.is_some(),
@@ -2233,14 +2383,17 @@ fn metadata_progress_percent(
     timing: Option<&database::inventory::ScanTimingEstimate>,
 ) -> u8 {
     let phase_percent = match state {
-        MetadataState::Updating(progress) => match progress.phase {
+        MetadataState::Updating(progress) => match progress.phase.as_str() {
             "Connecting" => 5,
             "Downloading directory spreadsheet" => 8,
             "Importing directory spreadsheet" => 12,
             "Fetching My Drive metadata" => 15,
-            "Fetching Shared with me metadata" => 45,
-            "Saving My Drive metadata" => 65,
-            "Saving Shared with me metadata" => 85,
+            "Discovering Shared Drives" => 30,
+            "Fetching Shared Drive metadata" => 45,
+            "Fetching Shared with me metadata" => 65,
+            "Saving My Drive metadata" => 75,
+            "Saving Shared with me metadata" => 90,
+            phase if phase.starts_with("Scanning Shared Drive ") => 45,
             _ => 10,
         },
         MetadataState::Synchronized(_) => 100,
@@ -2270,6 +2423,18 @@ fn latest_shared_summary(state: &AppState) -> Option<database::inventory::Invent
     database::inventory::latest_summary_for(&database, "shared-with-me")
         .ok()
         .flatten()
+}
+
+fn latest_shared_drives_summary(state: &AppState) -> Option<database::inventory::InventorySummary> {
+    let database = state.database().ok()?;
+    database::inventory::latest_summary_for(&database, "shared-drives").ok().flatten()
+}
+
+fn shared_drive_count(state: &AppState) -> usize {
+    state.database().ok()
+        .and_then(|database| database::inventory::list_shared_drives(&database).ok())
+        .map(|drives| drives.into_iter().filter(|drive| drive.is_accessible).count())
+        .unwrap_or(0)
 }
 
 async fn import_google_client(

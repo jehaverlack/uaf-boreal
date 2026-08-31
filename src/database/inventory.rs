@@ -9,6 +9,111 @@ use super::{Database, DatabaseError};
 
 pub const MY_DRIVE_SCOPE: &str = "my-drive-ro";
 pub const SHARED_WITH_ME_SCOPE: &str = "shared-with-me";
+pub const SHARED_DRIVE_SCOPE_PREFIX: &str = "shared-drive:";
+
+#[derive(Debug, Clone)]
+pub struct SharedDriveRow {
+    pub drive_id: String,
+    pub name: String,
+    pub inventory_scope: String,
+    pub is_accessible: bool,
+    pub last_scanned_at: String,
+    pub last_error: String,
+    pub files_scanned: u64,
+    pub folders_scanned: u64,
+    pub permissions_scanned: u64,
+    pub bytes_discovered: u64,
+}
+
+pub fn shared_drive_scope(drive_id: &str) -> String {
+    format!("{SHARED_DRIVE_SCOPE_PREFIX}{drive_id}")
+}
+
+pub fn reconcile_shared_drives(
+    database: &Database,
+    drives: &[(String, String)],
+) -> Result<(), DatabaseError> {
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    transaction.execute("UPDATE shared_drives SET is_accessible = 0", [])?;
+    for (drive_id, name) in drives {
+        transaction.execute(
+            "INSERT INTO shared_drives (drive_id, name, inventory_scope)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(drive_id) DO UPDATE SET name = excluded.name,
+                inventory_scope = excluded.inventory_scope, is_accessible = 1,
+                last_seen_at = CURRENT_TIMESTAMP",
+            params![drive_id, name, shared_drive_scope(drive_id)],
+        )?;
+    }
+    transaction.commit()?;
+    Ok(())
+}
+
+pub fn list_shared_drives(database: &Database) -> Result<Vec<SharedDriveRow>, DatabaseError> {
+    let connection = database.connect()?;
+    let mut statement = connection.prepare(
+        "SELECT drive_id, name, inventory_scope, is_accessible,
+                COALESCE(last_scanned_at, ''), COALESCE(last_error, ''),
+                files_scanned, folders_scanned, permissions_scanned, bytes_discovered
+         FROM shared_drives ORDER BY is_accessible DESC, name COLLATE NOCASE, drive_id",
+    )?;
+    statement.query_map([], |row| Ok(SharedDriveRow {
+        drive_id: row.get(0)?, name: row.get(1)?, inventory_scope: row.get(2)?,
+        is_accessible: row.get(3)?, last_scanned_at: row.get(4)?, last_error: row.get(5)?,
+        files_scanned: row.get::<_, i64>(6)? as u64,
+        folders_scanned: row.get::<_, i64>(7)? as u64,
+        permissions_scanned: row.get::<_, i64>(8)? as u64,
+        bytes_discovered: row.get::<_, i64>(9)? as u64,
+    }))?.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+pub fn get_shared_drive(database: &Database, drive_id: &str) -> Result<Option<SharedDriveRow>, DatabaseError> {
+    Ok(list_shared_drives(database)?.into_iter().find(|drive| drive.drive_id == drive_id))
+}
+
+pub fn record_shared_drive_scan(
+    database: &Database,
+    drive_id: &str,
+    summary: &InventorySummary,
+) -> Result<(), DatabaseError> {
+    let connection = database.connect()?;
+    connection.execute(
+        "UPDATE shared_drives SET last_scanned_at = CURRENT_TIMESTAMP, last_error = NULL,
+                files_scanned = ?2, folders_scanned = ?3, permissions_scanned = ?4,
+                bytes_discovered = ?5, deleted_items = ?6 WHERE drive_id = ?1",
+        params![drive_id, summary.files_scanned as i64, summary.folders_scanned as i64,
+                summary.permissions_scanned as i64, summary.bytes_discovered as i64,
+                summary.deleted_items as i64],
+    )?;
+    Ok(())
+}
+
+pub fn record_shared_drive_error(database: &Database, drive_id: &str, error: &str) -> Result<(), DatabaseError> {
+    database.connect()?.execute(
+        "UPDATE shared_drives SET last_error = ?2 WHERE drive_id = ?1", params![drive_id, error],
+    )?;
+    Ok(())
+}
+
+pub fn shared_drives_aggregate(database: &Database) -> Result<InventorySummary, DatabaseError> {
+    let connection = database.connect()?;
+    connection.query_row(
+        "SELECT COALESCE(SUM(files_scanned), 0), COALESCE(SUM(folders_scanned), 0),
+                COALESCE(SUM(permissions_scanned), 0), COALESCE(SUM(bytes_discovered), 0),
+                COALESCE(SUM(deleted_items), 0)
+         FROM shared_drives WHERE is_accessible = 1",
+        [],
+        |row| Ok(InventorySummary {
+            files_scanned: row.get::<_, i64>(0)? as u64,
+            folders_scanned: row.get::<_, i64>(1)? as u64,
+            permissions_scanned: row.get::<_, i64>(2)? as u64,
+            bytes_discovered: row.get::<_, i64>(3)? as u64,
+            deleted_items: row.get::<_, i64>(4)? as u64,
+            completed_at: String::new(),
+        }),
+    ).map_err(Into::into)
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct InventorySummary {

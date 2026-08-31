@@ -66,6 +66,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "principal_tags",
         sql: include_str!("migrations/0008_principal_tags.sql"),
     },
+    Migration {
+        version: 9,
+        name: "shared_drives",
+        sql: include_str!("migrations/0009_shared_drives.sql"),
+    },
 ];
 
 pub fn apply(
