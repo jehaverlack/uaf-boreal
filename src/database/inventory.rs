@@ -113,7 +113,7 @@ pub fn list_shared_drives_filtered(
            AND (?9 = '' OR EXISTS (
                 SELECT 1 FROM shared_drive_permissions manager_permission
                 WHERE manager_permission.drive_id = sd.drive_id
-                  AND lower(COALESCE(manager_permission.role, '')) = 'organizer'
+                  AND lower(COALESCE(manager_permission.role, '')) IN ('organizer', 'owner')
                   AND instr(lower(COALESCE(NULLIF(manager_permission.email_address, ''),
                       NULLIF(manager_permission.domain, ''), NULLIF(manager_permission.display_name, ''),
                       NULLIF(manager_permission.permission_type, ''), 'Unknown')), lower(?9)) > 0

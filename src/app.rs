@@ -684,6 +684,47 @@ impl AppState {
                     database::inventory::reconcile_shared_drives(&database, &discovered)?;
                     log::info!("Shared Drive discovery completed: drives={}", shared_drives.len());
                     let mut shared_drive_errors = 0_u64;
+                    if permission_scanning {
+                        for (index, drive) in shared_drives.iter().enumerate() {
+                            worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                                selection,
+                                phase: format!(
+                                    "Fetching Shared Drive managers {} of {}: {}",
+                                    index + 1, shared_drives.len(), drive.name,
+                                ),
+                                files_scanned: 0,
+                                folders_scanned: 0,
+                                permissions_scanned: 0,
+                                bytes_discovered: 0,
+                                errors: shared_drive_errors,
+                            }));
+                            match rclone::identity::fetch_shared_drive_permissions(
+                                &worker_state.runtime,
+                                &drive.id,
+                            ) {
+                                Ok(permissions) => {
+                                    database::inventory::record_shared_drive_permissions(
+                                        &database,
+                                        &drive.id,
+                                        &permissions,
+                                    )?;
+                                    log::info!(
+                                        "Shared Drive membership fetched: drive_id={}, permissions={}",
+                                        drive.id,
+                                        permissions.len(),
+                                    );
+                                }
+                                Err(error) => {
+                                    shared_drive_errors += 1;
+                                    log::warn!(
+                                        "Unable to refresh Shared Drive root permissions: drive_id={}, name={}, error={error}",
+                                        drive.id,
+                                        drive.name,
+                                    );
+                                }
+                            }
+                        }
+                    }
                     for (index, drive) in shared_drives.iter().enumerate() {
                         worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
                             selection,
@@ -702,31 +743,6 @@ impl AppState {
                             index + 1, shared_drives.len(), drive.id, drive.name,
                         );
                         let drive_scan_id = database.start_scan_run(&format!("shared-drive:{}", drive.id))?;
-                        let shared_drive_permissions = if permission_scanning {
-                            match rclone::identity::fetch_shared_drive_permissions(
-                                &worker_state.runtime,
-                                &drive.id,
-                            ) {
-                                Ok(permissions) => {
-                                    log::info!(
-                                        "Shared Drive membership fetched: drive_id={}, permissions={}",
-                                        drive.id,
-                                        permissions.len(),
-                                    );
-                                    Some(permissions)
-                                }
-                                Err(error) => {
-                                    log::warn!(
-                                        "Unable to refresh Shared Drive root permissions: drive_id={}, name={}, error={error}",
-                                        drive.id,
-                                        drive.name,
-                                    );
-                                    None
-                                }
-                            }
-                        } else {
-                            None
-                        };
                         let drive_result = rclone::inventory::fetch_shared_drive(
                             &worker_state.runtime, &rclone_path, drive_scan_id, &drive.id,
                             permission_scanning,
@@ -738,13 +754,6 @@ impl AppState {
                                 &drive_items,
                                 permission_scanning,
                             ).map_err(|error| error.to_string())?;
-                            if let Some(permissions) = shared_drive_permissions.as_ref() {
-                                database::inventory::record_shared_drive_permissions(
-                                    &database,
-                                    &drive.id,
-                                    permissions,
-                                ).map_err(|error| error.to_string())?;
-                            }
                             Ok(summary)
                         });
                         match drive_result {

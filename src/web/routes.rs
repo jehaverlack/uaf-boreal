@@ -1574,10 +1574,10 @@ async fn shared_drives_page(
                     .permission_identities
                     .iter()
                     .filter(|identity| {
-                        identity
-                            .roles
-                            .iter()
-                            .any(|role| role.eq_ignore_ascii_case("organizer"))
+                        identity.roles.iter().any(|role| {
+                            role.eq_ignore_ascii_case("organizer")
+                                || role.eq_ignore_ascii_case("owner")
+                        })
                     })
                     .map(shared_drive_identity_view)
                     .collect();
@@ -1678,10 +1678,9 @@ fn shared_drive_manager_sort_key(drive: &database::inventory::SharedDriveRow) ->
         .permission_identities
         .iter()
         .filter(|identity| {
-            identity
-                .roles
-                .iter()
-                .any(|role| role.eq_ignore_ascii_case("organizer"))
+            identity.roles.iter().any(|role| {
+                role.eq_ignore_ascii_case("organizer") || role.eq_ignore_ascii_case("owner")
+            })
         })
         .map(|identity| identity.label.to_ascii_lowercase())
         .min()
