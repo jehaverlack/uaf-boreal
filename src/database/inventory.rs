@@ -413,6 +413,38 @@ pub struct DriveExplorerItem {
 }
 
 #[derive(Debug, Clone)]
+pub struct DriveDownloadItem {
+    pub name: String,
+    pub relative_path: String,
+    pub is_directory: bool,
+    pub is_deleted: bool,
+}
+
+pub fn get_drive_download_item(
+    database: &Database,
+    inventory_scope: &str,
+    item_id: &str,
+) -> Result<Option<DriveDownloadItem>, DatabaseError> {
+    let connection = database.connect()?;
+    connection
+        .query_row(
+            "SELECT name, relative_path, is_directory, is_deleted
+             FROM drive_items WHERE remote_name = ?1 AND item_id = ?2",
+            params![inventory_scope, item_id],
+            |row| {
+                Ok(DriveDownloadItem {
+                    name: row.get(0)?,
+                    relative_path: row.get(1)?,
+                    is_directory: row.get(2)?,
+                    is_deleted: row.get(3)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(Into::into)
+}
+
+#[derive(Debug, Clone)]
 pub struct PermissionIdentity {
     pub label: String,
     pub known: bool,

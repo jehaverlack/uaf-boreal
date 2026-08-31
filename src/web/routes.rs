@@ -11,7 +11,9 @@ use axum::{
 };
 
 use crate::{
-    app::{AppState, GoogleClientState, GoogleRemotesState, MetadataState, RcloneState},
+    app::{
+        AppState, DownloadState, GoogleClientState, GoogleRemotesState, MetadataState, RcloneState,
+    },
     database::{
         self,
         settings::{self, InventorySettings},
@@ -283,9 +285,18 @@ struct MyDriveTemplate {
     root_label: String,
     explorer_path: String,
     drive_id: String,
+    inventory_scope: String,
     tag_action: &'static str,
     tag_remove_action: &'static str,
     summary: ExplorerSummary,
+}
+
+#[derive(Template)]
+#[template(path = "partials/download-status.html", config = "askama.toml")]
+struct DownloadStatusTemplate {
+    status: &'static str,
+    message: String,
+    poll: bool,
 }
 
 pub struct SharedDriveView {
@@ -577,6 +588,14 @@ struct ApplyTagForm {
 }
 
 #[derive(serde::Deserialize)]
+struct DownloadForm {
+    item_id: String,
+    inventory_scope: String,
+    #[serde(default)]
+    drive: String,
+}
+
+#[derive(serde::Deserialize)]
 struct SharedDriveTagForm {
     #[serde(default)]
     selected_drive_ids: String,
@@ -705,6 +724,8 @@ pub fn router() -> Router<Arc<AppState>> {
             "/shared-with-me/tags/remove",
             post(remove_shared_with_me_tag),
         )
+        .route("/downloads/start", post(start_download))
+        .route("/ui/download-status", get(ui_download_status))
         .route("/tags", get(tags_page))
         .route("/directory", get(directory_page))
         .route(
@@ -1947,6 +1968,7 @@ fn render_drive_explorer(
         root_label: root_label.to_string(),
         explorer_path: explorer_path.to_string(),
         drive_id,
+        inventory_scope: inventory_scope.to_string(),
         tag_action,
         tag_remove_action,
         summary,
@@ -2303,6 +2325,200 @@ fn change_drive_tag(
         if remove { "untagged" } else { "tagged" }
     ));
     Ok(Redirect::to(&url))
+}
+
+async fn start_download(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<DownloadForm>,
+) -> Result<Html<String>, StatusCode> {
+    if matches!(state.download_state(), DownloadState::Running { .. }) {
+        return render_download_status(&state.download_state());
+    }
+    let executable = match state.rclone_state() {
+        RcloneState::Ready(status) => status.path,
+        _ => {
+            return render_download_message(
+                "error",
+                "Rclone must be ready before a download can start.".to_string(),
+                false,
+            );
+        }
+    };
+    let shared_drive_id = if let Some(id) = form
+        .inventory_scope
+        .strip_prefix(database::inventory::SHARED_DRIVE_SCOPE_PREFIX)
+    {
+        if id.is_empty() || id != form.drive {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        Some(id.to_string())
+    } else if form.inventory_scope == database::inventory::MY_DRIVE_SCOPE
+        || form.inventory_scope == database::inventory::SHARED_WITH_ME_SCOPE
+    {
+        None
+    } else {
+        return Err(StatusCode::BAD_REQUEST);
+    };
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let item = database::inventory::get_drive_download_item(
+        &database,
+        &form.inventory_scope,
+        &form.item_id,
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(StatusCode::NOT_FOUND)?;
+    if item.is_deleted {
+        return render_download_message(
+            "error",
+            "Deleted inventory items cannot be downloaded.".to_string(),
+            false,
+        );
+    }
+
+    let selected_folder = rfd::FileDialog::new()
+        .set_title("Choose BOREAL download destination")
+        .pick_folder();
+    let Some(selected_folder) = selected_folder else {
+        return render_download_message("cancelled", String::new(), false);
+    };
+    let destination = selected_folder.join(safe_download_name(&item.name));
+    let destination_label = destination.display().to_string();
+    let config_path =
+        rclone::config::path(&state.runtime).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state.set_download_state(DownloadState::Running {
+        item_name: item.name.clone(),
+        destination: destination_label.clone(),
+    });
+    let worker_state = Arc::clone(&state);
+    let item_name = item.name;
+    let shared_with_me = form.inventory_scope == database::inventory::SHARED_WITH_ME_SCOPE;
+    tokio::spawn(async move {
+        let result = tokio::task::spawn_blocking(move || {
+            rclone::download::copy_item(rclone::download::DownloadRequest {
+                executable: &executable,
+                config_path: &config_path,
+                relative_path: &item.relative_path,
+                destination: &destination,
+                is_directory: item.is_directory,
+                shared_with_me,
+                shared_drive_id: shared_drive_id.as_deref(),
+            })
+        })
+        .await;
+        match result {
+            Ok(Ok(())) => worker_state.set_download_state(DownloadState::Complete {
+                item_name,
+                destination: destination_label,
+            }),
+            Ok(Err(error)) => worker_state.set_download_state(DownloadState::Error {
+                item_name,
+                message: error.to_string(),
+            }),
+            Err(error) => worker_state.set_download_state(DownloadState::Error {
+                item_name,
+                message: format!("Download task failed: {error}"),
+            }),
+        }
+    });
+    render_download_status(&state.download_state())
+}
+
+async fn ui_download_status(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
+    render_download_status(&state.download_state())
+}
+
+fn render_download_status(state: &DownloadState) -> Result<Html<String>, StatusCode> {
+    match state {
+        DownloadState::Idle => render_download_message("idle", String::new(), false),
+        DownloadState::Running {
+            item_name,
+            destination,
+        } => render_download_message(
+            "running",
+            format!("Downloading {item_name} to {destination}…"),
+            true,
+        ),
+        DownloadState::Complete {
+            item_name,
+            destination,
+        } => render_download_message(
+            "complete",
+            format!("Downloaded {item_name} to {destination}."),
+            false,
+        ),
+        DownloadState::Error { item_name, message } => render_download_message(
+            "error",
+            if item_name.is_empty() {
+                message.clone()
+            } else {
+                format!("Unable to download {item_name}: {message}")
+            },
+            false,
+        ),
+    }
+}
+
+fn render_download_message(
+    status: &'static str,
+    message: String,
+    poll: bool,
+) -> Result<Html<String>, StatusCode> {
+    render_template(&DownloadStatusTemplate {
+        status,
+        message,
+        poll,
+    })
+}
+
+fn safe_download_name(name: &str) -> String {
+    let sanitized = name
+        .chars()
+        .map(|character| match character {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => character,
+        })
+        .collect::<String>();
+    let sanitized = sanitized.trim().trim_matches('.');
+    if sanitized.is_empty() {
+        "Drive item".to_string()
+    } else if matches!(
+        sanitized
+            .split('.')
+            .next()
+            .unwrap_or_default()
+            .to_ascii_uppercase()
+            .as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    ) {
+        format!("_{sanitized}")
+    } else {
+        sanitized.to_string()
+    }
 }
 
 async fn tags_page(
@@ -3593,5 +3809,16 @@ mod tests {
         assert_eq!(view.progress_files_scanned, 500);
         assert_eq!(view.progress_folders_scanned, 75);
         assert_eq!(view.progress_permissions_scanned, 900);
+    }
+
+    #[test]
+    fn download_names_are_safe_local_path_components() {
+        assert_eq!(
+            safe_download_name("Budget: 2026/Final?.xlsx"),
+            "Budget_ 2026_Final_.xlsx"
+        );
+        assert_eq!(safe_download_name(".."), "Drive item");
+        assert_eq!(safe_download_name("CON.txt"), "_CON.txt");
+        assert_eq!(safe_download_name("Research"), "Research");
     }
 }

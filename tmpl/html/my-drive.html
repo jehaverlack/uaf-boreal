@@ -182,6 +182,12 @@
                                 <path fill="#ffba00" d="M73.3 26.7 60.7 4.6a10 10 0 0 0-3.4-3.2L43.7 25.2 59.8 53h27.3c0-1.6-.4-3.2-1.2-4.6z"/>
                             </svg>
                         </a>
+                        {% if !row.is_deleted %}<button class="btn btn-link btn-sm p-0 ms-1 boreal-download-item" type="button"
+                                data-bs-toggle="modal" data-bs-target="#downloadModal"
+                                data-item-id="{{ row.item_id }}" data-item-name="{{ row.name }}"
+                                title="Download to a local folder" aria-label="Download {{ row.name }}">
+                            <i class="bi bi-download" aria-hidden="true"></i>
+                        </button>{% endif %}
                     </td>
                     <td class="text-center"><i class="bi {{ row.type_icon }} fs-5 text-primary" title="{{ row.mime_type }}" aria-label="{{ row.mime_type }}"></i></td>
                     <th scope="row" class="boreal-name-cell">
@@ -229,8 +235,37 @@
 
 </div>
 
+<div class="modal fade" id="downloadModal" tabindex="-1" aria-labelledby="downloadModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="downloadModalLabel"><i class="bi bi-download me-2"></i>Download <span id="download-item-name"></span></h2>
+                <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Choose a local destination folder. BOREAL will copy this item into that folder using its read-only Rclone remote.</p>
+                <p class="small text-body-secondary">Existing files with the same names may be updated. Other files in the destination will not be deleted.</p>
+                <form id="download-form" hx-post="/downloads/start" hx-target="#download-status" hx-swap="outerHTML" hx-disabled-elt="#download-choose-folder">
+                    <input id="download-item-id" type="hidden" name="item_id">
+                    <input type="hidden" name="inventory_scope" value="{{ inventory_scope }}">
+                    <input type="hidden" name="drive" value="{{ drive_id }}">
+                    <button id="download-choose-folder" class="btn btn-primary mb-3" type="submit"><i class="bi bi-folder2-open me-1"></i>Choose destination folder</button>
+                </form>
+                <div id="download-status"><p class="text-body-secondary mb-0">Choose a destination folder to begin.</p></div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     (() => {
+        document.querySelectorAll(".boreal-download-item").forEach((button) => {
+            button.addEventListener("click", () => {
+                document.getElementById("download-item-id").value = button.dataset.itemId;
+                document.getElementById("download-item-name").textContent = button.dataset.itemName;
+                document.getElementById("download-status").innerHTML = '<p class="text-body-secondary mb-0">Choose a destination folder to begin.</p>';
+            });
+        });
         const selectAll = document.getElementById("my-drive-select-all");
         const itemCheckboxes = Array.from(
             document.querySelectorAll(".my-drive-item-select:not(:disabled)"),
