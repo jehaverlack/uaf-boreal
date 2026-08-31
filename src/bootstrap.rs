@@ -62,14 +62,7 @@ pub fn initialize() -> Result<Runtime, Box<dyn Error>> {
      */
     let mut directories = config::resolve_all_directories(&boreal, &boreal_home)?;
 
-    // Existing installations may predate the CACHE entry in boreal.json.
-    // Keep them upgrade-safe without overwriting their configuration file.
-    if !directories.contains_key("CACHE") {
-        let data_dir = directories
-            .get("DATA")
-            .ok_or("Missing BOREAL.DIRS.data in boreal.json")?;
-        directories.insert("CACHE".to_string(), data_dir.join("cache"));
-    }
+    add_upgrade_safe_directories(&mut directories, &boreal_home)?;
 
     /*
      * Create every configured directory.
@@ -110,6 +103,26 @@ pub fn initialize() -> Result<Runtime, Box<dyn Error>> {
         boreal,
         directories,
     })
+}
+
+/// Supply directories introduced after the first BOREAL configuration
+/// versions without overwriting an existing boreal.json.
+fn add_upgrade_safe_directories(
+    directories: &mut BTreeMap<String, PathBuf>,
+    boreal_home: &Path,
+) -> Result<(), Box<dyn Error>> {
+    if !directories.contains_key("BIN") {
+        directories.insert("BIN".to_string(), boreal_home.join("bin"));
+    }
+
+    if !directories.contains_key("CACHE") {
+        let data_dir = directories
+            .get("DATA")
+            .ok_or("Missing BOREAL.DIRS.data in boreal.json")?;
+        directories.insert("CACHE".to_string(), data_dir.join("cache"));
+    }
+
+    Ok(())
 }
 
 /// Determine the platform-specific BOREAL home.
@@ -197,4 +210,41 @@ fn protect_secrets(path: &Path) -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn supplies_upgrade_safe_bin_and_cache_directories() {
+        let boreal_home = PathBuf::from("/test/.boreal");
+        let mut directories = BTreeMap::new();
+        directories.insert("HOME".to_string(), boreal_home.clone());
+        directories.insert("DATA".to_string(), boreal_home.join("data"));
+
+        add_upgrade_safe_directories(&mut directories, &boreal_home)
+            .expect("upgrade-safe directories should be added");
+
+        assert_eq!(directories.get("BIN"), Some(&boreal_home.join("bin")));
+        assert_eq!(
+            directories.get("CACHE"),
+            Some(&boreal_home.join("data/cache"))
+        );
+    }
+
+    #[test]
+    fn preserves_configured_bin_directory() {
+        let boreal_home = PathBuf::from("/test/.boreal");
+        let configured_bin = PathBuf::from("/custom/boreal-bin");
+        let mut directories = BTreeMap::new();
+        directories.insert("HOME".to_string(), boreal_home.clone());
+        directories.insert("BIN".to_string(), configured_bin.clone());
+        directories.insert("DATA".to_string(), boreal_home.join("data"));
+
+        add_upgrade_safe_directories(&mut directories, &boreal_home)
+            .expect("configured directories should remain valid");
+
+        assert_eq!(directories.get("BIN"), Some(&configured_bin));
+    }
 }
