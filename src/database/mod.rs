@@ -186,17 +186,45 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 14,);
+        assert_eq!(migration_count, 16,);
 
-        let safe_for_removal_tag: (String, String) = connection
+        let safe_to_delete_scope_count: i64 = connection
             .query_row(
-                "SELECT name, color FROM tags WHERE slug = 'safe-for-removal'",
+                "SELECT COUNT(*) FROM tag_scopes s
+                 JOIN tags t ON t.id = s.tag_id
+                 WHERE t.slug = 'safe-to-delete'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("migrated tag scopes should be readable");
+        assert_eq!(safe_to_delete_scope_count, 3);
+
+        for (slug, expected_scope_count) in [
+            ("data-loss-risk", 1_i64),
+            ("to-delete", 3_i64),
+            ("to-migrate", 2_i64),
+        ] {
+            let scope_count: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM tag_scopes s
+                     JOIN tags t ON t.id = s.tag_id
+                     WHERE t.slug = ?1",
+                    [slug],
+                    |row| row.get(0),
+                )
+                .expect("built-in tag scopes should be readable");
+            assert_eq!(scope_count, expected_scope_count, "scope count for {slug}");
+        }
+
+        let safe_to_delete_tag: (String, String) = connection
+            .query_row(
+                "SELECT name, color FROM tags WHERE slug = 'safe-to-delete'",
                 [],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
-            .expect("safe-for-removal tag should exist");
-        assert_eq!(safe_for_removal_tag.0, "Safe for removal");
-        assert_eq!(safe_for_removal_tag.1, "#198754");
+            .expect("safe-to-delete tag should exist");
+        assert_eq!(safe_to_delete_tag.0, "Safe to Delete");
+        assert_eq!(safe_to_delete_tag.1, "#198754");
 
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
@@ -468,14 +496,14 @@ mod tests {
         inventory::change_shared_drive_tags(
             &database,
             &["drive-a".to_string()],
-            "to-migrate",
+            "to-delete",
             false,
         )
         .expect("Shared Drive tag should apply");
         let tagged_drives = inventory::list_shared_drives_filtered(
             &database,
             "renamed",
-            "to-migrate",
+            "to-delete",
             "",
             "",
             "",
@@ -485,7 +513,7 @@ mod tests {
         .expect("Shared Drives should filter by name and tag");
         assert_eq!(tagged_drives.len(), 1);
         assert_eq!(tagged_drives[0].drive_id, "drive-a");
-        assert_eq!(tagged_drives[0].tags[0].slug, "to-migrate");
+        assert_eq!(tagged_drives[0].tags[0].slug, "to-delete");
         let manager_filtered = inventory::list_shared_drives_filtered(
             &database,
             "",
@@ -507,24 +535,10 @@ mod tests {
                         && identity.roles.iter().any(|role| role == "organizer")
                 })
         );
-        inventory::change_shared_drive_tags(
-            &database,
-            &["drive-a".to_string()],
-            "to-migrate",
-            true,
-        )
-        .expect("Shared Drive tag should be removable");
+        inventory::change_shared_drive_tags(&database, &["drive-a".to_string()], "to-delete", true)
+            .expect("Shared Drive tag should be removable");
         assert!(
-            inventory::list_shared_drives_filtered(
-                &database,
-                "",
-                "to-migrate",
-                "",
-                "",
-                "",
-                "",
-                "",
-            )
+            inventory::list_shared_drives_filtered(&database, "", "to-delete", "", "", "", "", "",)
                 .expect("Shared Drive tag filter should load")
                 .is_empty()
         );
@@ -823,10 +837,21 @@ mod tests {
         );
         inventory::apply_tag_recursively(&database, &["folder-id-1".to_string()], "to-migrate")
             .expect("recursive tag should reapply");
-        inventory::create_tag(&database, "Needs Review", "#abcdef")
-            .expect("custom tag should be created");
-        inventory::update_tag(&database, "needs-review", "Review Soon", "#123456")
-            .expect("custom tag should be editable");
+        inventory::create_tag_with_scopes(
+            &database,
+            "Needs Review",
+            "#abcdef",
+            &[inventory::TagScope::Directory],
+        )
+        .expect("custom tag should be created");
+        inventory::update_tag_with_scopes(
+            &database,
+            "needs-review",
+            "Review Soon",
+            "#123456",
+            &[inventory::TagScope::Directory],
+        )
+        .expect("custom tag should be editable");
         let custom_tag = inventory::list_tags(&database)
             .expect("tags should be readable")
             .into_iter()
@@ -834,6 +859,23 @@ mod tests {
             .expect("custom tag should remain available");
         assert_eq!(custom_tag.name, "Review Soon");
         assert_eq!(custom_tag.color, "#123456");
+        assert!(custom_tag.directory);
+        assert!(!custom_tag.my_drive);
+        assert!(
+            inventory::list_tags_for_scope(&database, inventory::TagScope::MyDrive)
+                .expect("My Drive tags should be readable")
+                .iter()
+                .all(|tag| tag.slug != "needs-review")
+        );
+        assert!(
+            inventory::apply_tag_recursively(
+                &database,
+                &["folder-id-1".to_string()],
+                "needs-review",
+            )
+            .is_err(),
+            "a Directory-only tag should not be applicable to My Drive",
+        );
         directory::import_csv(
             &database,
             "owners.csv",

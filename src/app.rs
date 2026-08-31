@@ -31,6 +31,8 @@ pub struct AppState {
 
     pub metadata: RwLock<MetadataState>,
 
+    pub download: RwLock<DownloadState>,
+
     metadata_job_active: Mutex<bool>,
 
     remote_setup_active: Mutex<bool>,
@@ -79,6 +81,23 @@ pub enum MetadataState {
     Updating(MetadataProgress),
     Synchronized(MetadataSummary),
     Error(String),
+}
+
+#[derive(Debug, Clone)]
+pub enum DownloadState {
+    Idle,
+    Running {
+        item_name: String,
+        destination: String,
+    },
+    Complete {
+        item_name: String,
+        destination: String,
+    },
+    Error {
+        item_name: String,
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -182,6 +201,8 @@ impl AppState {
 
             metadata: RwLock::new(metadata),
 
+            download: RwLock::new(DownloadState::Idle),
+
             metadata_job_active: Mutex::new(false),
 
             remote_setup_active: Mutex::new(false),
@@ -276,6 +297,22 @@ impl AppState {
             Err(error) => {
                 RcloneState::Error(format!("Unable to read Rclone application state: {error}"))
             }
+        }
+    }
+
+    pub fn download_state(&self) -> DownloadState {
+        self.download
+            .read()
+            .map(|state| state.clone())
+            .unwrap_or_else(|error| DownloadState::Error {
+                item_name: String::new(),
+                message: format!("Unable to read download state: {error}"),
+            })
+    }
+
+    pub fn set_download_state(&self, new_state: DownloadState) {
+        if let Ok(mut state) = self.download.write() {
+            *state = new_state;
         }
     }
 

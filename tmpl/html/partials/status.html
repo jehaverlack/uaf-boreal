@@ -22,6 +22,12 @@
 
         <span
             class="small text-body d-inline-flex align-items-center"
+            data-status-label="{{ item.label }}"
+            {% if item.label == "Download" && item.spinner %}
+            hx-get="/ui/download-status-item"
+            hx-trigger="every 1s"
+            hx-swap="outerHTML"
+            {% endif %}
         >
             {% if item.spinner %}
             <span

@@ -60,7 +60,7 @@
         <label class="visually-hidden" for="my-drive-owner-identity-tag-filter">Filter by owner identity tag</label>
         <select id="my-drive-owner-identity-tag-filter" class="form-select form-select-sm" name="owner_identity_tag">
             <option value="">Any owner identity tag</option>
-            {% for tag in tags %}
+            {% for tag in directory_tags %}
             <option value="{{ tag.slug }}" {% if owner_identity_tag_filter == tag.slug %}selected{% endif %}>Owner: {{ tag.name }}</option>
             {% endfor %}
         </select>
@@ -69,7 +69,7 @@
         <label class="visually-hidden" for="my-drive-permission-identity-tag-filter">Filter by permission identity tag</label>
         <select id="my-drive-permission-identity-tag-filter" class="form-select form-select-sm" name="permission_identity_tag">
             <option value="">Any permission identity tag</option>
-            {% for tag in tags %}
+            {% for tag in directory_tags %}
             <option value="{{ tag.slug }}" {% if permission_identity_tag_filter == tag.slug %}selected{% endif %}>Shared with: {{ tag.name }}</option>
             {% endfor %}
         </select>
@@ -182,6 +182,12 @@
                                 <path fill="#ffba00" d="M73.3 26.7 60.7 4.6a10 10 0 0 0-3.4-3.2L43.7 25.2 59.8 53h27.3c0-1.6-.4-3.2-1.2-4.6z"/>
                             </svg>
                         </a>
+                        {% if !row.is_deleted %}<button class="btn btn-link btn-sm p-0 ms-1 boreal-download-item" type="button"
+                                data-bs-toggle="modal" data-bs-target="#downloadModal"
+                                data-item-id="{{ row.item_id }}" data-item-name="{{ row.name }}"
+                                title="Download to a local folder" aria-label="Download {{ row.name }}">
+                            <i class="bi bi-download" aria-hidden="true"></i>
+                        </button>{% endif %}
                     </td>
                     <td class="text-center"><i class="bi {{ row.type_icon }} fs-5 text-primary" title="{{ row.mime_type }}" aria-label="{{ row.mime_type }}"></i></td>
                     <th scope="row" class="boreal-name-cell">
@@ -195,7 +201,7 @@
                     <td class="text-nowrap small">{{ row.modified_at }}</td>
                     <td class="small">
                         {% if row.owner.directory_url.len() > 0 %}<a href="{{ row.owner.directory_url }}" class="badge rounded-pill boreal-unknown-identity text-decoration-none"
-                              title="{{ row.owner.label }} — {{ row.owner.tag_details }}. Click to add to the directory"><i class="bi bi-person-question me-1" aria-hidden="true"></i>{{ row.owner.label }}</a>{% else %}
+                              title="{{ row.owner.label }} — {{ row.owner.tag_details }}. Click to add to Persons"><i class="bi bi-person-question me-1" aria-hidden="true"></i>{{ row.owner.label }}</a>{% else %}
                         <span class="badge rounded-pill {% if row.owner.unknown %}boreal-unknown-identity{% else if !row.owner.tagged %}text-bg-light border text-body{% endif %}"
                               {% if row.owner.tagged %}style="background-color: {{ row.owner.color }}; color: {{ row.owner.text_color }}"{% endif %}
                               title="{{ row.owner.label }} — {{ row.owner.tag_details }}">{% if row.owner.unknown %}<i class="bi bi-person-question me-1" aria-hidden="true"></i>{% endif %}{{ row.owner.label }}</span>
@@ -206,7 +212,7 @@
                         <div class="d-flex flex-wrap gap-1">
                             {% for permission in row.permissions %}
                             {% if permission.directory_url.len() > 0 %}<a href="{{ permission.directory_url }}" class="badge rounded-pill boreal-unknown-identity text-decoration-none"
-                                  title="{{ permission.label }} — {{ permission.tag_details }}. Click to add to the directory"><i class="bi bi-person-question me-1" aria-hidden="true"></i>{{ permission.label }}</a>{% else %}
+                                  title="{{ permission.label }} — {{ permission.tag_details }}. Click to add to Persons"><i class="bi bi-person-question me-1" aria-hidden="true"></i>{{ permission.label }}</a>{% else %}
                             <span class="badge rounded-pill {% if permission.unknown %}boreal-unknown-identity{% else if !permission.tagged %}text-bg-light border text-body{% endif %}"
                                   {% if permission.tagged %}style="background-color: {{ permission.color }}; color: {{ permission.text_color }}"{% endif %}
                                   title="{{ permission.label }} — {{ permission.tag_details }}">{% if permission.unknown %}<i class="bi bi-person-question me-1" aria-hidden="true"></i>{% endif %}{{ permission.label }}</span>
@@ -229,8 +235,37 @@
 
 </div>
 
+<div class="modal fade" id="downloadModal" tabindex="-1" aria-labelledby="downloadModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="downloadModalLabel"><i class="bi bi-download me-2"></i>Download <span id="download-item-name"></span></h2>
+                <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Choose a local destination folder. BOREAL will copy this item into that folder using its read-only Rclone remote.</p>
+                <p class="small text-body-secondary">Existing files with the same names may be updated. Other files in the destination will not be deleted.</p>
+                <form id="download-form" hx-post="/downloads/start" hx-target="#download-status" hx-swap="outerHTML" hx-disabled-elt="#download-choose-folder" hx-on::after-request="window.borealRefreshDownloadStatus?.()">
+                    <input id="download-item-id" type="hidden" name="item_id">
+                    <input type="hidden" name="inventory_scope" value="{{ inventory_scope }}">
+                    <input type="hidden" name="drive" value="{{ drive_id }}">
+                    <button id="download-choose-folder" class="btn btn-primary mb-3" type="submit"><i class="bi bi-folder2-open me-1"></i>Choose destination folder</button>
+                </form>
+                <div id="download-status"><p class="text-body-secondary mb-0">Choose a destination folder to begin.</p></div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     (() => {
+        document.querySelectorAll(".boreal-download-item").forEach((button) => {
+            button.addEventListener("click", () => {
+                document.getElementById("download-item-id").value = button.dataset.itemId;
+                document.getElementById("download-item-name").textContent = button.dataset.itemName;
+                document.getElementById("download-status").innerHTML = '<p class="text-body-secondary mb-0">Choose a destination folder to begin.</p>';
+            });
+        });
         const selectAll = document.getElementById("my-drive-select-all");
         const itemCheckboxes = Array.from(
             document.querySelectorAll(".my-drive-item-select:not(:disabled)"),

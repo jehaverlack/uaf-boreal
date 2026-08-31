@@ -27,7 +27,10 @@ use std::{error::Error, sync::Arc};
 
 use app::AppState;
 
-#[tokio::main]
+// Native macOS folder dialogs in this non-windowed application must be opened
+// from the main OS thread. Blocking Rclone and database jobs are still sent to
+// Tokio's blocking worker pool.
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
     let runtime = bootstrap::initialize()?;
 

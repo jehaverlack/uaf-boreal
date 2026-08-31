@@ -1,0 +1,10 @@
+<span class="small text-body d-inline-flex align-items-center" data-status-label="Download"
+      {% if item.spinner %}hx-get="/ui/download-status-item" hx-trigger="every 1s" hx-swap="outerHTML"{% endif %}>
+    {% if item.spinner %}
+    <span class="spinner-border spinner-border-sm text-primary me-1" role="status" aria-hidden="true"></span>
+    {% else %}
+    <i class="bi {{ item.icon }} me-1"></i>
+    {% endif %}
+    <span class="fw-semibold me-1">{{ item.label }}:</span>
+    <span class="{{ item.value_class }}">{{ item.value }}</span>
+</span>

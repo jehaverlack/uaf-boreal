@@ -1,5 +1,6 @@
 pub mod command;
 pub mod config;
+pub mod download;
 pub mod gui;
 pub mod identity;
 pub mod install;

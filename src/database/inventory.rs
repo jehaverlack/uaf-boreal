@@ -11,6 +11,34 @@ pub const MY_DRIVE_SCOPE: &str = "my-drive-ro";
 pub const SHARED_WITH_ME_SCOPE: &str = "shared-with-me";
 pub const SHARED_DRIVE_SCOPE_PREFIX: &str = "shared-drive:";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TagScope {
+    Directory,
+    MyDrive,
+    SharedDrives,
+    SharedWithMe,
+}
+
+impl TagScope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Directory => "directory",
+            Self::MyDrive => "my-drive",
+            Self::SharedDrives => "shared-drives",
+            Self::SharedWithMe => "shared-with-me",
+        }
+    }
+
+    pub fn for_inventory(inventory_scope: &str) -> Option<Self> {
+        match inventory_scope {
+            MY_DRIVE_SCOPE => Some(Self::MyDrive),
+            SHARED_WITH_ME_SCOPE => Some(Self::SharedWithMe),
+            value if value.starts_with(SHARED_DRIVE_SCOPE_PREFIX) => Some(Self::SharedDrives),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SharedDriveRow {
     pub drive_id: String,
@@ -168,6 +196,10 @@ pub fn list_shared_drives_filtered(
                                         slug: fields.next()?.to_string(),
                                         name: fields.next()?.to_string(),
                                         color: fields.next()?.to_string(),
+                                        directory: false,
+                                        my_drive: false,
+                                        shared_drives: false,
+                                        shared_with_me: false,
                                     })
                                 })
                                 .collect()
@@ -215,11 +247,18 @@ pub fn change_shared_drive_tags(
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
     let tag_id: i64 = transaction
-        .query_row("SELECT id FROM tags WHERE slug = ?1", [tag_slug], |row| {
-            row.get(0)
-        })
+        .query_row(
+            if remove {
+                "SELECT id FROM tags WHERE slug = ?1"
+            } else {
+                "SELECT t.id FROM tags t JOIN tag_scopes s ON s.tag_id = t.id
+                 WHERE t.slug = ?1 AND s.scope = 'shared-drives'"
+            },
+            [tag_slug],
+            |row| row.get(0),
+        )
         .optional()?
-        .ok_or_else(|| format!("Unknown tag: {tag_slug}"))?;
+        .ok_or_else(|| format!("Tag '{tag_slug}' is not available for Shared Drives"))?;
     let mut changed = 0;
     for drive_id in drive_ids {
         changed += if remove {
@@ -374,6 +413,38 @@ pub struct DriveExplorerItem {
 }
 
 #[derive(Debug, Clone)]
+pub struct DriveDownloadItem {
+    pub name: String,
+    pub relative_path: String,
+    pub is_directory: bool,
+    pub is_deleted: bool,
+}
+
+pub fn get_drive_download_item(
+    database: &Database,
+    inventory_scope: &str,
+    item_id: &str,
+) -> Result<Option<DriveDownloadItem>, DatabaseError> {
+    let connection = database.connect()?;
+    connection
+        .query_row(
+            "SELECT name, relative_path, is_directory, is_deleted
+             FROM drive_items WHERE remote_name = ?1 AND item_id = ?2",
+            params![inventory_scope, item_id],
+            |row| {
+                Ok(DriveDownloadItem {
+                    name: row.get(0)?,
+                    relative_path: row.get(1)?,
+                    is_directory: row.get(2)?,
+                    is_deleted: row.get(3)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(Into::into)
+}
+
+#[derive(Debug, Clone)]
 pub struct PermissionIdentity {
     pub label: String,
     pub known: bool,
@@ -385,6 +456,10 @@ pub struct Tag {
     pub slug: String,
     pub name: String,
     pub color: String,
+    pub directory: bool,
+    pub my_drive: bool,
+    pub shared_drives: bool,
+    pub shared_with_me: bool,
 }
 
 #[allow(dead_code)]
@@ -590,6 +665,10 @@ pub fn list_drive_directory(
                                     slug: String::new(),
                                     name: name.to_string(),
                                     color: color.to_string(),
+                                    directory: false,
+                                    my_drive: false,
+                                    shared_drives: false,
+                                    shared_with_me: false,
                                 })
                             })
                             .collect()
@@ -637,6 +716,10 @@ pub fn list_drive_directory(
                 slug: row.get(1)?,
                 name: row.get(2)?,
                 color: row.get(3)?,
+                directory: false,
+                my_drive: false,
+                shared_drives: false,
+                shared_with_me: false,
             },
         ))
     })? {
@@ -742,47 +825,141 @@ fn parse_modified_filter(filter: &str) -> Result<(i64, String), DatabaseError> {
 }
 
 pub fn list_tags(database: &Database) -> Result<Vec<Tag>, DatabaseError> {
+    list_tags_query(database, None)
+}
+
+pub fn list_tags_for_scope(
+    database: &Database,
+    scope: TagScope,
+) -> Result<Vec<Tag>, DatabaseError> {
+    list_tags_query(database, Some(scope))
+}
+
+fn list_tags_query(
+    database: &Database,
+    scope: Option<TagScope>,
+) -> Result<Vec<Tag>, DatabaseError> {
     let connection = database.connect()?;
-    let mut statement =
-        connection.prepare("SELECT slug, name, color FROM tags ORDER BY name COLLATE NOCASE")?;
-    let rows = statement.query_map([], |row| {
+    let mut statement = connection.prepare(
+        "SELECT t.slug, t.name, t.color,
+                EXISTS(SELECT 1 FROM tag_scopes s WHERE s.tag_id = t.id AND s.scope = 'directory'),
+                EXISTS(SELECT 1 FROM tag_scopes s WHERE s.tag_id = t.id AND s.scope = 'my-drive'),
+                EXISTS(SELECT 1 FROM tag_scopes s WHERE s.tag_id = t.id AND s.scope = 'shared-drives'),
+                EXISTS(SELECT 1 FROM tag_scopes s WHERE s.tag_id = t.id AND s.scope = 'shared-with-me')
+         FROM tags t
+         WHERE ?1 IS NULL OR EXISTS(
+             SELECT 1 FROM tag_scopes selected
+             WHERE selected.tag_id = t.id AND selected.scope = ?1
+         )
+         ORDER BY t.name COLLATE NOCASE",
+    )?;
+    let rows = statement.query_map([scope.map(TagScope::as_str)], |row| {
         Ok(Tag {
             slug: row.get(0)?,
             name: row.get(1)?,
             color: row.get(2)?,
+            directory: row.get(3)?,
+            my_drive: row.get(4)?,
+            shared_drives: row.get(5)?,
+            shared_with_me: row.get(6)?,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
+#[allow(dead_code)]
 pub fn create_tag(database: &Database, name: &str, color: &str) -> Result<(), DatabaseError> {
+    create_tag_with_scopes(database, name, color, &TagScope::ALL)
+}
+
+impl TagScope {
+    #[allow(dead_code)]
+    const ALL: [Self; 4] = [
+        Self::Directory,
+        Self::MyDrive,
+        Self::SharedDrives,
+        Self::SharedWithMe,
+    ];
+}
+
+pub fn create_tag_with_scopes(
+    database: &Database,
+    name: &str,
+    color: &str,
+    scopes: &[TagScope],
+) -> Result<(), DatabaseError> {
     validate_tag(name, color)?;
+    validate_tag_scopes(scopes)?;
     let slug = tag_slug(name);
     if slug.is_empty() {
         return Err("Tag name must contain letters or numbers".into());
     }
-    let connection = database.connect()?;
-    connection.execute(
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    transaction.execute(
         "INSERT INTO tags (slug, name, color) VALUES (?1, ?2, ?3)",
         params![slug, name.trim(), color],
     )?;
+    let tag_id = transaction.last_insert_rowid();
+    save_tag_scopes(&transaction, tag_id, scopes)?;
+    transaction.commit()?;
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn update_tag(
     database: &Database,
     slug: &str,
     name: &str,
     color: &str,
 ) -> Result<(), DatabaseError> {
+    update_tag_with_scopes(database, slug, name, color, &TagScope::ALL)
+}
+
+pub fn update_tag_with_scopes(
+    database: &Database,
+    slug: &str,
+    name: &str,
+    color: &str,
+    scopes: &[TagScope],
+) -> Result<(), DatabaseError> {
     validate_tag(name, color)?;
-    let connection = database.connect()?;
-    let updated = connection.execute(
+    validate_tag_scopes(scopes)?;
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    let updated = transaction.execute(
         "UPDATE tags SET name = ?2, color = ?3 WHERE slug = ?1",
         params![slug, name.trim(), color],
     )?;
     if updated == 0 {
         return Err(format!("Unknown tag: {slug}").into());
+    }
+    let tag_id = transaction.query_row("SELECT id FROM tags WHERE slug = ?1", [slug], |row| {
+        row.get(0)
+    })?;
+    transaction.execute("DELETE FROM tag_scopes WHERE tag_id = ?1", [tag_id])?;
+    save_tag_scopes(&transaction, tag_id, scopes)?;
+    transaction.commit()?;
+    Ok(())
+}
+
+fn validate_tag_scopes(scopes: &[TagScope]) -> Result<(), DatabaseError> {
+    if scopes.is_empty() {
+        return Err("Select at least one tag location".into());
+    }
+    Ok(())
+}
+
+fn save_tag_scopes(
+    transaction: &rusqlite::Transaction<'_>,
+    tag_id: i64,
+    scopes: &[TagScope],
+) -> Result<(), DatabaseError> {
+    for scope in scopes {
+        transaction.execute(
+            "INSERT OR IGNORE INTO tag_scopes (tag_id, scope) VALUES (?1, ?2)",
+            params![tag_id, scope.as_str()],
+        )?;
     }
     Ok(())
 }
@@ -836,12 +1013,17 @@ pub fn apply_tag_recursively_for_scope(
     }
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
+    let tag_scope = TagScope::for_inventory(inventory_scope)
+        .ok_or_else(|| format!("Unknown inventory scope: {inventory_scope}"))?;
     let tag_id: i64 = transaction
-        .query_row("SELECT id FROM tags WHERE slug = ?1", [tag_slug], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT t.id FROM tags t JOIN tag_scopes s ON s.tag_id = t.id
+             WHERE t.slug = ?1 AND s.scope = ?2",
+            params![tag_slug, tag_scope.as_str()],
+            |row| row.get(0),
+        )
         .optional()?
-        .ok_or_else(|| format!("Unknown tag: {tag_slug}"))?;
+        .ok_or_else(|| format!("Tag '{tag_slug}' is not available in this explorer"))?;
     let remote = inventory_scope;
     let mut applied = 0;
 

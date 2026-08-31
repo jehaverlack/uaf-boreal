@@ -11,7 +11,9 @@ use axum::{
 };
 
 use crate::{
-    app::{AppState, GoogleClientState, GoogleRemotesState, MetadataState, RcloneState},
+    app::{
+        AppState, DownloadState, GoogleClientState, GoogleRemotesState, MetadataState, RcloneState,
+    },
     database::{
         self,
         settings::{self, InventorySettings},
@@ -266,6 +268,7 @@ struct MyDriveTemplate {
     owner_sort_url: String,
     clear_search_url: String,
     tags: Vec<database::inventory::Tag>,
+    directory_tags: Vec<database::inventory::Tag>,
     tag_filter: String,
     tagged_count: usize,
     untagged_count: usize,
@@ -282,9 +285,24 @@ struct MyDriveTemplate {
     root_label: String,
     explorer_path: String,
     drive_id: String,
+    inventory_scope: String,
     tag_action: &'static str,
     tag_remove_action: &'static str,
     summary: ExplorerSummary,
+}
+
+#[derive(Template)]
+#[template(path = "partials/download-status.html", config = "askama.toml")]
+struct DownloadStatusTemplate {
+    status: &'static str,
+    message: String,
+    poll: bool,
+}
+
+#[derive(Template)]
+#[template(path = "partials/download-status-item.html", config = "askama.toml")]
+struct DownloadStatusItemTemplate {
+    item: StatusItem,
 }
 
 pub struct SharedDriveView {
@@ -576,6 +594,14 @@ struct ApplyTagForm {
 }
 
 #[derive(serde::Deserialize)]
+struct DownloadForm {
+    item_id: String,
+    inventory_scope: String,
+    #[serde(default)]
+    drive: String,
+}
+
+#[derive(serde::Deserialize)]
 struct SharedDriveTagForm {
     #[serde(default)]
     selected_drive_ids: String,
@@ -635,6 +661,14 @@ struct TagForm {
     slug: String,
     name: String,
     color: String,
+    #[serde(default)]
+    directory: Option<String>,
+    #[serde(default)]
+    my_drive: Option<String>,
+    #[serde(default)]
+    shared_drives: Option<String>,
+    #[serde(default)]
+    shared_with_me: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -696,6 +730,9 @@ pub fn router() -> Router<Arc<AppState>> {
             "/shared-with-me/tags/remove",
             post(remove_shared_with_me_tag),
         )
+        .route("/downloads/start", post(start_download))
+        .route("/ui/download-status", get(ui_download_status))
+        .route("/ui/download-status-item", get(ui_download_status_item))
         .route("/tags", get(tags_page))
         .route("/directory", get(directory_page))
         .route(
@@ -775,6 +812,7 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
     let alerts = build_alerts(&rclone_state, &google_client_state);
 
     let status_items = build_status_items(
+        &state.download_state(),
         &rclone_state,
         &google_client_state,
         &google_remotes_state,
@@ -1316,6 +1354,7 @@ fn render_settings(
         active_page: "settings",
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
+            &state.download_state(),
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -1344,6 +1383,7 @@ async fn about(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
     let alerts = build_alerts(&rclone_state, &google_client_state);
 
     let status_items = build_status_items(
+        &state.download_state(),
         &rclone_state,
         &google_client_state,
         &google_remotes_state,
@@ -1424,6 +1464,7 @@ async fn remotes_page(State(state): State<Arc<AppState>>) -> Result<Html<String>
         active_page: "remotes",
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
+            &state.download_state(),
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -1609,8 +1650,11 @@ async fn shared_drives_page(
                 }
             })
             .collect();
-        let tags = database::inventory::list_tags(&database)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let tags = database::inventory::list_tags_for_scope(
+            &database,
+            database::inventory::TagScope::SharedDrives,
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let rclone_state = state.rclone_state();
         let google_client_state = state.google_client_state();
         let google_remotes_state = state.google_remotes_state();
@@ -1620,6 +1664,7 @@ async fn shared_drives_page(
             active_page: "shared-drives",
             alerts: build_alerts(&rclone_state, &google_client_state),
             status_items: build_status_items(
+                &state.download_state(),
                 &rclone_state,
                 &google_client_state,
                 &google_remotes_state,
@@ -1855,16 +1900,24 @@ fn render_drive_explorer(
         .rsplit_once('/')
         .map(|(parent, _)| parent.to_string())
         .unwrap_or_default();
-    let tags = database::inventory::list_tags(&database).map_err(|error| {
+    let tag_scope = database::inventory::TagScope::for_inventory(inventory_scope)
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let tags = database::inventory::list_tags_for_scope(&database, tag_scope).map_err(|error| {
         eprintln!("Unable to load My Drive tags: {error}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+    let directory_tags = database::inventory::list_tags_for_scope(
+        &database,
+        database::inventory::TagScope::Directory,
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let template = MyDriveTemplate {
         title: heading.to_string(),
         active_page,
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
+            &state.download_state(),
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -1911,6 +1964,7 @@ fn render_drive_explorer(
             false,
         ),
         tags,
+        directory_tags,
         tag_filter: query.tag,
         tagged_count: query.tagged,
         untagged_count: query.untagged,
@@ -1927,6 +1981,7 @@ fn render_drive_explorer(
         root_label: root_label.to_string(),
         explorer_path: explorer_path.to_string(),
         drive_id,
+        inventory_scope: inventory_scope.to_string(),
         tag_action,
         tag_remove_action,
         summary,
@@ -1955,7 +2010,7 @@ fn identity_display(
             .map(|tag| tag_text_color(&tag.color))
             .unwrap_or("#212529"),
         tag_details: if unknown {
-            "Unknown identity — not found in the BOREAL directory".to_string()
+            "Unknown identity — not found in BOREAL Persons".to_string()
         } else if tags.is_empty() {
             "No identity tags".to_string()
         } else {
@@ -2285,6 +2340,208 @@ fn change_drive_tag(
     Ok(Redirect::to(&url))
 }
 
+async fn start_download(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<DownloadForm>,
+) -> Result<Html<String>, StatusCode> {
+    if matches!(state.download_state(), DownloadState::Running { .. }) {
+        return render_download_status(&state.download_state());
+    }
+    let executable = match state.rclone_state() {
+        RcloneState::Ready(status) => status.path,
+        _ => {
+            return render_download_message(
+                "error",
+                "Rclone must be ready before a download can start.".to_string(),
+                false,
+            );
+        }
+    };
+    let shared_drive_id = if let Some(id) = form
+        .inventory_scope
+        .strip_prefix(database::inventory::SHARED_DRIVE_SCOPE_PREFIX)
+    {
+        if id.is_empty() || id != form.drive {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        Some(id.to_string())
+    } else if form.inventory_scope == database::inventory::MY_DRIVE_SCOPE
+        || form.inventory_scope == database::inventory::SHARED_WITH_ME_SCOPE
+    {
+        None
+    } else {
+        return Err(StatusCode::BAD_REQUEST);
+    };
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let item = database::inventory::get_drive_download_item(
+        &database,
+        &form.inventory_scope,
+        &form.item_id,
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(StatusCode::NOT_FOUND)?;
+    if item.is_deleted {
+        return render_download_message(
+            "error",
+            "Deleted inventory items cannot be downloaded.".to_string(),
+            false,
+        );
+    }
+
+    let selected_folder = rfd::FileDialog::new()
+        .set_title("Choose BOREAL download destination")
+        .pick_folder();
+    let Some(selected_folder) = selected_folder else {
+        return render_download_message("cancelled", String::new(), false);
+    };
+    let destination = selected_folder.join(safe_download_name(&item.name));
+    let destination_label = destination.display().to_string();
+    let config_path =
+        rclone::config::path(&state.runtime).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state.set_download_state(DownloadState::Running {
+        item_name: item.name.clone(),
+        destination: destination_label.clone(),
+    });
+    let worker_state = Arc::clone(&state);
+    let item_name = item.name;
+    let shared_with_me = form.inventory_scope == database::inventory::SHARED_WITH_ME_SCOPE;
+    tokio::spawn(async move {
+        let result = tokio::task::spawn_blocking(move || {
+            rclone::download::copy_item(rclone::download::DownloadRequest {
+                executable: &executable,
+                config_path: &config_path,
+                relative_path: &item.relative_path,
+                destination: &destination,
+                is_directory: item.is_directory,
+                shared_with_me,
+                shared_drive_id: shared_drive_id.as_deref(),
+            })
+        })
+        .await;
+        match result {
+            Ok(Ok(())) => worker_state.set_download_state(DownloadState::Complete {
+                item_name,
+                destination: destination_label,
+            }),
+            Ok(Err(error)) => worker_state.set_download_state(DownloadState::Error {
+                item_name,
+                message: error.to_string(),
+            }),
+            Err(error) => worker_state.set_download_state(DownloadState::Error {
+                item_name,
+                message: format!("Download task failed: {error}"),
+            }),
+        }
+    });
+    render_download_status(&state.download_state())
+}
+
+async fn ui_download_status(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
+    render_download_status(&state.download_state())
+}
+
+async fn ui_download_status_item(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
+    render_template(&DownloadStatusItemTemplate {
+        item: build_download_status_item(&state.download_state()),
+    })
+}
+
+fn render_download_status(state: &DownloadState) -> Result<Html<String>, StatusCode> {
+    match state {
+        DownloadState::Idle => render_download_message("idle", String::new(), false),
+        DownloadState::Running {
+            item_name,
+            destination,
+        } => render_download_message(
+            "running",
+            format!("Downloading {item_name} to {destination}…"),
+            true,
+        ),
+        DownloadState::Complete {
+            item_name,
+            destination,
+        } => render_download_message(
+            "complete",
+            format!("Downloaded {item_name} to {destination}."),
+            false,
+        ),
+        DownloadState::Error { item_name, message } => render_download_message(
+            "error",
+            if item_name.is_empty() {
+                message.clone()
+            } else {
+                format!("Unable to download {item_name}: {message}")
+            },
+            false,
+        ),
+    }
+}
+
+fn render_download_message(
+    status: &'static str,
+    message: String,
+    poll: bool,
+) -> Result<Html<String>, StatusCode> {
+    render_template(&DownloadStatusTemplate {
+        status,
+        message,
+        poll,
+    })
+}
+
+fn safe_download_name(name: &str) -> String {
+    let sanitized = name
+        .chars()
+        .map(|character| match character {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => character,
+        })
+        .collect::<String>();
+    let sanitized = sanitized.trim().trim_matches('.');
+    if sanitized.is_empty() {
+        "Drive item".to_string()
+    } else if matches!(
+        sanitized
+            .split('.')
+            .next()
+            .unwrap_or_default()
+            .to_ascii_uppercase()
+            .as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    ) {
+        format!("_{sanitized}")
+    } else {
+        sanitized.to_string()
+    }
+}
+
 async fn tags_page(
     State(state): State<Arc<AppState>>,
     Query(query): Query<SettingsQuery>,
@@ -2303,6 +2560,7 @@ async fn tags_page(
         active_page: "tags",
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
+            &state.download_state(),
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -2349,17 +2607,21 @@ async fn directory_page(
             log::error!("Unable to load authenticated accounts: {error}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-    let tags =
-        database::inventory::list_tags(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tags = database::inventory::list_tags_for_scope(
+        &database,
+        database::inventory::TagScope::Directory,
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
     let metadata_state = state.metadata_state();
     render_template(&DirectoryTemplate {
-        title: "Directory - BOREAL",
+        title: "Persons - BOREAL",
         active_page: "directory",
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
+            &state.download_state(),
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -2617,8 +2879,11 @@ fn render_principal_editor(
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let principal_types = database::directory::list_principal_types(&database)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let tags =
-        database::inventory::list_tags(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tags = database::inventory::list_tags_for_scope(
+        &database,
+        database::inventory::TagScope::Directory,
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let principal_tags = if principal_id > 0 {
         database::directory::get_principal(&database, principal_id)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -2629,13 +2894,14 @@ fn render_principal_editor(
     };
     render_template(&DirectoryEditTemplate {
         title: if is_new {
-            "New Directory Entry - BOREAL".to_string()
+            "New Person - BOREAL".to_string()
         } else {
-            "Edit Directory Entry - BOREAL".to_string()
+            "Edit Person - BOREAL".to_string()
         },
         active_page: "directory",
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
+            &state.download_state(),
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -2644,11 +2910,7 @@ fn render_principal_editor(
             authenticated_google_email(state),
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
-        heading: if is_new {
-            "Add directory entry"
-        } else {
-            "Edit directory entry"
-        },
+        heading: if is_new { "Add person" } else { "Edit person" },
         action: if is_new {
             "/directory/new".to_string()
         } else {
@@ -2735,17 +2997,21 @@ async fn principal_page(
             log::error!("Unable to load principal Drive associations: {error}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-    let tags =
-        database::inventory::list_tags(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tags = database::inventory::list_tags_for_scope(
+        &database,
+        database::inventory::TagScope::Directory,
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
     let metadata_state = state.metadata_state();
     render_template(&PrincipalTemplate {
-        title: format!("{} - Directory - BOREAL", principal.display_name),
+        title: format!("{} - Persons - BOREAL", principal.display_name),
         active_page: "directory",
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
+            &state.download_state(),
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -2767,10 +3033,12 @@ async fn create_tag(
     let database = state
         .database()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    database::inventory::create_tag(&database, &form.name, &form.color).map_err(|error| {
-        eprintln!("Unable to create tag: {error}");
-        StatusCode::BAD_REQUEST
-    })?;
+    let scopes = tag_form_scopes(&form);
+    database::inventory::create_tag_with_scopes(&database, &form.name, &form.color, &scopes)
+        .map_err(|error| {
+            eprintln!("Unable to create tag: {error}");
+            StatusCode::BAD_REQUEST
+        })?;
     println!("Tag created: name={}", form.name.trim());
     Ok(Redirect::to("/tags?saved=true"))
 }
@@ -2782,14 +3050,37 @@ async fn update_tag(
     let database = state
         .database()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    database::inventory::update_tag(&database, &form.slug, &form.name, &form.color).map_err(
-        |error| {
-            eprintln!("Unable to update tag: {error}");
-            StatusCode::BAD_REQUEST
-        },
-    )?;
+    let scopes = tag_form_scopes(&form);
+    database::inventory::update_tag_with_scopes(
+        &database,
+        &form.slug,
+        &form.name,
+        &form.color,
+        &scopes,
+    )
+    .map_err(|error| {
+        eprintln!("Unable to update tag: {error}");
+        StatusCode::BAD_REQUEST
+    })?;
     println!("Tag updated: slug={}", form.slug);
     Ok(Redirect::to("/tags?saved=true"))
+}
+
+fn tag_form_scopes(form: &TagForm) -> Vec<database::inventory::TagScope> {
+    let mut scopes = Vec::new();
+    if form.directory.is_some() {
+        scopes.push(database::inventory::TagScope::Directory);
+    }
+    if form.my_drive.is_some() {
+        scopes.push(database::inventory::TagScope::MyDrive);
+    }
+    if form.shared_drives.is_some() {
+        scopes.push(database::inventory::TagScope::SharedDrives);
+    }
+    if form.shared_with_me.is_some() {
+        scopes.push(database::inventory::TagScope::SharedWithMe);
+    }
+    scopes
 }
 
 fn tag_text_color(color: &str) -> &'static str {
@@ -2845,6 +3136,7 @@ async fn ui_status(State(state): State<Arc<AppState>>) -> Result<Html<String>, S
 
     let template = StatusTemplate {
         status_items: build_status_items(
+            &state.download_state(),
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -3052,7 +3344,7 @@ fn metadata_scope_progress_views(
             "shared-with-me",
             shared_with_me,
         ),
-        ("Directory Info", selection.directory_info, "", directory),
+        ("Persons", selection.directory_info, "", directory),
     ]
     .into_iter()
     .map(
@@ -3377,6 +3669,7 @@ fn authenticated_google_email(state: &AppState) -> String {
 }
 
 fn build_status_items(
+    download_state: &DownloadState,
     rclone_state: &RcloneState,
     google_client_state: &GoogleClientState,
     _google_remotes_state: &GoogleRemotesState,
@@ -3482,6 +3775,7 @@ fn build_status_items(
                 _ => String::new(),
             },
         },
+        build_download_status_item(download_state),
         StatusItem {
             icon: "bi-info-circle",
             label: "BOREAL",
@@ -3492,6 +3786,36 @@ fn build_status_items(
             age_timestamp: String::new(),
         },
     ]
+}
+
+fn build_download_status_item(download_state: &DownloadState) -> StatusItem {
+    let (value, value_class, spinner) = match download_state {
+        DownloadState::Idle => ("Idle".to_string(), "text-body-secondary", false),
+        DownloadState::Running { item_name, .. } => {
+            (format!("Downloading {item_name}"), "text-primary", true)
+        }
+        DownloadState::Complete { item_name, .. } => {
+            (format!("Complete: {item_name}"), "text-success", false)
+        }
+        DownloadState::Error { item_name, .. } => (
+            if item_name.is_empty() {
+                "Failed".to_string()
+            } else {
+                format!("Failed: {item_name}")
+            },
+            "text-danger",
+            false,
+        ),
+    };
+    StatusItem {
+        icon: "bi-download",
+        label: "Download",
+        value,
+        value_class,
+        value_url: String::new(),
+        spinner,
+        age_timestamp: String::new(),
+    }
 }
 
 fn render_template<T>(template: &T) -> Result<Html<String>, StatusCode>
@@ -3543,5 +3867,34 @@ mod tests {
         assert_eq!(view.progress_files_scanned, 500);
         assert_eq!(view.progress_folders_scanned, 75);
         assert_eq!(view.progress_permissions_scanned, 900);
+    }
+
+    #[test]
+    fn download_names_are_safe_local_path_components() {
+        assert_eq!(
+            safe_download_name("Budget: 2026/Final?.xlsx"),
+            "Budget_ 2026_Final_.xlsx"
+        );
+        assert_eq!(safe_download_name(".."), "Drive item");
+        assert_eq!(safe_download_name("CON.txt"), "_CON.txt");
+        assert_eq!(safe_download_name("Research"), "Research");
+    }
+
+    #[test]
+    fn download_status_item_reflects_background_state() {
+        let running = build_download_status_item(&DownloadState::Running {
+            item_name: "Research".to_string(),
+            destination: "/tmp/Research".to_string(),
+        });
+        assert!(running.spinner);
+        assert_eq!(running.value, "Downloading Research");
+
+        let complete = build_download_status_item(&DownloadState::Complete {
+            item_name: "Research".to_string(),
+            destination: "/tmp/Research".to_string(),
+        });
+        assert!(!complete.spinner);
+        assert_eq!(complete.value, "Complete: Research");
+        assert_eq!(complete.value_class, "text-success");
     }
 }

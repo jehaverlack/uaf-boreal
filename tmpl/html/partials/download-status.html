@@ -1,0 +1,13 @@
+<div id="download-status"{% if poll %} hx-get="/ui/download-status" hx-trigger="every 1s" hx-swap="outerHTML"{% endif %}>
+    {% if status == "running" %}
+    <div class="alert alert-info mb-0" role="status"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>{{ message }}</div>
+    {% else if status == "complete" %}
+    <div class="alert alert-success mb-0" role="status"><i class="bi bi-check-circle me-2"></i>{{ message }}</div>
+    {% else if status == "error" %}
+    <div class="alert alert-danger mb-0" role="alert"><i class="bi bi-exclamation-triangle me-2"></i>{{ message }}</div>
+    {% else if status == "cancelled" %}
+    <div class="alert alert-secondary mb-0" role="status">Folder selection cancelled.</div>
+    {% else %}
+    <p class="text-body-secondary mb-0">Choose a destination folder to begin.</p>
+    {% endif %}
+</div>

@@ -16,6 +16,16 @@
                     <div class="col-sm-7"><label class="form-label" for="new-tag-name">Name</label><input class="form-control" id="new-tag-name" name="name" maxlength="40" required></div>
                     <div class="col-sm-3"><label class="form-label" for="new-tag-color">Color</label><input class="form-control form-control-color" id="new-tag-color" type="color" name="color" value="#6f42c1" title="Choose tag color"></div>
                     <div class="col-sm-2"><button class="btn btn-primary w-100" type="submit"><i class="bi bi-plus-circle me-1"></i>Add</button></div>
+                    <fieldset class="col-12">
+                        <legend class="form-label mb-2">Available in</legend>
+                        <div class="d-flex flex-wrap gap-3">
+                            <div class="form-check"><input class="form-check-input" id="new-tag-directory" type="checkbox" name="directory" checked><label class="form-check-label" for="new-tag-directory">Persons</label></div>
+                            <div class="form-check"><input class="form-check-input" id="new-tag-my-drive" type="checkbox" name="my_drive" checked><label class="form-check-label" for="new-tag-my-drive">My Drive</label></div>
+                            <div class="form-check"><input class="form-check-input" id="new-tag-shared-drives" type="checkbox" name="shared_drives" checked><label class="form-check-label" for="new-tag-shared-drives">Shared Drive</label></div>
+                            <div class="form-check"><input class="form-check-input" id="new-tag-shared-with-me" type="checkbox" name="shared_with_me" checked><label class="form-check-label" for="new-tag-shared-with-me">Shared with me</label></div>
+                        </div>
+                        <div class="form-text">Controls where this tag can be selected and filtered. Existing assignments remain visible.</div>
+                    </fieldset>
                 </form>
             </div>
         </div>
@@ -30,6 +40,15 @@
                     <div class="col"><label class="visually-hidden" for="tag-name-{{ loop.index }}">Tag name</label><input class="form-control" id="tag-name-{{ loop.index }}" name="name" value="{{ tag.name }}" maxlength="40" required></div>
                     <div class="col-auto"><label class="visually-hidden" for="tag-color-{{ loop.index }}">Tag color</label><input class="form-control form-control-color" id="tag-color-{{ loop.index }}" type="color" name="color" value="{{ tag.color }}"></div>
                     <div class="col-auto"><button class="btn btn-sm btn-outline-primary" type="submit">Save</button></div>
+                    <fieldset class="col-12 ps-5">
+                        <legend class="visually-hidden">Available locations for {{ tag.name }}</legend>
+                        <div class="d-flex flex-wrap gap-3">
+                            <div class="form-check"><input class="form-check-input" id="tag-directory-{{ loop.index }}" type="checkbox" name="directory" {% if tag.directory %}checked{% endif %}><label class="form-check-label" for="tag-directory-{{ loop.index }}">Persons</label></div>
+                            <div class="form-check"><input class="form-check-input" id="tag-my-drive-{{ loop.index }}" type="checkbox" name="my_drive" {% if tag.my_drive %}checked{% endif %}><label class="form-check-label" for="tag-my-drive-{{ loop.index }}">My Drive</label></div>
+                            <div class="form-check"><input class="form-check-input" id="tag-shared-drives-{{ loop.index }}" type="checkbox" name="shared_drives" {% if tag.shared_drives %}checked{% endif %}><label class="form-check-label" for="tag-shared-drives-{{ loop.index }}">Shared Drive</label></div>
+                            <div class="form-check"><input class="form-check-input" id="tag-shared-with-me-{{ loop.index }}" type="checkbox" name="shared_with_me" {% if tag.shared_with_me %}checked{% endif %}><label class="form-check-label" for="tag-shared-with-me-{{ loop.index }}">Shared with me</label></div>
+                        </div>
+                    </fieldset>
                 </form>
                 {% endfor %}
             </div>
