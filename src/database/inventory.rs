@@ -52,14 +52,25 @@ pub fn reconcile_shared_drives(
 }
 
 pub fn list_shared_drives(database: &Database) -> Result<Vec<SharedDriveRow>, DatabaseError> {
-    list_shared_drives_filtered(database, "", "")
+    list_shared_drives_filtered(database, "", "", "", "", "", "", "", "")
 }
 
 pub fn list_shared_drives_filtered(
     database: &Database,
     search: &str,
     tag_filter: &str,
+    files_filter: &str,
+    folders_filter: &str,
+    size_filter: &str,
+    permissions_filter: &str,
+    indexed_filter: &str,
+    status_filter: &str,
 ) -> Result<Vec<SharedDriveRow>, DatabaseError> {
+    let (files_comparison, files_value) = parse_count_filter(files_filter)?;
+    let (folders_comparison, folders_value) = parse_count_filter(folders_filter)?;
+    let (size_comparison, size_value) = parse_size_filter(size_filter)?;
+    let (permissions_comparison, permissions_value) = parse_count_filter(permissions_filter)?;
+    let (indexed_comparison, indexed_value) = parse_modified_filter(indexed_filter)?;
     let connection = database.connect()?;
     let mut statement = connection.prepare(
         "SELECT sd.drive_id, sd.name, sd.inventory_scope, sd.is_accessible,
@@ -76,38 +87,73 @@ pub fn list_shared_drives_filtered(
                 JOIN tags filter_tag ON filter_tag.id = filter_sdt.tag_id
                 WHERE filter_sdt.drive_id = sd.drive_id AND filter_tag.slug = ?2
            ))
+           AND (?3 = 0 OR (?3 = 1 AND files_scanned > ?4) OR (?3 = 2 AND files_scanned >= ?4)
+                OR (?3 = 3 AND files_scanned < ?4) OR (?3 = 4 AND files_scanned <= ?4) OR (?3 = 5 AND files_scanned = ?4))
+           AND (?5 = 0 OR (?5 = 1 AND folders_scanned > ?6) OR (?5 = 2 AND folders_scanned >= ?6)
+                OR (?5 = 3 AND folders_scanned < ?6) OR (?5 = 4 AND folders_scanned <= ?6) OR (?5 = 5 AND folders_scanned = ?6))
+           AND (?7 = 0 OR (?7 = 1 AND bytes_discovered > ?8) OR (?7 = 2 AND bytes_discovered >= ?8)
+                OR (?7 = 3 AND bytes_discovered < ?8) OR (?7 = 4 AND bytes_discovered <= ?8) OR (?7 = 5 AND bytes_discovered = ?8))
+           AND (?9 = 0 OR (?9 = 1 AND permissions_scanned > ?10) OR (?9 = 2 AND permissions_scanned >= ?10)
+                OR (?9 = 3 AND permissions_scanned < ?10) OR (?9 = 4 AND permissions_scanned <= ?10) OR (?9 = 5 AND permissions_scanned = ?10))
+           AND (?11 = 0 OR (?11 = 1 AND substr(COALESCE(last_scanned_at, ''), 1, 10) > ?12)
+                OR (?11 = 2 AND substr(COALESCE(last_scanned_at, ''), 1, 10) >= ?12)
+                OR (?11 = 3 AND substr(COALESCE(last_scanned_at, ''), 1, 10) < ?12)
+                OR (?11 = 4 AND substr(COALESCE(last_scanned_at, ''), 1, 10) <= ?12)
+                OR (?11 = 5 AND substr(COALESCE(last_scanned_at, ''), 1, length(?12)) = ?12))
+           AND (?13 = '' OR instr(lower(CASE
+                WHEN is_accessible = 0 THEN 'not accessible'
+                WHEN COALESCE(last_error, '') <> '' THEN 'scan failed'
+                WHEN COALESCE(last_scanned_at, '') <> '' THEN 'indexed'
+                ELSE 'discovered' END), lower(?13)) > 0)
          ORDER BY is_accessible DESC, name COLLATE NOCASE, drive_id",
     )?;
     statement
-        .query_map(params![search.trim(), tag_filter], |row| {
-            Ok(SharedDriveRow {
-                drive_id: row.get(0)?,
-                name: row.get(1)?,
-                inventory_scope: row.get(2)?,
-                is_accessible: row.get(3)?,
-                last_scanned_at: row.get(4)?,
-                last_error: row.get(5)?,
-                files_scanned: row.get::<_, i64>(6)? as u64,
-                folders_scanned: row.get::<_, i64>(7)? as u64,
-                permissions_scanned: row.get::<_, i64>(8)? as u64,
-                bytes_discovered: row.get::<_, i64>(9)? as u64,
-                tags: row
-                    .get::<_, Option<String>>(10)?
-                    .map(|tags| {
-                        tags.split('\u{1f}')
-                            .filter_map(|tag| {
-                                let mut fields = tag.split('\u{1e}');
-                                Some(Tag {
-                                    slug: fields.next()?.to_string(),
-                                    name: fields.next()?.to_string(),
-                                    color: fields.next()?.to_string(),
+        .query_map(
+            params![
+                search.trim(),
+                tag_filter,
+                files_comparison,
+                files_value,
+                folders_comparison,
+                folders_value,
+                size_comparison,
+                size_value,
+                permissions_comparison,
+                permissions_value,
+                indexed_comparison,
+                indexed_value,
+                status_filter.trim(),
+            ],
+            |row| {
+                Ok(SharedDriveRow {
+                    drive_id: row.get(0)?,
+                    name: row.get(1)?,
+                    inventory_scope: row.get(2)?,
+                    is_accessible: row.get(3)?,
+                    last_scanned_at: row.get(4)?,
+                    last_error: row.get(5)?,
+                    files_scanned: row.get::<_, i64>(6)? as u64,
+                    folders_scanned: row.get::<_, i64>(7)? as u64,
+                    permissions_scanned: row.get::<_, i64>(8)? as u64,
+                    bytes_discovered: row.get::<_, i64>(9)? as u64,
+                    tags: row
+                        .get::<_, Option<String>>(10)?
+                        .map(|tags| {
+                            tags.split('\u{1f}')
+                                .filter_map(|tag| {
+                                    let mut fields = tag.split('\u{1e}');
+                                    Some(Tag {
+                                        slug: fields.next()?.to_string(),
+                                        name: fields.next()?.to_string(),
+                                        color: fields.next()?.to_string(),
+                                    })
                                 })
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-            })
-        })?
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                })
+            },
+        )?
         .collect::<Result<Vec<_>, _>>()
         .map_err(Into::into)
 }
@@ -540,6 +586,21 @@ fn comparison_prefix(value: &str) -> (i64, &str) {
         }
     }
     (5, value.trim())
+}
+
+fn parse_count_filter(filter: &str) -> Result<(i64, i64), DatabaseError> {
+    let filter = filter.trim();
+    if filter.is_empty() {
+        return Ok((0, 0));
+    }
+    let (comparison, value) = comparison_prefix(filter);
+    let value = value
+        .parse::<i64>()
+        .map_err(|_| format!("Invalid count filter '{filter}'. Try >100 or <=25."))?;
+    if value < 0 {
+        return Err("Count filters cannot be negative".into());
+    }
+    Ok((comparison, value))
 }
 
 fn parse_size_filter(filter: &str) -> Result<(i64, i64), DatabaseError> {

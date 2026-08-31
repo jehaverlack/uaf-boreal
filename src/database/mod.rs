@@ -466,9 +466,18 @@ mod tests {
             false,
         )
         .expect("Shared Drive tag should apply");
-        let tagged_drives =
-            inventory::list_shared_drives_filtered(&database, "renamed", "to-migrate")
-                .expect("Shared Drives should filter by name and tag");
+        let tagged_drives = inventory::list_shared_drives_filtered(
+            &database,
+            "renamed",
+            "to-migrate",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+        )
+        .expect("Shared Drives should filter by name and tag");
         assert_eq!(tagged_drives.len(), 1);
         assert_eq!(tagged_drives[0].drive_id, "drive-a");
         assert_eq!(tagged_drives[0].tags[0].slug, "to-migrate");
@@ -480,9 +489,19 @@ mod tests {
         )
         .expect("Shared Drive tag should be removable");
         assert!(
-            inventory::list_shared_drives_filtered(&database, "", "to-migrate")
-                .expect("Shared Drive tag filter should load")
-                .is_empty()
+            inventory::list_shared_drives_filtered(
+                &database,
+                "",
+                "to-migrate",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            )
+            .expect("Shared Drive tag filter should load")
+            .is_empty()
         );
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }

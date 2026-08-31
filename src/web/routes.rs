@@ -316,6 +316,13 @@ struct SharedDrivesTemplate {
     tag_filter: String,
     tagged_count: usize,
     untagged_count: usize,
+    files_filter: String,
+    folders_filter: String,
+    size_filter: String,
+    permissions_filter: String,
+    indexed_filter: String,
+    status_filter: String,
+    error: String,
 }
 
 #[allow(dead_code)]
@@ -527,6 +534,16 @@ struct DrivePathQuery {
     include_deleted: bool,
     #[serde(default)]
     show_inaccessible: bool,
+    #[serde(default)]
+    files_filter: String,
+    #[serde(default)]
+    folders_filter: String,
+    #[serde(default)]
+    permissions_count_filter: String,
+    #[serde(default)]
+    indexed_filter: String,
+    #[serde(default)]
+    status_filter: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -563,6 +580,18 @@ struct SharedDriveTagForm {
     tag_filter: String,
     #[serde(default)]
     show_inaccessible: bool,
+    #[serde(default)]
+    files_filter: String,
+    #[serde(default)]
+    folders_filter: String,
+    #[serde(default)]
+    size_filter: String,
+    #[serde(default)]
+    permissions_filter: String,
+    #[serde(default)]
+    indexed_filter: String,
+    #[serde(default)]
+    status_filter: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -1447,9 +1476,20 @@ async fn shared_drives_page(
         .database()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     if query.drive.is_empty() {
-        let all_drives =
-            database::inventory::list_shared_drives_filtered(&database, &query.q, &query.tag)
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let (all_drives, error) = match database::inventory::list_shared_drives_filtered(
+            &database,
+            &query.q,
+            &query.tag,
+            &query.files_filter,
+            &query.folders_filter,
+            &query.size_filter,
+            &query.permissions_count_filter,
+            &query.indexed_filter,
+            &query.status_filter,
+        ) {
+            Ok(drives) => (drives, String::new()),
+            Err(error) => (Vec::new(), error.to_string()),
+        };
         let inaccessible_count = all_drives
             .iter()
             .filter(|drive| !drive.is_accessible)
@@ -1505,6 +1545,13 @@ async fn shared_drives_page(
             tag_filter: query.tag,
             tagged_count: query.tagged,
             untagged_count: query.untagged,
+            files_filter: query.files_filter,
+            folders_filter: query.folders_filter,
+            size_filter: query.size_filter,
+            permissions_filter: query.permissions_count_filter,
+            indexed_filter: query.indexed_filter,
+            status_filter: query.status_filter,
+            error,
         });
     }
     let drive = database::inventory::get_shared_drive(&database, &query.drive)
@@ -1973,10 +2020,16 @@ fn change_shared_drive_list_tag(
         drive_ids.len(),
     );
     let url = format!(
-        "/shared-drives?q={}&tag={}&show_inaccessible={}&{}={changed}",
+        "/shared-drives?q={}&tag={}&show_inaccessible={}&files_filter={}&folders_filter={}&size_filter={}&permissions_count_filter={}&indexed_filter={}&status_filter={}&{}={changed}",
         encode_query_value(&form.q),
         encode_query_value(&form.tag_filter),
         form.show_inaccessible,
+        encode_query_value(&form.files_filter),
+        encode_query_value(&form.folders_filter),
+        encode_query_value(&form.size_filter),
+        encode_query_value(&form.permissions_filter),
+        encode_query_value(&form.indexed_filter),
+        encode_query_value(&form.status_filter),
         if remove { "untagged" } else { "tagged" },
     );
     Ok(Redirect::to(&url))
