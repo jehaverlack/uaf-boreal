@@ -702,17 +702,44 @@ impl AppState {
                             index + 1, shared_drives.len(), drive.id, drive.name,
                         );
                         let drive_scan_id = database.start_scan_run(&format!("shared-drive:{}", drive.id))?;
+                        let shared_drive_root = if permission_scanning {
+                            match rclone::inventory::fetch_shared_drive_root(
+                                &worker_state.runtime,
+                                &rclone_path,
+                                &drive.id,
+                            ) {
+                                Ok(root) => Some(root),
+                                Err(error) => {
+                                    log::warn!(
+                                        "Unable to refresh Shared Drive root permissions: drive_id={}, name={}, error={error}",
+                                        drive.id,
+                                        drive.name,
+                                    );
+                                    None
+                                }
+                            }
+                        } else {
+                            None
+                        };
                         let drive_result = rclone::inventory::fetch_shared_drive(
                             &worker_state.runtime, &rclone_path, drive_scan_id, &drive.id,
                             permission_scanning,
                         ).map_err(|error| error.to_string()).and_then(|drive_items| {
-                            database::inventory::synchronize_drive(
+                            let summary = database::inventory::synchronize_drive(
                                 &database,
                                 &database::inventory::shared_drive_scope(&drive.id),
                                 drive_scan_id,
                                 &drive_items,
                                 permission_scanning,
-                            ).map_err(|error| error.to_string())
+                            ).map_err(|error| error.to_string())?;
+                            if let Some(root) = shared_drive_root.as_ref() {
+                                database::inventory::record_shared_drive_permissions(
+                                    &database,
+                                    &drive.id,
+                                    root,
+                                ).map_err(|error| error.to_string())?;
+                            }
+                            Ok(summary)
                         });
                         match drive_result {
                             Ok(drive_summary) => {

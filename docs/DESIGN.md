@@ -296,7 +296,7 @@ Primary views are:
 
 Explorer behavior includes hierarchy navigation, Google Drive links, sortable columns, per-column filters, deleted-item visibility, selection, content tags, identity-tag filters, permission pills, and filtered-result summaries. Folder names navigate within Boreal; the adjacent Google Drive icon opens the underlying Drive object.
 
-The Shared Drives list identifies ownership as organization-owned because Shared Drives do not have an individual owner. Its permission identities are the distinct users, groups, domains, or other principals observed in the indexed item-permission metadata for that Drive. This is an audit view and is not guaranteed to be a complete or authoritative list of Shared Drive members.
+Shared Drives do not have individual owners, so the list shows Managers instead. During permission-enabled updates, BOREAL queries each Shared Drive root separately and records identities with Google's `organizer` role as Managers. The Permissions column combines those Drive-root identities with users, groups, domains, and other principals observed in indexed item permissions; observed roles are available on hover. This remains an audit view and may be constrained by the authenticated account's visibility.
 
 The status bar reports rclone, authenticated Google account, client configuration, remote count, metadata age/state, and BOREAL version. Metadata age uses green, amber, and red states based on freshness thresholds.
 

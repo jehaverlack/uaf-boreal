@@ -295,9 +295,15 @@ pub struct SharedDriveView {
     pub files: u64,
     pub folders: u64,
     pub permissions_count: u64,
-    pub permission_identities: Vec<String>,
+    pub managers: Vec<SharedDriveIdentityView>,
+    pub permission_identities: Vec<SharedDriveIdentityView>,
     pub size_label: String,
     pub tags: Vec<TagPill>,
+}
+
+pub struct SharedDriveIdentityView {
+    pub label: String,
+    pub roles_label: String,
 }
 
 #[derive(Template)]
@@ -319,6 +325,7 @@ struct SharedDrivesTemplate {
     files_filter: String,
     folders_filter: String,
     size_filter: String,
+    manager_filter: String,
     permissions_filter: String,
     error: String,
     summary: ExplorerSummary,
@@ -538,7 +545,9 @@ struct DrivePathQuery {
     #[serde(default)]
     folders_filter: String,
     #[serde(default)]
-    permissions_count_filter: String,
+    shared_drive_manager_filter: String,
+    #[serde(default)]
+    shared_drive_permission_filter: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -581,6 +590,8 @@ struct SharedDriveTagForm {
     folders_filter: String,
     #[serde(default)]
     size_filter: String,
+    #[serde(default)]
+    manager_filter: String,
     #[serde(default)]
     permissions_filter: String,
 }
@@ -1474,7 +1485,8 @@ async fn shared_drives_page(
             &query.files_filter,
             &query.folders_filter,
             &query.size_filter,
-            &query.permissions_count_filter,
+            &query.shared_drive_manager_filter,
+            &query.shared_drive_permission_filter,
         ) {
             Ok(drives) => (drives, String::new()),
             Err(error) => (Vec::new(), error.to_string()),
@@ -1510,25 +1522,44 @@ async fn shared_drives_page(
         };
         let drives = filtered_drives
             .into_iter()
-            .map(|drive| SharedDriveView {
-                drive_id: drive.drive_id,
-                name: drive.name,
-                is_accessible: drive.is_accessible,
-                last_error: drive.last_error,
-                files: drive.files_scanned,
-                folders: drive.folders_scanned,
-                permissions_count: drive.permissions_scanned,
-                permission_identities: drive.permission_identities,
-                size_label: format_bytes(drive.bytes_discovered),
-                tags: drive
-                    .tags
-                    .into_iter()
-                    .map(|tag| TagPill {
-                        text_color: tag_text_color(&tag.color),
-                        name: tag.name,
-                        color: tag.color,
+            .map(|drive| {
+                let managers = drive
+                    .permission_identities
+                    .iter()
+                    .filter(|identity| {
+                        identity
+                            .roles
+                            .iter()
+                            .any(|role| role.eq_ignore_ascii_case("organizer"))
                     })
-                    .collect(),
+                    .map(shared_drive_identity_view)
+                    .collect();
+                let permission_identities = drive
+                    .permission_identities
+                    .iter()
+                    .map(shared_drive_identity_view)
+                    .collect();
+                SharedDriveView {
+                    drive_id: drive.drive_id,
+                    name: drive.name,
+                    is_accessible: drive.is_accessible,
+                    last_error: drive.last_error,
+                    files: drive.files_scanned,
+                    folders: drive.folders_scanned,
+                    permissions_count: drive.permissions_scanned,
+                    managers,
+                    permission_identities,
+                    size_label: format_bytes(drive.bytes_discovered),
+                    tags: drive
+                        .tags
+                        .into_iter()
+                        .map(|tag| TagPill {
+                            text_color: tag_text_color(&tag.color),
+                            name: tag.name,
+                            color: tag.color,
+                        })
+                        .collect(),
+                }
             })
             .collect();
         let tags = database::inventory::list_tags(&database)
@@ -1561,7 +1592,8 @@ async fn shared_drives_page(
             files_filter: query.files_filter,
             folders_filter: query.folders_filter,
             size_filter: query.size_filter,
-            permissions_filter: query.permissions_count_filter,
+            manager_filter: query.shared_drive_manager_filter,
+            permissions_filter: query.shared_drive_permission_filter,
             error,
             summary,
         });
@@ -1586,6 +1618,29 @@ async fn shared_drives_page(
         "/shared-drives/tags/remove",
         drive.drive_id,
     )
+}
+
+fn shared_drive_identity_view(
+    identity: &database::inventory::SharedDrivePermissionIdentity,
+) -> SharedDriveIdentityView {
+    let roles_label = identity
+        .roles
+        .iter()
+        .map(|role| match role.to_ascii_lowercase().as_str() {
+            "organizer" => "Manager".to_string(),
+            "fileorganizer" => "Content manager".to_string(),
+            "writer" => "Contributor".to_string(),
+            "commenter" => "Commenter".to_string(),
+            "reader" => "Viewer".to_string(),
+            "owner" => "Owner".to_string(),
+            _ => role.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    SharedDriveIdentityView {
+        label: identity.label.clone(),
+        roles_label,
+    }
 }
 
 fn render_drive_explorer(
@@ -2032,13 +2087,14 @@ fn change_shared_drive_list_tag(
         drive_ids.len(),
     );
     let url = format!(
-        "/shared-drives?q={}&tag={}&show_inaccessible={}&files_filter={}&folders_filter={}&size_filter={}&permissions_count_filter={}&{}={changed}",
+        "/shared-drives?q={}&tag={}&show_inaccessible={}&files_filter={}&folders_filter={}&size_filter={}&shared_drive_manager_filter={}&shared_drive_permission_filter={}&{}={changed}",
         encode_query_value(&form.q),
         encode_query_value(&form.tag_filter),
         form.show_inaccessible,
         encode_query_value(&form.files_filter),
         encode_query_value(&form.folders_filter),
         encode_query_value(&form.size_filter),
+        encode_query_value(&form.manager_filter),
         encode_query_value(&form.permissions_filter),
         if remove { "untagged" } else { "tagged" },
     );

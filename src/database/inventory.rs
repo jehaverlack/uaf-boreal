@@ -23,7 +23,13 @@ pub struct SharedDriveRow {
     pub permissions_scanned: u64,
     pub bytes_discovered: u64,
     pub tags: Vec<Tag>,
-    pub permission_identities: Vec<String>,
+    pub permission_identities: Vec<SharedDrivePermissionIdentity>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SharedDrivePermissionIdentity {
+    pub label: String,
+    pub roles: Vec<String>,
 }
 
 pub fn shared_drive_scope(drive_id: &str) -> String {
@@ -52,7 +58,7 @@ pub fn reconcile_shared_drives(
 }
 
 pub fn list_shared_drives(database: &Database) -> Result<Vec<SharedDriveRow>, DatabaseError> {
-    list_shared_drives_filtered(database, "", "", "", "", "", "")
+    list_shared_drives_filtered(database, "", "", "", "", "", "", "")
 }
 
 pub fn list_shared_drives_filtered(
@@ -62,12 +68,12 @@ pub fn list_shared_drives_filtered(
     files_filter: &str,
     folders_filter: &str,
     size_filter: &str,
-    permissions_filter: &str,
+    manager_filter: &str,
+    permission_filter: &str,
 ) -> Result<Vec<SharedDriveRow>, DatabaseError> {
     let (files_comparison, files_value) = parse_count_filter(files_filter)?;
     let (folders_comparison, folders_value) = parse_count_filter(folders_filter)?;
     let (size_comparison, size_value) = parse_size_filter(size_filter)?;
-    let (permissions_comparison, permissions_value) = parse_count_filter(permissions_filter)?;
     let connection = database.connect()?;
     let mut statement = connection.prepare(
         "SELECT sd.drive_id, sd.name, sd.inventory_scope, sd.is_accessible,
@@ -76,14 +82,19 @@ pub fn list_shared_drives_filtered(
                 (SELECT group_concat(t.slug || char(30) || t.name || char(30) || t.color, char(31))
                  FROM shared_drive_tags sdt JOIN tags t ON t.id = sdt.tag_id
                  WHERE sdt.drive_id = sd.drive_id),
-                (SELECT group_concat(label, char(31)) FROM (
+                (SELECT group_concat(label || char(30) || role, char(31)) FROM (
                     SELECT DISTINCT COALESCE(
                         NULLIF(p.email_address, ''), NULLIF(p.domain, ''),
                         NULLIF(p.display_name, ''), NULLIF(p.permission_type, ''), 'Unknown'
-                    ) AS label
-                    FROM drive_permissions p
-                    WHERE p.remote_name = sd.inventory_scope
-                    ORDER BY label COLLATE NOCASE
+                    ) AS label, COALESCE(NULLIF(p.role, ''), 'unknown') AS role
+                    FROM (
+                        SELECT email_address, domain, display_name, permission_type, role
+                        FROM drive_permissions WHERE remote_name = sd.inventory_scope
+                        UNION ALL
+                        SELECT email_address, domain, display_name, permission_type, role
+                        FROM shared_drive_permissions WHERE drive_id = sd.drive_id
+                    ) p
+                    ORDER BY label COLLATE NOCASE, role COLLATE NOCASE
                 ))
          FROM shared_drives sd
          WHERE (?1 = '' OR instr(lower(sd.name), lower(?1)) > 0
@@ -99,8 +110,27 @@ pub fn list_shared_drives_filtered(
                 OR (?5 = 3 AND folders_scanned < ?6) OR (?5 = 4 AND folders_scanned <= ?6) OR (?5 = 5 AND folders_scanned = ?6))
            AND (?7 = 0 OR (?7 = 1 AND bytes_discovered > ?8) OR (?7 = 2 AND bytes_discovered >= ?8)
                 OR (?7 = 3 AND bytes_discovered < ?8) OR (?7 = 4 AND bytes_discovered <= ?8) OR (?7 = 5 AND bytes_discovered = ?8))
-           AND (?9 = 0 OR (?9 = 1 AND permissions_scanned > ?10) OR (?9 = 2 AND permissions_scanned >= ?10)
-                OR (?9 = 3 AND permissions_scanned < ?10) OR (?9 = 4 AND permissions_scanned <= ?10) OR (?9 = 5 AND permissions_scanned = ?10))
+           AND (?9 = '' OR EXISTS (
+                SELECT 1 FROM shared_drive_permissions manager_permission
+                WHERE manager_permission.drive_id = sd.drive_id
+                  AND lower(COALESCE(manager_permission.role, '')) = 'organizer'
+                  AND instr(lower(COALESCE(NULLIF(manager_permission.email_address, ''),
+                      NULLIF(manager_permission.domain, ''), NULLIF(manager_permission.display_name, ''),
+                      NULLIF(manager_permission.permission_type, ''), 'Unknown')), lower(?9)) > 0
+           ))
+           AND (?10 = '' OR EXISTS (
+                SELECT 1 FROM (
+                    SELECT email_address, domain, display_name, permission_type
+                    FROM drive_permissions WHERE remote_name = sd.inventory_scope
+                    UNION ALL
+                    SELECT email_address, domain, display_name, permission_type
+                    FROM shared_drive_permissions WHERE drive_id = sd.drive_id
+                ) identity_permission
+                WHERE 1 = 1
+                  AND instr(lower(COALESCE(NULLIF(identity_permission.email_address, ''),
+                      NULLIF(identity_permission.domain, ''), NULLIF(identity_permission.display_name, ''),
+                      NULLIF(identity_permission.permission_type, ''), 'Unknown')), lower(?10)) > 0
+           ))
          ORDER BY is_accessible DESC, name COLLATE NOCASE, drive_id",
     )?;
     statement
@@ -114,8 +144,8 @@ pub fn list_shared_drives_filtered(
                 folders_value,
                 size_comparison,
                 size_value,
-                permissions_comparison,
-                permissions_value,
+                manager_filter.trim(),
+                permission_filter.trim(),
             ],
             |row| {
                 Ok(SharedDriveRow {
@@ -145,7 +175,26 @@ pub fn list_shared_drives_filtered(
                         .unwrap_or_default(),
                     permission_identities: row
                         .get::<_, Option<String>>(10)?
-                        .map(|identities| identities.split('\u{1f}').map(str::to_string).collect())
+                        .map(|identities| {
+                            let mut grouped: HashMap<String, Vec<String>> = HashMap::new();
+                            for identity in identities.split('\u{1f}') {
+                                if let Some((label, role)) = identity.split_once('\u{1e}') {
+                                    let roles = grouped.entry(label.to_string()).or_default();
+                                    if !roles.iter().any(|existing| existing == role) {
+                                        roles.push(role.to_string());
+                                    }
+                                }
+                            }
+                            let mut identities = grouped
+                                .into_iter()
+                                .map(|(label, mut roles)| {
+                                    roles.sort_by_key(|role| role.to_ascii_lowercase());
+                                    SharedDrivePermissionIdentity { label, roles }
+                                })
+                                .collect::<Vec<_>>();
+                            identities.sort_by_key(|identity| identity.label.to_ascii_lowercase());
+                            identities
+                        })
                         .unwrap_or_default(),
                 })
             },
@@ -218,6 +267,40 @@ pub fn record_shared_drive_scan(
             summary.deleted_items as i64
         ],
     )?;
+    Ok(())
+}
+
+pub fn record_shared_drive_permissions(
+    database: &Database,
+    drive_id: &str,
+    root: &DriveItem,
+) -> Result<(), DatabaseError> {
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    transaction.execute(
+        "DELETE FROM shared_drive_permissions WHERE drive_id = ?1",
+        [drive_id],
+    )?;
+    for permission in permissions(root)? {
+        transaction.execute(
+            "INSERT INTO shared_drive_permissions (
+                drive_id, permission_key, permission_id, permission_type, role,
+                email_address, display_name, domain, raw_json, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, CURRENT_TIMESTAMP)",
+            params![
+                drive_id,
+                permission_key(&permission),
+                field(&permission, "id"),
+                field(&permission, "type"),
+                field(&permission, "role"),
+                field(&permission, "emailAddress"),
+                field(&permission, "displayName"),
+                field(&permission, "domain"),
+                permission.to_string(),
+            ],
+        )?;
+    }
+    transaction.commit()?;
     Ok(())
 }
 

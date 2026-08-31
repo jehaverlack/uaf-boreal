@@ -88,6 +88,39 @@ pub fn fetch_shared_drive(
     )
 }
 
+pub fn fetch_shared_drive_root(
+    runtime: &Runtime,
+    executable: &Path,
+    drive_id: &str,
+) -> Result<DriveItem, RcloneError> {
+    let config_path = config::path(runtime)?;
+    let output = Command::new(executable)
+        .args([
+            "lsjson",
+            &format!("{}:", RemoteKind::MyDriveRo.name()),
+            "--stat",
+            "--metadata",
+            "--drive-metadata-permissions=read",
+            "--drive-team-drive",
+            drive_id,
+            "--drive-root-folder-id",
+            "",
+            "--config",
+            config_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .map_err(|error| format!("Unable to fetch Shared Drive root permissions: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "Rclone Shared Drive root permission query failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )
+        .into());
+    }
+    serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("Unable to parse Shared Drive root metadata: {error}").into())
+}
+
 pub fn fetch_my_drive(
     runtime: &Runtime,
     executable: &Path,

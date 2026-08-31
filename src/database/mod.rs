@@ -186,7 +186,7 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 13,);
+        assert_eq!(migration_count, 14,);
 
         let safe_for_removal_tag: (String, String) = connection
             .query_row(
@@ -372,6 +372,23 @@ mod tests {
             false,
         )
         .expect("first Shared Drive should synchronize");
+        let mut root_metadata = BTreeMap::new();
+        root_metadata.insert(
+            "permissions".to_string(),
+            r#"[{"id":"manager-1","type":"user","role":"organizer","emailAddress":"manager@example.edu"},{"id":"viewer-1","type":"user","role":"reader","emailAddress":"viewer@example.edu"}]"#.to_string(),
+        );
+        let root_item = DriveItem {
+            id: "drive-a".to_string(),
+            name: "Projects".to_string(),
+            path: String::new(),
+            is_dir: true,
+            size: -1,
+            mime_type: "inode/directory".to_string(),
+            mod_time: String::new(),
+            metadata: root_metadata,
+        };
+        inventory::record_shared_drive_permissions(&database, "drive-a", &root_item)
+            .expect("Shared Drive root permissions should synchronize");
         let mut second_item = item;
         second_item.id = "file-b".to_string();
         let scan_b = database
@@ -474,11 +491,33 @@ mod tests {
             "",
             "",
             "",
+            "",
         )
         .expect("Shared Drives should filter by name and tag");
         assert_eq!(tagged_drives.len(), 1);
         assert_eq!(tagged_drives[0].drive_id, "drive-a");
         assert_eq!(tagged_drives[0].tags[0].slug, "to-migrate");
+        let manager_filtered = inventory::list_shared_drives_filtered(
+            &database,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "manager@example",
+            "",
+        )
+        .expect("Shared Drives should filter by manager");
+        assert_eq!(manager_filtered.len(), 1);
+        assert!(
+            manager_filtered[0]
+                .permission_identities
+                .iter()
+                .any(|identity| {
+                    identity.label == "manager@example.edu"
+                        && identity.roles.iter().any(|role| role == "organizer")
+                })
+        );
         inventory::change_shared_drive_tags(
             &database,
             &["drive-a".to_string()],
@@ -487,7 +526,16 @@ mod tests {
         )
         .expect("Shared Drive tag should be removable");
         assert!(
-            inventory::list_shared_drives_filtered(&database, "", "to-migrate", "", "", "", "",)
+            inventory::list_shared_drives_filtered(
+                &database,
+                "",
+                "to-migrate",
+                "",
+                "",
+                "",
+                "",
+                "",
+            )
                 .expect("Shared Drive tag filter should load")
                 .is_empty()
         );
