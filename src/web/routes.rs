@@ -299,6 +299,12 @@ struct DownloadStatusTemplate {
     poll: bool,
 }
 
+#[derive(Template)]
+#[template(path = "partials/download-status-item.html", config = "askama.toml")]
+struct DownloadStatusItemTemplate {
+    item: StatusItem,
+}
+
 pub struct SharedDriveView {
     pub drive_id: String,
     pub name: String,
@@ -726,6 +732,7 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/downloads/start", post(start_download))
         .route("/ui/download-status", get(ui_download_status))
+        .route("/ui/download-status-item", get(ui_download_status_item))
         .route("/tags", get(tags_page))
         .route("/directory", get(directory_page))
         .route(
@@ -805,6 +812,7 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
     let alerts = build_alerts(&rclone_state, &google_client_state);
 
     let status_items = build_status_items(
+        &state.download_state(),
         &rclone_state,
         &google_client_state,
         &google_remotes_state,
@@ -1346,6 +1354,7 @@ fn render_settings(
         active_page: "settings",
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
+            &state.download_state(),
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -1374,6 +1383,7 @@ async fn about(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
     let alerts = build_alerts(&rclone_state, &google_client_state);
 
     let status_items = build_status_items(
+        &state.download_state(),
         &rclone_state,
         &google_client_state,
         &google_remotes_state,
@@ -1454,6 +1464,7 @@ async fn remotes_page(State(state): State<Arc<AppState>>) -> Result<Html<String>
         active_page: "remotes",
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
+            &state.download_state(),
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -1653,6 +1664,7 @@ async fn shared_drives_page(
             active_page: "shared-drives",
             alerts: build_alerts(&rclone_state, &google_client_state),
             status_items: build_status_items(
+                &state.download_state(),
                 &rclone_state,
                 &google_client_state,
                 &google_remotes_state,
@@ -1905,6 +1917,7 @@ fn render_drive_explorer(
         active_page,
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
+            &state.download_state(),
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -2431,6 +2444,14 @@ async fn ui_download_status(
     render_download_status(&state.download_state())
 }
 
+async fn ui_download_status_item(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
+    render_template(&DownloadStatusItemTemplate {
+        item: build_download_status_item(&state.download_state()),
+    })
+}
+
 fn render_download_status(state: &DownloadState) -> Result<Html<String>, StatusCode> {
     match state {
         DownloadState::Idle => render_download_message("idle", String::new(), false),
@@ -2539,6 +2560,7 @@ async fn tags_page(
         active_page: "tags",
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
+            &state.download_state(),
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -2599,6 +2621,7 @@ async fn directory_page(
         active_page: "directory",
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
+            &state.download_state(),
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -2878,6 +2901,7 @@ fn render_principal_editor(
         active_page: "directory",
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
+            &state.download_state(),
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -2987,6 +3011,7 @@ async fn principal_page(
         active_page: "directory",
         alerts: build_alerts(&rclone_state, &google_client_state),
         status_items: build_status_items(
+            &state.download_state(),
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -3111,6 +3136,7 @@ async fn ui_status(State(state): State<Arc<AppState>>) -> Result<Html<String>, S
 
     let template = StatusTemplate {
         status_items: build_status_items(
+            &state.download_state(),
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -3643,6 +3669,7 @@ fn authenticated_google_email(state: &AppState) -> String {
 }
 
 fn build_status_items(
+    download_state: &DownloadState,
     rclone_state: &RcloneState,
     google_client_state: &GoogleClientState,
     _google_remotes_state: &GoogleRemotesState,
@@ -3748,6 +3775,7 @@ fn build_status_items(
                 _ => String::new(),
             },
         },
+        build_download_status_item(download_state),
         StatusItem {
             icon: "bi-info-circle",
             label: "BOREAL",
@@ -3758,6 +3786,36 @@ fn build_status_items(
             age_timestamp: String::new(),
         },
     ]
+}
+
+fn build_download_status_item(download_state: &DownloadState) -> StatusItem {
+    let (value, value_class, spinner) = match download_state {
+        DownloadState::Idle => ("Idle".to_string(), "text-body-secondary", false),
+        DownloadState::Running { item_name, .. } => {
+            (format!("Downloading {item_name}"), "text-primary", true)
+        }
+        DownloadState::Complete { item_name, .. } => {
+            (format!("Complete: {item_name}"), "text-success", false)
+        }
+        DownloadState::Error { item_name, .. } => (
+            if item_name.is_empty() {
+                "Failed".to_string()
+            } else {
+                format!("Failed: {item_name}")
+            },
+            "text-danger",
+            false,
+        ),
+    };
+    StatusItem {
+        icon: "bi-download",
+        label: "Download",
+        value,
+        value_class,
+        value_url: String::new(),
+        spinner,
+        age_timestamp: String::new(),
+    }
 }
 
 fn render_template<T>(template: &T) -> Result<Html<String>, StatusCode>
@@ -3820,5 +3878,23 @@ mod tests {
         assert_eq!(safe_download_name(".."), "Drive item");
         assert_eq!(safe_download_name("CON.txt"), "_CON.txt");
         assert_eq!(safe_download_name("Research"), "Research");
+    }
+
+    #[test]
+    fn download_status_item_reflects_background_state() {
+        let running = build_download_status_item(&DownloadState::Running {
+            item_name: "Research".to_string(),
+            destination: "/tmp/Research".to_string(),
+        });
+        assert!(running.spinner);
+        assert_eq!(running.value, "Downloading Research");
+
+        let complete = build_download_status_item(&DownloadState::Complete {
+            item_name: "Research".to_string(),
+            destination: "/tmp/Research".to_string(),
+        });
+        assert!(!complete.spinner);
+        assert_eq!(complete.value, "Complete: Research");
+        assert_eq!(complete.value_class, "text-success");
     }
 }

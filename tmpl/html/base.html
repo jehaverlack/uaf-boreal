@@ -594,6 +594,12 @@
                 if (window.htmx) htmx.process(replacement);
             }
 
+            window.borealRefreshDownloadStatus = () =>
+                replaceFromEndpoint(
+                    "/ui/download-status-item",
+                    '[data-status-label="Download"]',
+                );
+
             async function refreshMetadataUi() {
                 await Promise.all([
                     replaceFromEndpoint("/ui/status", "#boreal-status"),

@@ -245,7 +245,7 @@
             <div class="modal-body">
                 <p>Choose a local destination folder. BOREAL will copy this item into that folder using its read-only Rclone remote.</p>
                 <p class="small text-body-secondary">Existing files with the same names may be updated. Other files in the destination will not be deleted.</p>
-                <form id="download-form" hx-post="/downloads/start" hx-target="#download-status" hx-swap="outerHTML" hx-disabled-elt="#download-choose-folder">
+                <form id="download-form" hx-post="/downloads/start" hx-target="#download-status" hx-swap="outerHTML" hx-disabled-elt="#download-choose-folder" hx-on::after-request="window.borealRefreshDownloadStatus?.()">
                     <input id="download-item-id" type="hidden" name="item_id">
                     <input type="hidden" name="inventory_scope" value="{{ inventory_scope }}">
                     <input type="hidden" name="drive" value="{{ drive_id }}">
