@@ -23,6 +23,7 @@ pub struct SharedDriveRow {
     pub folders_scanned: u64,
     pub permissions_scanned: u64,
     pub bytes_discovered: u64,
+    pub tags: Vec<Tag>,
 }
 
 pub fn shared_drive_scope(drive_id: &str) -> String {
@@ -51,15 +52,34 @@ pub fn reconcile_shared_drives(
 }
 
 pub fn list_shared_drives(database: &Database) -> Result<Vec<SharedDriveRow>, DatabaseError> {
+    list_shared_drives_filtered(database, "", "")
+}
+
+pub fn list_shared_drives_filtered(
+    database: &Database,
+    search: &str,
+    tag_filter: &str,
+) -> Result<Vec<SharedDriveRow>, DatabaseError> {
     let connection = database.connect()?;
     let mut statement = connection.prepare(
-        "SELECT drive_id, name, inventory_scope, is_accessible,
+        "SELECT sd.drive_id, sd.name, sd.inventory_scope, sd.is_accessible,
                 COALESCE(last_scanned_at, ''), COALESCE(last_error, ''),
-                files_scanned, folders_scanned, permissions_scanned, bytes_discovered
-         FROM shared_drives ORDER BY is_accessible DESC, name COLLATE NOCASE, drive_id",
+                files_scanned, folders_scanned, permissions_scanned, bytes_discovered,
+                (SELECT group_concat(t.slug || char(30) || t.name || char(30) || t.color, char(31))
+                 FROM shared_drive_tags sdt JOIN tags t ON t.id = sdt.tag_id
+                 WHERE sdt.drive_id = sd.drive_id)
+         FROM shared_drives sd
+         WHERE (?1 = '' OR instr(lower(sd.name), lower(?1)) > 0
+                    OR instr(lower(sd.drive_id), lower(?1)) > 0)
+           AND (?2 = '' OR EXISTS (
+                SELECT 1 FROM shared_drive_tags filter_sdt
+                JOIN tags filter_tag ON filter_tag.id = filter_sdt.tag_id
+                WHERE filter_sdt.drive_id = sd.drive_id AND filter_tag.slug = ?2
+           ))
+         ORDER BY is_accessible DESC, name COLLATE NOCASE, drive_id",
     )?;
     statement
-        .query_map([], |row| {
+        .query_map(params![search.trim(), tag_filter], |row| {
             Ok(SharedDriveRow {
                 drive_id: row.get(0)?,
                 name: row.get(1)?,
@@ -71,10 +91,61 @@ pub fn list_shared_drives(database: &Database) -> Result<Vec<SharedDriveRow>, Da
                 folders_scanned: row.get::<_, i64>(7)? as u64,
                 permissions_scanned: row.get::<_, i64>(8)? as u64,
                 bytes_discovered: row.get::<_, i64>(9)? as u64,
+                tags: row
+                    .get::<_, Option<String>>(10)?
+                    .map(|tags| {
+                        tags.split('\u{1f}')
+                            .filter_map(|tag| {
+                                let mut fields = tag.split('\u{1e}');
+                                Some(Tag {
+                                    slug: fields.next()?.to_string(),
+                                    name: fields.next()?.to_string(),
+                                    color: fields.next()?.to_string(),
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             })
         })?
         .collect::<Result<Vec<_>, _>>()
         .map_err(Into::into)
+}
+
+pub fn change_shared_drive_tags(
+    database: &Database,
+    drive_ids: &[String],
+    tag_slug: &str,
+    remove: bool,
+) -> Result<usize, DatabaseError> {
+    if drive_ids.is_empty() {
+        return Err("Select at least one Shared Drive".into());
+    }
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    let tag_id: i64 = transaction
+        .query_row("SELECT id FROM tags WHERE slug = ?1", [tag_slug], |row| {
+            row.get(0)
+        })
+        .optional()?
+        .ok_or_else(|| format!("Unknown tag: {tag_slug}"))?;
+    let mut changed = 0;
+    for drive_id in drive_ids {
+        changed += if remove {
+            transaction.execute(
+                "DELETE FROM shared_drive_tags WHERE drive_id = ?1 AND tag_id = ?2",
+                params![drive_id, tag_id],
+            )?
+        } else {
+            transaction.execute(
+                "INSERT OR IGNORE INTO shared_drive_tags (drive_id, tag_id)
+                 SELECT drive_id, ?2 FROM shared_drives WHERE drive_id = ?1",
+                params![drive_id, tag_id],
+            )?
+        };
+    }
+    transaction.commit()?;
+    Ok(changed)
 }
 
 pub fn get_shared_drive(

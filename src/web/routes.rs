@@ -297,6 +297,7 @@ pub struct SharedDriveView {
     pub folders: u64,
     pub permissions: u64,
     pub size_label: String,
+    pub tags: Vec<TagPill>,
 }
 
 #[derive(Template)]
@@ -310,6 +311,11 @@ struct SharedDrivesTemplate {
     drives: Vec<SharedDriveView>,
     show_inaccessible: bool,
     inaccessible_count: usize,
+    tags: Vec<database::inventory::Tag>,
+    search: String,
+    tag_filter: String,
+    tagged_count: usize,
+    untagged_count: usize,
 }
 
 #[allow(dead_code)]
@@ -547,6 +553,19 @@ struct ApplyTagForm {
 }
 
 #[derive(serde::Deserialize)]
+struct SharedDriveTagForm {
+    #[serde(default)]
+    selected_drive_ids: String,
+    tag: String,
+    #[serde(default)]
+    q: String,
+    #[serde(default)]
+    tag_filter: String,
+    #[serde(default)]
+    show_inaccessible: bool,
+}
+
+#[derive(serde::Deserialize)]
 struct ApplyPrincipalTagForm {
     #[serde(default)]
     selected_principal_ids: String,
@@ -624,6 +643,14 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/my-drive/tags", post(apply_my_drive_tag))
         .route("/my-drive/tags/remove", post(remove_my_drive_tag))
         .route("/shared-drives", get(shared_drives_page))
+        .route(
+            "/shared-drives/manage-tags",
+            post(apply_shared_drive_list_tag),
+        )
+        .route(
+            "/shared-drives/manage-tags/remove",
+            post(remove_shared_drive_list_tag),
+        )
         .route("/shared-drives/tags", post(apply_shared_drive_tag))
         .route("/shared-drives/tags/remove", post(remove_shared_drive_tag))
         .route("/shared-with-me", get(shared_with_me_page))
@@ -1420,8 +1447,9 @@ async fn shared_drives_page(
         .database()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     if query.drive.is_empty() {
-        let all_drives = database::inventory::list_shared_drives(&database)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let all_drives =
+            database::inventory::list_shared_drives_filtered(&database, &query.q, &query.tag)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let inaccessible_count = all_drives
             .iter()
             .filter(|drive| !drive.is_accessible)
@@ -1439,8 +1467,19 @@ async fn shared_drives_page(
                 folders: drive.folders_scanned,
                 permissions: drive.permissions_scanned,
                 size_label: format_bytes(drive.bytes_discovered),
+                tags: drive
+                    .tags
+                    .into_iter()
+                    .map(|tag| TagPill {
+                        text_color: tag_text_color(&tag.color),
+                        name: tag.name,
+                        color: tag.color,
+                    })
+                    .collect(),
             })
             .collect();
+        let tags = database::inventory::list_tags(&database)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let rclone_state = state.rclone_state();
         let google_client_state = state.google_client_state();
         let google_remotes_state = state.google_remotes_state();
@@ -1461,6 +1500,11 @@ async fn shared_drives_page(
             drives,
             show_inaccessible: query.show_inaccessible,
             inaccessible_count,
+            tags,
+            search: query.q,
+            tag_filter: query.tag,
+            tagged_count: query.tagged,
+            untagged_count: query.untagged,
         });
     }
     let drive = database::inventory::get_shared_drive(&database, &query.drive)
@@ -1885,6 +1929,57 @@ async fn apply_shared_drive_tag(
     Form(form): Form<ApplyTagForm>,
 ) -> Result<Redirect, StatusCode> {
     change_shared_drive_tag(&state, form, false)
+}
+
+async fn apply_shared_drive_list_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<SharedDriveTagForm>,
+) -> Result<Redirect, StatusCode> {
+    change_shared_drive_list_tag(&state, form, false)
+}
+
+async fn remove_shared_drive_list_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<SharedDriveTagForm>,
+) -> Result<Redirect, StatusCode> {
+    change_shared_drive_list_tag(&state, form, true)
+}
+
+fn change_shared_drive_list_tag(
+    state: &AppState,
+    form: SharedDriveTagForm,
+    remove: bool,
+) -> Result<Redirect, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let drive_ids = form
+        .selected_drive_ids
+        .split(',')
+        .map(str::trim)
+        .filter(|drive_id| !drive_id.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let changed =
+        database::inventory::change_shared_drive_tags(&database, &drive_ids, &form.tag, remove)
+            .map_err(|error| {
+                eprintln!("Unable to change Shared Drive tag: {error}");
+                StatusCode::BAD_REQUEST
+            })?;
+    println!(
+        "Shared Drive list tag {}: tag={}, selected_drives={}, changed_drives={changed}",
+        if remove { "removed" } else { "applied" },
+        form.tag,
+        drive_ids.len(),
+    );
+    let url = format!(
+        "/shared-drives?q={}&tag={}&show_inaccessible={}&{}={changed}",
+        encode_query_value(&form.q),
+        encode_query_value(&form.tag_filter),
+        form.show_inaccessible,
+        if remove { "untagged" } else { "tagged" },
+    );
+    Ok(Redirect::to(&url))
 }
 
 async fn remove_shared_drive_tag(

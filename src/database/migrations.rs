@@ -69,6 +69,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "safe_for_removal_tag",
         sql: include_str!("migrations/0012_safe_for_removal_tag.sql"),
     },
+    Migration {
+        version: 13,
+        name: "shared_drive_tags",
+        sql: include_str!("migrations/0013_shared_drive_tags.sql"),
+    },
 ];
 
 pub fn apply(connection: &mut Connection) -> Result<(), DatabaseError> {

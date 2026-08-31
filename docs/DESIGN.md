@@ -236,7 +236,7 @@ SQLite is the local system of record for indexed metadata and user annotations. 
 | Configuration | `settings`, `schema_migrations` | Runtime preferences and schema versioning |
 | Scan history | `scan_runs` | Scope status, timing, counts, and errors |
 | Drive inventory | `drive_items`, `drive_permissions`, `shared_drives` | Current and retained historical Drive state |
-| Content classification | `tags`, `drive_item_tags` | Local content tags, including recursive folder tagging |
+| Content classification | `tags`, `drive_item_tags`, `shared_drive_tags` | Local item and Shared Drive tags, including recursive folder tagging |
 | Identity directory | `principals`, `principal_emails`, `organizations` | People, groups, department accounts, service accounts, and organizations |
 | Relationships | `organization_memberships`, `principal_memberships` | Principal-to-organization and group membership relationships |
 | Identity classification | `principal_tags` | Local tags applied to directory identities |
@@ -274,7 +274,7 @@ Default content tags are:
 - `To Export`
 - `Safe for removal`
 
-Users can create and edit custom tags and colors. Tags may be applied to selected items in My Drive, Shared with me, and Shared Drive explorers. Applying a tag to a folder recursively applies it to the indexed descendants in the same scope. Removing tags is also a local SQLite operation.
+Users can create and edit custom tags and colors. Tags may be applied to Shared Drives themselves or to selected items in My Drive, Shared with me, and Shared Drive explorers. Applying a tag to a folder recursively applies it to the indexed descendants in the same scope. Removing tags is also a local SQLite operation.
 
 `Safe for removal` is intended to mean that a migration was reviewed and the source can be considered for manual removal. Today it can be applied manually, so BOREAL does not treat the tag itself as proof that verification occurred. It is advisory and does not remove, trash, or modify the Google Drive source.
 

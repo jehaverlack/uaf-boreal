@@ -186,7 +186,7 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 12,);
+        assert_eq!(migration_count, 13,);
 
         let safe_for_removal_tag: (String, String) = connection
             .query_row(
@@ -224,6 +224,7 @@ mod tests {
             "directory_import_runs",
             "remote_accounts",
             "shared_drives",
+            "shared_drive_tags",
         ] {
             let exists: bool = connection
                 .query_row(
@@ -457,6 +458,31 @@ mod tests {
                 .unwrap()
                 .name,
             "Renamed Projects"
+        );
+        inventory::change_shared_drive_tags(
+            &database,
+            &["drive-a".to_string()],
+            "to-migrate",
+            false,
+        )
+        .expect("Shared Drive tag should apply");
+        let tagged_drives =
+            inventory::list_shared_drives_filtered(&database, "renamed", "to-migrate")
+                .expect("Shared Drives should filter by name and tag");
+        assert_eq!(tagged_drives.len(), 1);
+        assert_eq!(tagged_drives[0].drive_id, "drive-a");
+        assert_eq!(tagged_drives[0].tags[0].slug, "to-migrate");
+        inventory::change_shared_drive_tags(
+            &database,
+            &["drive-a".to_string()],
+            "to-migrate",
+            true,
+        )
+        .expect("Shared Drive tag should be removable");
+        assert!(
+            inventory::list_shared_drives_filtered(&database, "", "to-migrate")
+                .expect("Shared Drive tag filter should load")
+                .is_empty()
         );
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
