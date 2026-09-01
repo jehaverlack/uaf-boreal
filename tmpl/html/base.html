@@ -465,16 +465,7 @@
 
                     <p class="mb-0">
                         The BOREAL application is no longer running.
-                        You may close this browser tab.
-                    </p>
-
-                    <p
-                        class="alert alert-secondary d-none mt-3 mb-0"
-                        id="boreal-close-tab-help"
-                        role="status"
-                    >
-                        Your browser prevented BOREAL from closing this tab.
-                        Please close it manually.
+                        Use the button below to close this browser tab.
                     </p>
 
                 </div>
@@ -723,9 +714,6 @@
             const closeTabButton =
                 document.getElementById("boreal-close-tab");
 
-            const closeTabHelp =
-                document.getElementById("boreal-close-tab-help");
-
             const stoppedModal =
                 new bootstrap.Modal(stoppedModalElement);
 
@@ -734,21 +722,15 @@
 
             if (closeTabButton) {
                 closeTabButton.addEventListener("click", () => {
-                    /*
-                     * Some browsers accept a close request only after the
-                     * current tab has been reacquired as the active browsing
-                     * context. Browser policy can still reject both requests.
-                     */
-                    const currentTab = window.open("", "_self");
-                    currentTab?.close();
-
-                    if (!window.closed) {
-                        window.close();
+                    try {
+                        window.opener = window;
+                    } catch (_error) {
+                        // Some browsers do not allow the opener to be changed.
                     }
 
-                    window.setTimeout(() => {
-                        closeTabHelp?.classList.remove("d-none");
-                    }, 250);
+                    const currentTab = window.open("", "_self");
+                    currentTab?.close();
+                    window.close();
                 });
             }
 
