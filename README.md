@@ -7,7 +7,7 @@ Google Drive content through Rclone. It indexes My Drive, Shared with me, and
 Shared Drives into a private local SQLite database for faster exploration and
 analysis.
 
-> **BOREAL v0.1.2 is beta software.** Back up important data and review the
+> **BOREAL v0.1.3 is beta software.** Back up important data and review the
 > known limitations before use.
 
 | Attribute | Value |
@@ -16,7 +16,7 @@ analysis.
 | **Description** | Browser-based Organizer for Rclone Exploration, Audit and Lookup |
 | **Author** | John Haverlack |
 | **License** | MIT |
-| **Version** | 0.1.2 |
+| **Version** | 0.1.3 |
 | **Maturity** | BETA |
 | **Date** | 2026-09-01 |
 
@@ -26,19 +26,19 @@ analysis.
 ## Download
 
 Download the binary matching your operating system and processor from the
-[BOREAL v0.1.2 release](https://github.com/jehaverlack/uaf-boreal/releases/tag/v0.1.2).
+[BOREAL v0.1.3 release](https://github.com/jehaverlack/uaf-boreal/releases/tag/v0.1.3).
 
 | System | Processor | Download |
 | --- | --- | --- |
-| Linux | x86_64 / AMD64 | [boreal-v0.1.2-linux-x86_64](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/boreal-v0.1.2-linux-x86_64) |
-| Linux | ARM64 / AArch64 | [boreal-v0.1.2-linux-aarch64](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/boreal-v0.1.2-linux-aarch64) |
-| Linux | ARMv7 32-bit | [boreal-v0.1.2-linux-armv7](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/boreal-v0.1.2-linux-armv7) |
-| Windows | x86_64 / AMD64 | [boreal-v0.1.2-windows-x86_64.exe](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/boreal-v0.1.2-windows-x86_64.exe) |
-| macOS | Apple Silicon / ARM64 | [boreal-v0.1.2-macos-aarch64](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/boreal-v0.1.2-macos-aarch64) |
-| macOS | Intel x86_64 | [boreal-v0.1.2-macos-x86_64](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/boreal-v0.1.2-macos-x86_64) |
+| Linux | x86_64 / AMD64 | [boreal-v0.1.3-linux-x86_64](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.3/dist/boreal-v0.1.3-linux-x86_64) |
+| Linux | ARM64 / AArch64 | [boreal-v0.1.3-linux-aarch64](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.3/dist/boreal-v0.1.3-linux-aarch64) |
+| Linux | ARMv7 32-bit | [boreal-v0.1.3-linux-armv7](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.3/dist/boreal-v0.1.3-linux-armv7) |
+| Windows | x86_64 / AMD64 | [boreal-v0.1.3-windows-x86_64.exe](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.3/dist/boreal-v0.1.3-windows-x86_64.exe) |
+| macOS | Apple Silicon / ARM64 | [boreal-v0.1.3-macos-aarch64](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.3/dist/boreal-v0.1.3-macos-aarch64) |
+| macOS | Intel x86_64 | [boreal-v0.1.3-macos-x86_64](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.3/dist/boreal-v0.1.3-macos-x86_64) |
 
 The release also provides
-[SHA256SUMS](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/SHA256SUMS)
+[SHA256SUMS](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.3/dist/SHA256SUMS)
 for verifying downloads.
 
 ### Identify Your Processor
@@ -103,15 +103,15 @@ After downloading the correct binary:
 
 ```bash
 cd ~/Downloads
-chmod +x boreal-v0.1.2-linux-x86_64
-./boreal-v0.1.2-linux-x86_64
+chmod +x boreal-v0.1.3-linux-x86_64
+./boreal-v0.1.3-linux-x86_64
 ```
 
 Substitute the ARM64 or ARMv7 filename when appropriate.
 
 ### Windows
 
-1. Download `boreal-v0.1.2-windows-x86_64.exe`.
+1. Download `boreal-v0.1.3-windows-x86_64.exe`.
 2. Open the downloaded file.
 3. Keep the BOREAL console window open while using the application.
 
@@ -125,8 +125,8 @@ After downloading the correct binary:
 
 ```bash
 cd ~/Downloads
-chmod +x boreal-v0.1.2-macos-aarch64
-./boreal-v0.1.2-macos-aarch64
+chmod +x boreal-v0.1.3-macos-aarch64
+./boreal-v0.1.3-macos-aarch64
 ```
 
 Substitute the Intel filename on an Intel Mac. macOS may display a warning
