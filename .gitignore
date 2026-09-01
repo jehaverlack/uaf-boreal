@@ -26,3 +26,6 @@ target
 /target
 build/*
 *sync-conflict*
+
+# Local screenshot containing OAuth credentials; use the redacted asset instead.
+tmpl/html/img/GC_OAuth_JSON.png

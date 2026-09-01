@@ -84,15 +84,7 @@ pub struct SetupStep {
     pub state_class: &'static str,
     pub complete: bool,
     pub modal_target: &'static str,
-    pub remote_actions: Vec<RemoteAction>,
-}
-
-#[allow(dead_code)]
-pub struct RemoteAction {
-    pub label: &'static str,
     pub action: &'static str,
-    pub state_label: &'static str,
-    pub state_class: &'static str,
     pub disabled: bool,
     pub detail: String,
 }
@@ -140,6 +132,7 @@ struct DashboardTemplate {
     status_items: Vec<StatusItem>,
     setup_steps: Vec<SetupStep>,
     setup_percent: u8,
+    initial_setup_complete: bool,
     poll_rclone: bool,
     metadata: MetadataView,
     directory_sheet_enabled: bool,
@@ -451,6 +444,7 @@ struct StatusTemplate {
 struct SetupProgressTemplate {
     setup_steps: Vec<SetupStep>,
     setup_percent: u8,
+    initial_setup_complete: bool,
     poll_rclone: bool,
     directory_sheet_enabled: bool,
     directory_sheet_url: String,
@@ -678,8 +672,6 @@ struct SettingsForm {
     #[serde(default)]
     permission_scanning: Option<String>,
     #[serde(default)]
-    directory_sheet_enabled: Option<String>,
-    #[serde(default)]
     directory_sheet_url: String,
 }
 
@@ -709,6 +701,22 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/about", get(about))
         .route("/assets/uaf-logo.png", get(uaf_logo))
         .route("/assets/acep-logo.png", get(acep_logo))
+        .route(
+            "/assets/google-cloud-project-selection.png",
+            get(google_cloud_project_selection),
+        )
+        .route(
+            "/assets/google-cloud-enable-api.png",
+            get(google_cloud_enable_api),
+        )
+        .route(
+            "/assets/google-cloud-create-client.png",
+            get(google_cloud_create_client),
+        )
+        .route(
+            "/assets/google-cloud-oauth-json.png",
+            get(google_cloud_oauth_json),
+        )
         .route("/remotes", get(remotes_page))
         .route("/my-drive", get(my_drive_page))
         .route("/my-drive/tags", post(apply_my_drive_tag))
@@ -754,6 +762,7 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/directory/tags", post(apply_directory_tag))
         .route("/directory/tags/remove", post(remove_directory_tag))
+        .route("/directory/template.csv", get(directory_csv_template))
         .route(
             "/directory/principals/{principal_id}/tags",
             post(apply_principal_tag),
@@ -778,6 +787,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/setup/google-client/import", post(import_google_client))
         .route("/setup/remotes/my-drive-ro", post(setup_my_drive_ro))
         .route("/setup/directory", post(save_setup_directory))
+        .route("/setup/metadata/skip", post(skip_setup_metadata))
         .route("/metadata/update", post(start_metadata_update))
         .route("/app/quit", post(quit))
 }
@@ -789,6 +799,61 @@ async fn uaf_logo() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=86400"),
         ],
         include_bytes!("../../tmpl/html/img/UAFLogo_A_blue.png").as_slice(),
+    )
+}
+
+async fn google_cloud_project_selection() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_bytes!("../../tmpl/html/img/GC_Project_Selection.png").as_slice(),
+    )
+}
+
+async fn google_cloud_enable_api() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_bytes!("../../tmpl/html/img/GC_EnableAPIAccess.png").as_slice(),
+    )
+}
+
+async fn google_cloud_create_client() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_bytes!("../../tmpl/html/img/GC_Create_Client.png").as_slice(),
+    )
+}
+
+async fn google_cloud_oauth_json() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_bytes!("../../tmpl/html/img/GC_OAuth_JSON_redacted.png").as_slice(),
+    )
+}
+
+const PERSONS_CSV_TEMPLATE: &str = "name,email,organization,type,status,departure_date,notes\r\n";
+
+async fn directory_csv_template() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"boreal-persons-template.csv\"",
+            ),
+        ],
+        PERSONS_CSV_TEMPLATE,
     )
 }
 
@@ -838,6 +903,7 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         &google_remotes_state,
         directory_setup_decided,
     );
+    let initial_setup_complete = setup_percent == 100 && metadata_setup_decided(&state);
 
     let poll_rclone = should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state);
 
@@ -849,6 +915,7 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         status_items,
         setup_steps,
         setup_percent,
+        initial_setup_complete,
         poll_rclone,
         metadata: build_metadata_view(
             &metadata_state,
@@ -882,7 +949,9 @@ fn build_setup_progress(
             state_class: "text-bg-warning",
             complete: false,
             modal_target: "",
-            remote_actions: Vec::new(),
+            action: "",
+            disabled: true,
+            detail: String::new(),
         },
 
         RcloneState::Ready(status) => SetupStep {
@@ -893,7 +962,9 @@ fn build_setup_progress(
             state_class: "text-bg-success",
             complete: true,
             modal_target: "",
-            remote_actions: Vec::new(),
+            action: "",
+            disabled: true,
+            detail: String::new(),
         },
 
         RcloneState::Error(error) => SetupStep {
@@ -904,7 +975,9 @@ fn build_setup_progress(
             state_class: "text-bg-danger",
             complete: false,
             modal_target: "",
-            remote_actions: Vec::new(),
+            action: "",
+            disabled: true,
+            detail: String::new(),
         },
     };
 
@@ -919,7 +992,9 @@ fn build_setup_progress(
             state_class: "text-bg-warning",
             complete: false,
             modal_target: "googleClientSetupModal",
-            remote_actions: Vec::new(),
+            action: "",
+            disabled: false,
+            detail: String::new(),
         },
 
         GoogleClientState::Ready(
@@ -934,7 +1009,9 @@ fn build_setup_progress(
             state_class: "text-bg-success",
             complete: true,
             modal_target: "",
-            remote_actions: Vec::new(),
+            action: "",
+            disabled: true,
+            detail: String::new(),
         },
 
         GoogleClientState::Error(
@@ -949,7 +1026,9 @@ fn build_setup_progress(
             state_class: "text-bg-danger",
             complete: false,
             modal_target: "googleClientSetupModal",
-            remote_actions: Vec::new(),
+            action: "",
+            disabled: false,
+            detail: String::new(),
         },
     };
 
@@ -968,15 +1047,25 @@ fn build_setup_progress(
         state_class: if remote_complete { "text-bg-success" } else { "text-bg-warning" },
         complete: remote_complete,
         modal_target: "",
-        remote_actions: vec![
-            build_remote_action(
-                "Setup My Drive RO",
-                "/setup/remotes/my-drive-ro",
-                &google_remotes_state.ro,
-                prerequisites_ready,
-                remote_busy,
+        action: if remote_complete {
+            ""
+        } else {
+            "/setup/remotes/my-drive-ro"
+        },
+        disabled: !prerequisites_ready
+            || remote_busy
+            || matches!(
+                google_remotes_state.ro,
+                RemoteState::Ready | RemoteState::Conflict(_)
             ),
-        ],
+        detail: match &google_remotes_state.ro {
+            RemoteState::Conflict(error) | RemoteState::Error(error) => error.clone(),
+            RemoteState::Configuring => {
+                "Complete the Google authorization in the browser tab opened by Rclone."
+                    .to_string()
+            }
+            _ => String::new(),
+        },
     };
 
     let steps = vec![rclone_step, google_step, remote_step];
@@ -986,40 +1075,6 @@ fn build_setup_progress(
     let setup_percent = (complete_count * 100 / 4) as u8;
 
     (steps, setup_percent)
-}
-
-fn build_remote_action(
-    label: &'static str,
-    action: &'static str,
-    state: &RemoteState,
-    prerequisites_ready: bool,
-    remote_busy: bool,
-) -> RemoteAction {
-    let (state_label, state_class) = match state {
-        RemoteState::Ready => ("Complete", "text-bg-success"),
-        RemoteState::Configuring => ("Authorizing…", "text-bg-warning"),
-        RemoteState::Conflict(_) => ("Conflict", "text-bg-danger"),
-        RemoteState::Error(_) => ("Retry", "text-bg-danger"),
-        RemoteState::Waiting => ("Waiting", "text-bg-secondary"),
-        RemoteState::NotConfigured => ("Setup", "text-bg-primary"),
-    };
-
-    RemoteAction {
-        label,
-        action,
-        state_label,
-        state_class,
-        disabled: !prerequisites_ready
-            || remote_busy
-            || matches!(state, RemoteState::Ready | RemoteState::Conflict(_)),
-        detail: match state {
-            RemoteState::Conflict(error) | RemoteState::Error(error) => error.clone(),
-            RemoteState::Configuring => {
-                "Complete the Google authorization in the browser tab opened by Rclone.".to_string()
-            }
-            _ => String::new(),
-        },
-    }
 }
 
 fn build_metadata_view(
@@ -1168,16 +1223,19 @@ fn build_metadata_view(
 }
 
 fn format_bytes(bytes: u64) -> String {
+    const TB: f64 = 1_000_000_000_000.0;
     const GB: f64 = 1_000_000_000.0;
     const MB: f64 = 1_000_000.0;
     const KB: f64 = 1_000.0;
 
-    if bytes as f64 >= GB {
+    if bytes as f64 >= TB {
+        format!("{:.1} TB", bytes as f64 / TB,)
+    } else if bytes as f64 >= GB {
         format!("{:.1} GB", bytes as f64 / GB,)
     } else if bytes as f64 >= MB {
         format!("{:.1} MB", bytes as f64 / MB,)
     } else if bytes as f64 >= KB {
-        format!("{:.1} kB", bytes as f64 / KB,)
+        format!("{:.1} KB", bytes as f64 / KB,)
     } else {
         format!("{bytes} B",)
     }
@@ -1209,14 +1267,15 @@ async fn save_settings(
     State(state): State<Arc<AppState>>,
     Form(form): Form<SettingsForm>,
 ) -> Result<axum::response::Response, StatusCode> {
+    let directory_sheet_url = form.directory_sheet_url.trim().to_string();
     let inventory_settings = InventorySettings {
         automatic_updates: false,
         refresh_interval_hours: form.refresh_interval_hours,
         full_reconciliation_days: form.full_reconciliation_days,
         update_when_overdue_at_startup: false,
         permission_scanning: form.permission_scanning.is_some(),
-        directory_sheet_enabled: form.directory_sheet_enabled.is_some(),
-        directory_sheet_url: form.directory_sheet_url.trim().to_string(),
+        directory_sheet_enabled: !directory_sheet_url.is_empty(),
+        directory_sheet_url,
     };
     if inventory_settings.directory_sheet_enabled {
         if let Err(error) =
@@ -1254,14 +1313,15 @@ async fn test_directory_sheet(
     State(state): State<Arc<AppState>>,
     Form(form): Form<SettingsForm>,
 ) -> Result<axum::response::Response, StatusCode> {
+    let directory_sheet_url = form.directory_sheet_url.trim().to_string();
     let inventory_settings = InventorySettings {
         automatic_updates: false,
         refresh_interval_hours: form.refresh_interval_hours,
         full_reconciliation_days: form.full_reconciliation_days,
         update_when_overdue_at_startup: false,
         permission_scanning: form.permission_scanning.is_some(),
-        directory_sheet_enabled: form.directory_sheet_enabled.is_some(),
-        directory_sheet_url: form.directory_sheet_url.trim().to_string(),
+        directory_sheet_enabled: !directory_sheet_url.is_empty(),
+        directory_sheet_url,
     };
     if let Err(error) =
         crate::rclone::identity::parse_google_sheet_url(&inventory_settings.directory_sheet_url)
@@ -3174,10 +3234,10 @@ async fn ui_setup_progress(State(state): State<Arc<AppState>>) -> Result<Html<St
         &google_remotes_state,
         directory_setup_decided,
     );
-
     let template = SetupProgressTemplate {
         setup_steps,
         setup_percent,
+        initial_setup_complete: setup_percent == 100 && metadata_setup_decided(&state),
         poll_rclone: should_poll_setup(&rclone_state, &google_remotes_state),
         directory_sheet_enabled: setup_settings.directory_sheet_enabled,
         directory_sheet_url: setup_settings.directory_sheet_url,
@@ -3441,6 +3501,17 @@ fn latest_shared_drives_summary(state: &AppState) -> Option<database::inventory:
         .flatten()
 }
 
+fn metadata_setup_decided(state: &AppState) -> bool {
+    latest_my_drive_summary(state).is_some()
+        || latest_shared_summary(state).is_some()
+        || latest_shared_drives_summary(state).is_some()
+        || state
+            .database()
+            .ok()
+            .and_then(|database| database::settings::metadata_setup_skipped(&database).ok())
+            .unwrap_or(false)
+}
+
 fn shared_drive_count(state: &AppState) -> usize {
     state
         .database()
@@ -3570,11 +3641,25 @@ async fn start_metadata_update(
         shared_with_me: form.shared_with_me.is_some(),
         directory_info: form.directory_info.is_some(),
     };
+    if let Ok(database) = state.database() {
+        database::settings::set_metadata_setup_skipped(&database, false)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
     AppState::start_metadata_update(state, selection).map_err(|error| {
         eprintln!("Unable to start metadata update: {error}");
         StatusCode::CONFLICT
     })?;
 
+    Ok(Redirect::to("/"))
+}
+
+async fn skip_setup_metadata(State(state): State<Arc<AppState>>) -> Result<Redirect, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::settings::set_metadata_setup_skipped(&database, true)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    log::info!("Optional initial metadata update skipped");
     Ok(Redirect::to("/"))
 }
 
@@ -3833,6 +3918,23 @@ where
 mod tests {
     use super::*;
     use crate::app::MetadataProgress;
+
+    #[test]
+    fn persons_csv_template_has_supported_import_columns() {
+        assert_eq!(
+            PERSONS_CSV_TEMPLATE,
+            "name,email,organization,type,status,departure_date,notes\r\n"
+        );
+    }
+
+    #[test]
+    fn formats_dashboard_sizes_with_one_decimal_and_adaptive_units() {
+        assert_eq!(format_bytes(2_208_400_000_000), "2.2 TB");
+        assert_eq!(format_bytes(2_208_400_000), "2.2 GB");
+        assert_eq!(format_bytes(2_208_400), "2.2 MB");
+        assert_eq!(format_bytes(2_208), "2.2 KB");
+        assert_eq!(format_bytes(208), "208 B");
+    }
 
     #[test]
     fn active_scope_progress_does_not_replace_my_drive_summary() {

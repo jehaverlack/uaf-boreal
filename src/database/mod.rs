@@ -308,6 +308,16 @@ mod tests {
         );
         assert_eq!(actual.permission_scanning, expected.permission_scanning,);
 
+        assert!(
+            !settings::metadata_setup_skipped(&database).expect("metadata setup state should load")
+        );
+        settings::set_metadata_setup_skipped(&database, true)
+            .expect("metadata setup state should save");
+        assert!(
+            settings::metadata_setup_skipped(&database)
+                .expect("metadata setup state should reload")
+        );
+
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
 

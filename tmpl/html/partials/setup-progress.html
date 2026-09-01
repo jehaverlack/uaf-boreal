@@ -8,7 +8,7 @@
     {% endif %}
 >
 
-    {% if setup_percent == 100 %}
+    {% if initial_setup_complete %}
 
     <div class="col-12">
 
@@ -92,7 +92,7 @@
                 </div>
 
                 <div
-                    class="progress mb-4"
+                    class="progress mb-2"
                     role="progressbar"
                     aria-label="BOREAL setup progress"
                     aria-valuenow="{{ setup_percent }}"
@@ -104,6 +104,10 @@
                         style="width: {{ setup_percent }}%"
                     ></div>
                 </div>
+
+                <p class="small text-body-secondary mb-3">
+                    A few steps are needed to configure BOREAL to work with your Google Drive.
+                </p>
 
                 <div class="list-group list-group-flush">
 
@@ -134,6 +138,18 @@
                                         {{ step.state_label }}
                                     </button>
 
+                                    {% else if step.action.len() > 0 %}
+
+                                    <form method="post" action="{{ step.action }}">
+                                        <button
+                                            type="submit"
+                                            class="badge {{ step.state_class }} border-0"
+                                            {% if step.disabled %}disabled{% endif %}
+                                        >
+                                            {{ step.state_label }}
+                                        </button>
+                                    </form>
+
                                     {% else %}
 
                                     <span class="badge {{ step.state_class }}">
@@ -148,35 +164,10 @@
                                     {{ step.description }}
                                 </p>
 
-                                {% if step.remote_actions.len() > 0 %}
-
-                                <div class="d-flex flex-wrap gap-2 mt-3">
-
-                                    {% for remote in step.remote_actions %}
-
-                                    <form method="post" action="{{ remote.action }}">
-                                        <button
-                                            type="submit"
-                                            class="btn btn-sm btn-outline-primary"
-                                            {% if remote.disabled %}disabled{% endif %}
-                                        >
-                                            {{ remote.label }}
-                                            <span class="badge {{ remote.state_class }} ms-1">
-                                                {{ remote.state_label }}
-                                            </span>
-                                        </button>
-
-                                        {% if remote.detail.len() > 0 %}
-                                        <div class="small text-body-secondary mt-1">
-                                            {{ remote.detail }}
-                                        </div>
-                                        {% endif %}
-                                    </form>
-
-                                    {% endfor %}
-
+                                {% if step.detail.len() > 0 %}
+                                <div class="small text-body-secondary mt-1">
+                                    {{ step.detail }}
                                 </div>
-
                                 {% endif %}
 
                             </div>
@@ -187,7 +178,7 @@
 
                     {% endfor %}
 
-                    <div class="list-group-item px-0 py-3">
+                    <div class="list-group-item px-0 py-3" id="boreal-directory-setup-step">
                         <div class="d-flex align-items-start gap-3">
                             <i class="bi bi-person-lines-fill fs-4{% if directory_sheet_enabled %} text-success{% endif %}"></i>
                             <div class="flex-grow-1">
@@ -202,9 +193,51 @@
                                            id="setup-directory-sheet-url" name="directory_sheet_url"
                                            value="{{ directory_sheet_url }}" placeholder="https://docs.google.com/spreadsheets/d/.../edit?gid=0">
                                     <button class="btn btn-sm btn-outline-primary" type="submit"><i class="bi bi-save me-1"></i>{% if directory_sheet_enabled %}Update URL{% else %}Save URL{% endif %}</button>
-                                    <button class="btn btn-sm btn-link text-secondary" type="submit" name="skip" value="true">Skip for now</button>
+                                    <button
+                                        class="btn btn-sm btn-link text-secondary"
+                                        type="button"
+                                        hx-post="/setup/directory"
+                                        hx-vals='{"skip":"true"}'
+                                        hx-target="#boreal-directory-setup-step"
+                                        hx-swap="delete"
+                                    >
+                                        Skip for now
+                                    </button>
                                 </form>
-                                <div class="form-text">The authenticated read-only Google account must have Viewer access. You may leave this blank and configure it later in Settings.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="list-group-item px-0 py-3" id="boreal-initial-metadata-step">
+                        <div class="d-flex align-items-start gap-3">
+                            <i class="bi bi-database-down fs-4"></i>
+                            <div class="flex-grow-1">
+                                <div class="d-flex justify-content-between align-items-start gap-3">
+                                    <h3 class="h6 mb-1">5. Update metadata</h3>
+                                    <span class="badge text-bg-secondary">Optional</span>
+                                </div>
+                                <p class="small text-body-secondary mb-2">
+                                    Import initial Google Drive metadata.
+                                </p>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        class="btn btn-sm btn-outline-primary"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#metadataUpdateModal"
+                                    >
+                                        <i class="bi bi-database-down me-1"></i>
+                                        Update
+                                    </button>
+                                    <form method="post" action="/setup/metadata/skip">
+                                        <button
+                                            type="submit"
+                                            class="btn btn-sm btn-link text-secondary"
+                                        >
+                                            Skip for now
+                                        </button>
+                                    </form>
+                                </div>
                             </div>
                         </div>
                     </div>

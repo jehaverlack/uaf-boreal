@@ -5,12 +5,31 @@
 | **Name** | boreal |
 | **Author** | John Haverlack |
 | **License** | MIT |
-| **Version** | 0.1.0 |
+| **Version** | 0.1.1 |
 | **Maturity** | BETA |
-| **Date** | 2026-08-31 |
+| **Date** | 2026-09-01 |
+
+## v0.1.1 - 2026-09-01 (BETA)
+
+- Fixing Setup
+- Working on Client Setup
+- Fixed Close Button again
+- About Tweaks
+- About Tweaks
+- Fixed Close Tab Button
+- Added Use Cases to About
+- WIP: Setup Progress Cleanup, CSV Foo
+- Menu Updates
+- Fixing Dashboard Units
+- Fixing Init Buttons
+- Adding Use Case
+- Smooth out Metadata update order
+- Start v0.1.1
 
 ## v0.1.0 - 2026-08-31 (BETA)
 
+- v0.1.0
+- v0.1.0
 - Added Download Status
 - Added Download Feature
 - Adding Per Resource Tags
@@ -136,14 +155,18 @@
 **Summary**
 Project Initialization
 
-- Added Download Status
-- Added Download Feature
-- Adding Per Resource Tags
-- Adding Per Resource Tags
-- Cleaned up Dashboard Columns
-- Starting v1.0.1
-- Start v0.1.0
-- Fixing Dist Download Links
-- Fixing Dist Download Links
-- Fixing Dist Download Links
+- Fixing Setup
+- Working on Client Setup
+- Fixed Close Button again
+- About Tweaks
+- About Tweaks
+- Fixed Close Tab Button
+- Added Use Cases to About
+- WIP: Setup Progress Cleanup, CSV Foo
+- Menu Updates
+- Fixing Dashboard Units
+- Fixing Init Buttons
+- Adding Use Case
+- Smooth out Metadata update order
+- Start v0.1.1
 

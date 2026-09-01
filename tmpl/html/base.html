@@ -213,17 +213,15 @@
                     </li>
 
                     <li class="nav-item">
-
-                        <a
-                            class="nav-link{% if active_page == "rclone" %} active{% endif %}"
-                            href="/rclone-gui"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            title="Open Rclone WebGUI"
+                        <button
+                            class="nav-link boreal-update-nav"
+                            type="button"
+                            data-bs-toggle="modal"
+                            data-bs-target="#metadataUpdateModal"
+                            title="Update Metadata"
                         >
-                            Rclone
-                        </a>
-
+                            Update
+                        </button>
                     </li>
 
                     <li class="nav-item">
@@ -277,15 +275,17 @@
                     </li>
 
                     <li class="nav-item">
-                        <button
-                            class="nav-link boreal-update-nav"
-                            type="button"
-                            data-bs-toggle="modal"
-                            data-bs-target="#metadataUpdateModal"
-                            title="Update Metadata"
+
+                        <a
+                            class="nav-link{% if active_page == "rclone" %} active{% endif %}"
+                            href="/rclone-gui"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Open Rclone WebGUI"
                         >
-                            Update
-                        </button>
+                            Rclone
+                        </a>
+
                     </li>
 
                 </ul>
@@ -412,7 +412,7 @@
                     <p>Select one or more metadata sources. Unselected inventories retain their existing data and timestamps.</p>
                     <div class="list-group mb-3">
                         <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="my_drive" value="true" checked>My Drive</label>
-                        <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="shared_drives" value="true" checked>Shared Drives</label>
+                        <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="shared_drives" value="true">Shared Drives</label>
                         <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="shared_with_me" value="true" checked>Shared with me</label>
                         <label class="list-group-item text-body-secondary"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="directory_info" value="true" disabled>Persons <span class="small">— checking configuration…</span></label>
                     </div>
@@ -465,9 +465,19 @@
 
                     <p class="mb-0">
                         The BOREAL application is no longer running.
-                        You may close this browser tab.
+                        Use the button below to close this browser tab.
                     </p>
 
+                </div>
+
+                <div class="modal-footer">
+                    <button
+                        type="button"
+                        class="btn btn-primary"
+                        id="boreal-close-tab"
+                    >
+                        Close
+                    </button>
                 </div>
 
             </div>
@@ -601,6 +611,10 @@
                 );
 
             async function refreshMetadataUi() {
+                if (!document.querySelector("#boreal-drive-summaries")) {
+                    window.location.reload();
+                    return;
+                }
                 await Promise.all([
                     replaceFromEndpoint("/ui/status", "#boreal-status"),
                     replaceFromEndpoint("/ui/drive-summaries", "#boreal-drive-summaries"),
@@ -701,11 +715,28 @@
             const stoppedModalElement =
                 document.getElementById("borealStoppedModal");
 
+            const closeTabButton =
+                document.getElementById("boreal-close-tab");
+
             const stoppedModal =
                 new bootstrap.Modal(stoppedModalElement);
 
             let heartbeatFailures = 0;
             let stopped = false;
+
+            if (closeTabButton) {
+                closeTabButton.addEventListener("click", () => {
+                    try {
+                        window.opener = window;
+                    } catch (_error) {
+                        // Some browsers do not allow the opener to be changed.
+                    }
+
+                    const currentTab = window.open("", "_self");
+                    currentTab?.close();
+                    window.close();
+                });
+            }
 
             function showStopped() {
                 if (stopped) {

@@ -2,7 +2,7 @@
 
 {% block content %}
 
-{% if setup_percent == 100 %}
+{% if initial_setup_complete %}
 {% include "partials/drive-summaries.html" %}
 {% else %}
 {% include "partials/setup-progress.html" %}
