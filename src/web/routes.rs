@@ -699,6 +699,22 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/about", get(about))
         .route("/assets/uaf-logo.png", get(uaf_logo))
         .route("/assets/acep-logo.png", get(acep_logo))
+        .route(
+            "/assets/google-cloud-project-selection.png",
+            get(google_cloud_project_selection),
+        )
+        .route(
+            "/assets/google-cloud-enable-api.png",
+            get(google_cloud_enable_api),
+        )
+        .route(
+            "/assets/google-cloud-create-client.png",
+            get(google_cloud_create_client),
+        )
+        .route(
+            "/assets/google-cloud-oauth-json.png",
+            get(google_cloud_oauth_json),
+        )
         .route("/remotes", get(remotes_page))
         .route("/my-drive", get(my_drive_page))
         .route("/my-drive/tags", post(apply_my_drive_tag))
@@ -780,6 +796,46 @@ async fn uaf_logo() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=86400"),
         ],
         include_bytes!("../../tmpl/html/img/UAFLogo_A_blue.png").as_slice(),
+    )
+}
+
+async fn google_cloud_project_selection() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_bytes!("../../tmpl/html/img/GC_Project_Selection.png").as_slice(),
+    )
+}
+
+async fn google_cloud_enable_api() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_bytes!("../../tmpl/html/img/GC_EnableAPIAccess.png").as_slice(),
+    )
+}
+
+async fn google_cloud_create_client() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_bytes!("../../tmpl/html/img/GC_Create_Client.png").as_slice(),
+    )
+}
+
+async fn google_cloud_oauth_json() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_bytes!("../../tmpl/html/img/GC_OAuth_JSON_redacted.png").as_slice(),
     )
 }
 
