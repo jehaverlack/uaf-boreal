@@ -213,17 +213,15 @@
                     </li>
 
                     <li class="nav-item">
-
-                        <a
-                            class="nav-link{% if active_page == "rclone" %} active{% endif %}"
-                            href="/rclone-gui"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            title="Open Rclone WebGUI"
+                        <button
+                            class="nav-link boreal-update-nav"
+                            type="button"
+                            data-bs-toggle="modal"
+                            data-bs-target="#metadataUpdateModal"
+                            title="Update Metadata"
                         >
-                            Rclone
-                        </a>
-
+                            Update
+                        </button>
                     </li>
 
                     <li class="nav-item">
@@ -277,15 +275,17 @@
                     </li>
 
                     <li class="nav-item">
-                        <button
-                            class="nav-link boreal-update-nav"
-                            type="button"
-                            data-bs-toggle="modal"
-                            data-bs-target="#metadataUpdateModal"
-                            title="Update Metadata"
+
+                        <a
+                            class="nav-link{% if active_page == "rclone" %} active{% endif %}"
+                            href="/rclone-gui"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Open Rclone WebGUI"
                         >
-                            Update
-                        </button>
+                            Rclone
+                        </a>
+
                     </li>
 
                 </ul>
@@ -468,6 +468,25 @@
                         You may close this browser tab.
                     </p>
 
+                    <p
+                        class="alert alert-secondary d-none mt-3 mb-0"
+                        id="boreal-close-tab-help"
+                        role="status"
+                    >
+                        Your browser prevented BOREAL from closing this tab.
+                        Please close it manually.
+                    </p>
+
+                </div>
+
+                <div class="modal-footer">
+                    <button
+                        type="button"
+                        class="btn btn-primary"
+                        id="boreal-close-tab"
+                    >
+                        Close
+                    </button>
                 </div>
 
             </div>
@@ -701,11 +720,27 @@
             const stoppedModalElement =
                 document.getElementById("borealStoppedModal");
 
+            const closeTabButton =
+                document.getElementById("boreal-close-tab");
+
+            const closeTabHelp =
+                document.getElementById("boreal-close-tab-help");
+
             const stoppedModal =
                 new bootstrap.Modal(stoppedModalElement);
 
             let heartbeatFailures = 0;
             let stopped = false;
+
+            if (closeTabButton) {
+                closeTabButton.addEventListener("click", () => {
+                    window.close();
+
+                    window.setTimeout(() => {
+                        closeTabHelp?.classList.remove("d-none");
+                    }, 250);
+                });
+            }
 
             function showStopped() {
                 if (stopped) {
