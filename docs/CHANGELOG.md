@@ -5,12 +5,21 @@
 | **Name** | boreal |
 | **Author** | John Haverlack |
 | **License** | MIT |
-| **Version** | 0.1.2 |
+| **Version** | 0.1.3 |
 | **Maturity** | BETA |
 | **Date** | 2026-09-01 |
 
+## v0.1.3 - 2026-09-01 (BETA)
+
+- v0.1.3
+- Start v0.1.3
+
 ## v0.1.2 - 2026-09-01 (BETA)
 
+- v0.1.2
+- v0.1.2
+- v0.1.2
+- v0.1.2
 - Fixed Close button, added link to Persons Sheet
 - Skip to client id upload
 - Readme Clean up
@@ -165,9 +174,6 @@
 **Summary**
 Project Initialization
 
-- Fixed Close button, added link to Persons Sheet
-- Skip to client id upload
-- Readme Clean up
-- Mac Bin Issues
-- Start v0.1.2
+- v0.1.3
+- Start v0.1.3
 
