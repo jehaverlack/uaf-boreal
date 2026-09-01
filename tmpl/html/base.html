@@ -734,7 +734,17 @@
 
             if (closeTabButton) {
                 closeTabButton.addEventListener("click", () => {
-                    window.close();
+                    /*
+                     * Some browsers accept a close request only after the
+                     * current tab has been reacquired as the active browsing
+                     * context. Browser policy can still reject both requests.
+                     */
+                    const currentTab = window.open("", "_self");
+                    currentTab?.close();
+
+                    if (!window.closed) {
+                        window.close();
+                    }
 
                     window.setTimeout(() => {
                         closeTabHelp?.classList.remove("d-none");
