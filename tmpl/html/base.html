@@ -162,7 +162,7 @@
 
 </head>
 
-<body class="d-flex flex-column min-vh-100{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" %} vh-100 overflow-hidden{% endif %}">
+<body class="d-flex flex-column min-vh-100{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" || active_page == "directory" %} vh-100 overflow-hidden{% endif %}">
 
     <nav
         class="navbar navbar-expand-lg bg-body-tertiary border-bottom"
@@ -380,7 +380,7 @@
 
     {% include "partials/alerts.html" %}
 
-    <main class="container-fluid py-4 flex-grow-1{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" %} overflow-hidden{% endif %}">
+    <main class="container-fluid py-4 flex-grow-1{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" || active_page == "directory" %} overflow-hidden{% endif %}">
 
         {% block content %}
         {% endblock %}
@@ -463,10 +463,15 @@
 
                 <div class="modal-body">
 
-                    <p class="mb-0">
+                    <p>
                         The BOREAL application is no longer running.
                         Use the button below to close this browser tab.
                     </p>
+
+                    <div class="alert alert-warning mb-0 d-none" id="boreal-close-tab-blocked" role="alert">
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        <span id="boreal-close-tab-blocked-message"></span>
+                    </div>
 
                 </div>
 
@@ -476,7 +481,7 @@
                         class="btn btn-primary"
                         id="boreal-close-tab"
                     >
-                        Close
+                        Close Tab
                     </button>
                 </div>
 
@@ -718,6 +723,12 @@
             const closeTabButton =
                 document.getElementById("boreal-close-tab");
 
+            const closeTabBlocked =
+                document.getElementById("boreal-close-tab-blocked");
+
+            const closeTabBlockedMessage =
+                document.getElementById("boreal-close-tab-blocked-message");
+
             const stoppedModal =
                 new bootstrap.Modal(stoppedModalElement);
 
@@ -726,6 +737,8 @@
 
             if (closeTabButton) {
                 closeTabButton.addEventListener("click", () => {
+                    closeTabBlocked?.classList.add("d-none");
+
                     // Browsers only permit script-opened tabs to close
                     // themselves. Try the standards-based call first while
                     // this user gesture is still active.
@@ -739,8 +752,22 @@
                         // Some browsers do not allow the opener to be changed.
                     }
 
-                    const currentTab = window.open("", "_self");
+                    const currentTab = window.open("", "_self", "");
                     currentTab?.close();
+
+                    // A rejected window.close() does not throw an exception.
+                    // If this callback still runs, tell the user what the
+                    // browser requires instead of leaving a dead button.
+                    window.setTimeout(() => {
+                        const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+                        const shortcut = isMac ? "Command-W (⌘W)" : "Ctrl-W";
+                        if (closeTabBlockedMessage) {
+                            closeTabBlockedMessage.textContent =
+                                `The browser prevented this tab from closing itself. Press ${shortcut} to close it.`;
+                        }
+                        closeTabBlocked?.classList.remove("d-none");
+                        closeTabButton.textContent = "Try Closing Again";
+                    }, 200);
                 });
             }
 
