@@ -42,3 +42,5 @@ git tag -a "$TAG" -m "Release $TAG"
 git branch -d "$CUR_BRANCH"
 
 echo "Release $TAG merged, tagged, and branch deleted"
+echo "Reminder: push the release tag to origin:"
+echo "  git push origin $TAG"

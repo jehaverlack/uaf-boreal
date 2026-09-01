@@ -283,7 +283,6 @@ mod tests {
             refresh_interval_hours: 12,
             full_reconciliation_days: 14,
             update_when_overdue_at_startup: false,
-            permission_scanning: true,
             directory_sheet_enabled: true,
             directory_sheet_url: "https://docs.google.com/spreadsheets/d/example/edit?gid=0"
                 .to_string(),
@@ -306,8 +305,6 @@ mod tests {
             actual.update_when_overdue_at_startup,
             expected.update_when_overdue_at_startup,
         );
-        assert_eq!(actual.permission_scanning, expected.permission_scanning,);
-
         assert!(
             !settings::metadata_setup_skipped(&database).expect("metadata setup state should load")
         );

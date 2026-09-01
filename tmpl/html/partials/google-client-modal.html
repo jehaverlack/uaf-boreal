@@ -21,6 +21,16 @@
             <div class="modal-body">
                 <section class="google-client-step" data-google-client-step="0">
                     <h2 class="h5">1. Open Google Cloud Console</h2>
+                    <div class="alert alert-info d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <span>
+                            <i class="bi bi-info-circle me-1"></i>
+                            Already have a Google OAuth Desktop Client ID JSON file?
+                        </span>
+                        <button type="button" class="btn btn-sm btn-primary" id="google-client-skip-to-import">
+                            Skip to Upload
+                            <i class="bi bi-arrow-right ms-1"></i>
+                        </button>
+                    </div>
                     <p>Choose an existing Google Cloud project or create a new project for BOREAL.</p>
                     <figure class="mb-3">
                         <img
@@ -176,6 +186,7 @@
         const backButton = document.getElementById("google-client-step-back");
         const nextButton = document.getElementById("google-client-step-next");
         const importButton = document.getElementById("google-client-import");
+        const skipToImportButton = document.getElementById("google-client-skip-to-import");
         let currentStep = 0;
 
         const showStep = (step) => {
@@ -195,6 +206,7 @@
 
         backButton.addEventListener("click", () => showStep(currentStep - 1));
         nextButton.addEventListener("click", () => showStep(currentStep + 1));
+        skipToImportButton.addEventListener("click", () => showStep(steps.length - 1));
         modal.addEventListener("show.bs.modal", () => showStep(0));
         showStep(0);
     })();

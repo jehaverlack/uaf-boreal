@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use askama::Template;
 
@@ -667,10 +667,6 @@ struct TagForm {
 
 #[derive(serde::Deserialize)]
 struct SettingsForm {
-    refresh_interval_hours: u32,
-    full_reconciliation_days: u32,
-    #[serde(default)]
-    permission_scanning: Option<String>,
     #[serde(default)]
     directory_sheet_url: String,
 }
@@ -1268,15 +1264,13 @@ async fn save_settings(
     Form(form): Form<SettingsForm>,
 ) -> Result<axum::response::Response, StatusCode> {
     let directory_sheet_url = form.directory_sheet_url.trim().to_string();
-    let inventory_settings = InventorySettings {
-        automatic_updates: false,
-        refresh_interval_hours: form.refresh_interval_hours,
-        full_reconciliation_days: form.full_reconciliation_days,
-        update_when_overdue_at_startup: false,
-        permission_scanning: form.permission_scanning.is_some(),
-        directory_sheet_enabled: !directory_sheet_url.is_empty(),
-        directory_sheet_url,
-    };
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let mut inventory_settings =
+        settings::load(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    inventory_settings.directory_sheet_enabled = !directory_sheet_url.is_empty();
+    inventory_settings.directory_sheet_url = directory_sheet_url;
     if inventory_settings.directory_sheet_enabled {
         if let Err(error) =
             crate::rclone::identity::parse_google_sheet_url(&inventory_settings.directory_sheet_url)
@@ -1291,10 +1285,6 @@ async fn save_settings(
             .map(axum::response::IntoResponse::into_response);
         }
     }
-    let database = state
-        .database()
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-
     match settings::save(&database, &inventory_settings) {
         Ok(()) => Ok(Redirect::to("/settings?saved=true").into_response()),
 
@@ -1314,15 +1304,13 @@ async fn test_directory_sheet(
     Form(form): Form<SettingsForm>,
 ) -> Result<axum::response::Response, StatusCode> {
     let directory_sheet_url = form.directory_sheet_url.trim().to_string();
-    let inventory_settings = InventorySettings {
-        automatic_updates: false,
-        refresh_interval_hours: form.refresh_interval_hours,
-        full_reconciliation_days: form.full_reconciliation_days,
-        update_when_overdue_at_startup: false,
-        permission_scanning: form.permission_scanning.is_some(),
-        directory_sheet_enabled: !directory_sheet_url.is_empty(),
-        directory_sheet_url,
-    };
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let mut inventory_settings =
+        settings::load(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    inventory_settings.directory_sheet_enabled = !directory_sheet_url.is_empty();
+    inventory_settings.directory_sheet_url = directory_sheet_url;
     if let Err(error) =
         crate::rclone::identity::parse_google_sheet_url(&inventory_settings.directory_sheet_url)
     {
@@ -1335,9 +1323,6 @@ async fn test_directory_sheet(
         )
         .map(axum::response::IntoResponse::into_response);
     }
-    let database = state
-        .database()
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     if let Err(error) = settings::save(&database, &inventory_settings) {
         return render_settings(
             &state,
@@ -3864,13 +3849,29 @@ fn build_status_items(
         StatusItem {
             icon: "bi-info-circle",
             label: "BOREAL",
-            value: format!("v{}", env!("CARGO_PKG_VERSION"),),
+            value: boreal_version_label(),
             value_class: "text-success",
             value_url: String::new(),
             spinner: false,
             age_timestamp: String::new(),
         },
     ]
+}
+
+fn boreal_version_label() -> String {
+    static MATURITY: OnceLock<String> = OnceLock::new();
+
+    let maturity = MATURITY.get_or_init(|| {
+        let metadata: serde_json::Value = serde_json::from_str(include_str!("../../metadata.json"))
+            .expect("embedded metadata.json should be valid JSON");
+        metadata
+            .pointer("/METADATA/maturity")
+            .and_then(serde_json::Value::as_str)
+            .expect("metadata.json should define METADATA.maturity")
+            .to_string()
+    });
+
+    format!("v{} ({maturity})", env!("CARGO_PKG_VERSION"))
 }
 
 fn build_download_status_item(download_state: &DownloadState) -> StatusItem {
@@ -3934,6 +3935,18 @@ mod tests {
         assert_eq!(format_bytes(2_208_400), "2.2 MB");
         assert_eq!(format_bytes(2_208), "2.2 KB");
         assert_eq!(format_bytes(208), "208 B");
+    }
+
+    #[test]
+    fn status_version_includes_release_maturity() {
+        let metadata: serde_json::Value =
+            serde_json::from_str(include_str!("../../metadata.json")).unwrap();
+        let maturity = metadata["METADATA"]["maturity"].as_str().unwrap();
+
+        assert_eq!(
+            boreal_version_label(),
+            format!("v{} ({maturity})", env!("CARGO_PKG_VERSION"))
+        );
     }
 
     #[test]

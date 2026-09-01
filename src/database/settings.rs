@@ -8,7 +8,6 @@ pub struct InventorySettings {
     pub refresh_interval_hours: u32,
     pub full_reconciliation_days: u32,
     pub update_when_overdue_at_startup: bool,
-    pub permission_scanning: bool,
     pub directory_sheet_enabled: bool,
     pub directory_sheet_url: String,
 }
@@ -20,7 +19,6 @@ impl Default for InventorySettings {
             refresh_interval_hours: 24,
             full_reconciliation_days: 7,
             update_when_overdue_at_startup: false,
-            permission_scanning: true,
             directory_sheet_enabled: false,
             directory_sheet_url: String::new(),
         }
@@ -72,11 +70,6 @@ pub fn load(database: &Database) -> Result<InventorySettings, DatabaseError> {
             "inventory.update_when_overdue_at_startup",
             defaults.update_when_overdue_at_startup,
         )?,
-        permission_scanning: get_bool(
-            &connection,
-            "inventory.permission_scanning",
-            defaults.permission_scanning,
-        )?,
         directory_sheet_enabled: get_bool(
             &connection,
             "directory.sheet_enabled",
@@ -112,11 +105,6 @@ pub fn save(database: &Database, settings: &InventorySettings) -> Result<(), Dat
         &transaction,
         "inventory.update_when_overdue_at_startup",
         bool_value(settings.update_when_overdue_at_startup),
-    )?;
-    set(
-        &transaction,
-        "inventory.permission_scanning",
-        bool_value(settings.permission_scanning),
     )?;
     set(
         &transaction,

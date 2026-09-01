@@ -726,6 +726,13 @@
 
             if (closeTabButton) {
                 closeTabButton.addEventListener("click", () => {
+                    // Browsers only permit script-opened tabs to close
+                    // themselves. Try the standards-based call first while
+                    // this user gesture is still active.
+                    window.close();
+
+                    // Compatibility fallback for browsers that allow a tab
+                    // to adopt itself as its opener before closing.
                     try {
                         window.opener = window;
                     } catch (_error) {
@@ -734,7 +741,6 @@
 
                     const currentTab = window.open("", "_self");
                     currentTab?.close();
-                    window.close();
                 });
             }
 
