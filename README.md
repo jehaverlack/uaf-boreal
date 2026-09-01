@@ -132,6 +132,9 @@ chmod +x boreal-v0.1.2-macos-aarch64
 Substitute the Intel filename on an Intel Mac. macOS may display a warning
 because the beta executable is not code-signed.
 
+See [Running BOREAL on macOS](docs/MACOS.md) for the complete executable
+permission and Gatekeeper approval procedure. Do not run BOREAL with `sudo`.
+
 ## First-Run Setup
 
 When BOREAL starts:
