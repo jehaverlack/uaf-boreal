@@ -611,6 +611,10 @@
                 );
 
             async function refreshMetadataUi() {
+                if (!document.querySelector("#boreal-drive-summaries")) {
+                    window.location.reload();
+                    return;
+                }
                 await Promise.all([
                     replaceFromEndpoint("/ui/status", "#boreal-status"),
                     replaceFromEndpoint("/ui/drive-summaries", "#boreal-drive-summaries"),

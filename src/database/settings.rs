@@ -164,6 +164,19 @@ pub fn set_directory_setup_skipped(
     Ok(())
 }
 
+pub fn metadata_setup_skipped(database: &Database) -> Result<bool, DatabaseError> {
+    let connection = database.connect()?;
+    get_bool(&connection, "metadata.setup_skipped", false)
+}
+
+pub fn set_metadata_setup_skipped(database: &Database, skipped: bool) -> Result<(), DatabaseError> {
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    set(&transaction, "metadata.setup_skipped", bool_value(skipped))?;
+    transaction.commit()?;
+    Ok(())
+}
+
 fn get_bool(
     connection: &rusqlite::Connection,
     key: &str,

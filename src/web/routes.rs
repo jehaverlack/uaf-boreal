@@ -132,6 +132,7 @@ struct DashboardTemplate {
     status_items: Vec<StatusItem>,
     setup_steps: Vec<SetupStep>,
     setup_percent: u8,
+    initial_setup_complete: bool,
     poll_rclone: bool,
     metadata: MetadataView,
     directory_sheet_enabled: bool,
@@ -443,6 +444,7 @@ struct StatusTemplate {
 struct SetupProgressTemplate {
     setup_steps: Vec<SetupStep>,
     setup_percent: u8,
+    initial_setup_complete: bool,
     poll_rclone: bool,
     directory_sheet_enabled: bool,
     directory_sheet_url: String,
@@ -785,6 +787,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/setup/google-client/import", post(import_google_client))
         .route("/setup/remotes/my-drive-ro", post(setup_my_drive_ro))
         .route("/setup/directory", post(save_setup_directory))
+        .route("/setup/metadata/skip", post(skip_setup_metadata))
         .route("/metadata/update", post(start_metadata_update))
         .route("/app/quit", post(quit))
 }
@@ -900,6 +903,7 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         &google_remotes_state,
         directory_setup_decided,
     );
+    let initial_setup_complete = setup_percent == 100 && metadata_setup_decided(&state);
 
     let poll_rclone = should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state);
 
@@ -911,6 +915,7 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         status_items,
         setup_steps,
         setup_percent,
+        initial_setup_complete,
         poll_rclone,
         metadata: build_metadata_view(
             &metadata_state,
@@ -3229,10 +3234,10 @@ async fn ui_setup_progress(State(state): State<Arc<AppState>>) -> Result<Html<St
         &google_remotes_state,
         directory_setup_decided,
     );
-
     let template = SetupProgressTemplate {
         setup_steps,
         setup_percent,
+        initial_setup_complete: setup_percent == 100 && metadata_setup_decided(&state),
         poll_rclone: should_poll_setup(&rclone_state, &google_remotes_state),
         directory_sheet_enabled: setup_settings.directory_sheet_enabled,
         directory_sheet_url: setup_settings.directory_sheet_url,
@@ -3496,6 +3501,17 @@ fn latest_shared_drives_summary(state: &AppState) -> Option<database::inventory:
         .flatten()
 }
 
+fn metadata_setup_decided(state: &AppState) -> bool {
+    latest_my_drive_summary(state).is_some()
+        || latest_shared_summary(state).is_some()
+        || latest_shared_drives_summary(state).is_some()
+        || state
+            .database()
+            .ok()
+            .and_then(|database| database::settings::metadata_setup_skipped(&database).ok())
+            .unwrap_or(false)
+}
+
 fn shared_drive_count(state: &AppState) -> usize {
     state
         .database()
@@ -3625,11 +3641,25 @@ async fn start_metadata_update(
         shared_with_me: form.shared_with_me.is_some(),
         directory_info: form.directory_info.is_some(),
     };
+    if let Ok(database) = state.database() {
+        database::settings::set_metadata_setup_skipped(&database, false)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
     AppState::start_metadata_update(state, selection).map_err(|error| {
         eprintln!("Unable to start metadata update: {error}");
         StatusCode::CONFLICT
     })?;
 
+    Ok(Redirect::to("/"))
+}
+
+async fn skip_setup_metadata(State(state): State<Arc<AppState>>) -> Result<Redirect, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::settings::set_metadata_setup_skipped(&database, true)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    log::info!("Optional initial metadata update skipped");
     Ok(Redirect::to("/"))
 }
 
