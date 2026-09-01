@@ -23,6 +23,41 @@ analysis.
 > AI Attestation: Generative AI was used in the development of this codebase.
 > The architecture and design goals are those of the author.
 
+## Download
+
+Download the binary matching your operating system and processor from the
+[BOREAL v0.1.2 release](https://github.com/jehaverlack/uaf-boreal/releases/tag/v0.1.2).
+
+| System | Processor | Download |
+| --- | --- | --- |
+| Linux | x86_64 / AMD64 | [boreal-v0.1.2-linux-x86_64](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/boreal-v0.1.2-linux-x86_64) |
+| Linux | ARM64 / AArch64 | [boreal-v0.1.2-linux-aarch64](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/boreal-v0.1.2-linux-aarch64) |
+| Linux | ARMv7 32-bit | [boreal-v0.1.2-linux-armv7](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/boreal-v0.1.2-linux-armv7) |
+| Windows | x86_64 / AMD64 | [boreal-v0.1.2-windows-x86_64.exe](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/boreal-v0.1.2-windows-x86_64.exe) |
+| macOS | Apple Silicon / ARM64 | [boreal-v0.1.2-macos-aarch64](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/boreal-v0.1.2-macos-aarch64) |
+| macOS | Intel x86_64 | [boreal-v0.1.2-macos-x86_64](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/boreal-v0.1.2-macos-x86_64) |
+
+The release also provides
+[SHA256SUMS](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/SHA256SUMS)
+for verifying downloads.
+
+### Identify Your Processor
+
+On Linux:
+
+```bash
+uname -m
+```
+
+- `x86_64`: use the Linux x86_64 download.
+- `aarch64` or `arm64`: use the Linux ARM64 download.
+- `armv7l`: use the Linux ARMv7 download.
+
+On macOS, choose **About This Mac** from the Apple menu:
+
+- Apple M-series processors use the macOS Apple Silicon download.
+- Intel processors use the macOS Intel download.
+
 ## Screenshot
 
 ![Boreal Dashboard](docs/boreal-dashboard.png)
@@ -59,41 +94,6 @@ BOREAL can help answer questions such as:
 - Which **My Drive** or **Shared Drive** documents need to be handed off to
   someone else?
 - Which **My Drive** documents should be moved to a **Shared Drive**?
-
-## Download
-
-Download the binary matching your operating system and processor from the
-[BOREAL v0.1.2 release](https://github.com/jehaverlack/uaf-boreal/releases/tag/v0.1.2).
-
-| System | Processor | Download |
-| --- | --- | --- |
-| Linux | x86_64 / AMD64 | [boreal-v0.1.2-linux-x86_64](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/boreal-v0.1.2-linux-x86_64) |
-| Linux | ARM64 / AArch64 | [boreal-v0.1.2-linux-aarch64](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/boreal-v0.1.2-linux-aarch64) |
-| Linux | ARMv7 32-bit | [boreal-v0.1.2-linux-armv7](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/boreal-v0.1.2-linux-armv7) |
-| Windows | x86_64 / AMD64 | [boreal-v0.1.2-windows-x86_64.exe](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/boreal-v0.1.2-windows-x86_64.exe) |
-| macOS | Apple Silicon / ARM64 | [boreal-v0.1.2-macos-aarch64](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/boreal-v0.1.2-macos-aarch64) |
-| macOS | Intel x86_64 | [boreal-v0.1.2-macos-x86_64](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/boreal-v0.1.2-macos-x86_64) |
-
-The release also provides
-[SHA256SUMS](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.2/dist/SHA256SUMS)
-for verifying downloads.
-
-### Identify Your Processor
-
-On Linux:
-
-```bash
-uname -m
-```
-
-- `x86_64`: use the Linux x86_64 download.
-- `aarch64` or `arm64`: use the Linux ARM64 download.
-- `armv7l`: use the Linux ARMv7 download.
-
-On macOS, choose **About This Mac** from the Apple menu:
-
-- Apple M-series processors use the macOS Apple Silicon download.
-- Intel processors use the macOS Intel download.
 
 ## Run BOREAL
 
