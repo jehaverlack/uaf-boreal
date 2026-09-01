@@ -9,7 +9,6 @@
     </div>
     <div class="d-flex flex-wrap gap-2 align-items-center">
     <a class="btn btn-sm btn-outline-primary text-nowrap" href="/directory/new"><i class="bi bi-person-plus me-1"></i>Add entry</a>
-    <a class="btn btn-sm btn-outline-secondary text-nowrap" href="/directory/template.csv" download><i class="bi bi-download me-1"></i>Download CSV template</a>
     <form id="directory-import-form" method="post" action="/directory/import/csv" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
         <label class="visually-hidden" for="directory-csv">Persons CSV</label>
         <input class="form-control form-control-sm" id="directory-csv" name="directory_csv" type="file" accept=".csv,text/csv" required>
@@ -28,6 +27,9 @@
 <div class="alert alert-light border small" role="note">
     Required column: <code>email</code>. Optional columns: <code>name</code>, <code>type</code>,
     <code>status</code>, <code>departure_date</code>, <code>organization</code>, and <code>notes</code>.
+    <div class="mt-2">
+        <a class="btn btn-sm btn-outline-secondary text-nowrap" href="/directory/template.csv" download><i class="bi bi-download me-1"></i>Download CSV template</a>
+    </div>
 </div>
 
 <div class="row g-3 mb-4">

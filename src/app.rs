@@ -504,7 +504,7 @@ impl AppState {
                 return Err(error.to_string());
             }
         };
-        let permission_scanning = inventory_settings.permission_scanning;
+        let permission_scanning = true;
         let directory_sheet_url = (selection.directory_info
             && inventory_settings.directory_sheet_enabled)
             .then(|| inventory_settings.directory_sheet_url.trim().to_string())
