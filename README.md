@@ -18,7 +18,7 @@ analysis.
 | **License** | MIT |
 | **Version** | 0.1.1 |
 | **Maturity** | BETA |
-| **Date** | 2026-08-31 |
+| **Date** | 2026-09-01 |
 
 > AI Attestation: Generative AI was used in the development of this codebase.
 > The architecture and design goals are those of the author.
