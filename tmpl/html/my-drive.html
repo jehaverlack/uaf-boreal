@@ -47,6 +47,24 @@
     <input type="hidden" name="path" value="{% if has_parent %}{{ current_path }}{% endif %}">
     <input type="hidden" name="sort" value="{{ sort }}">
     <input type="hidden" name="direction" value="{{ direction }}">
+    {% if active_page == "my-drive" %}
+    <div class="col-12 d-flex flex-wrap align-items-center gap-2" role="group" aria-label="Filter by tag">
+        <span class="small fw-semibold text-body-secondary me-1">Tags:</span>
+        <input id="my-drive-tag-filter" type="hidden" name="tag" value="{{ tag_filter }}">
+        <button class="btn btn-sm rounded-pill boreal-tag-filter-pill {% if tag_filter.len() == 0 %}btn-secondary{% else %}btn-outline-secondary{% endif %}"
+                type="button" data-filter-input="my-drive-tag-filter" data-tag-value="" aria-pressed="{% if tag_filter.len() == 0 %}true{% else %}false{% endif %}">
+            {% if tag_filter.len() == 0 %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% endif %}All tags
+        </button>
+        {% for tag in filter_tags %}
+        <button class="btn btn-sm rounded-pill boreal-tag-filter-pill"
+                type="button" data-filter-input="my-drive-tag-filter" data-tag-value="{{ tag.slug }}" aria-pressed="{% if tag.selected %}true{% else %}false{% endif %}"
+                title="{{ tag.description }}"
+                style="border-color: {{ tag.color }}; background-color: {% if tag.selected %}{{ tag.color }}{% else %}transparent{% endif %}; color: {% if tag.selected %}{{ tag.text_color }}{% else %}{{ tag.color }}{% endif %};">
+            {% if tag.selected %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% endif %}{{ tag.name }}
+        </button>
+        {% endfor %}
+    </div>
+    {% else %}
     <div class="col-sm-4 col-lg-3">
         <label class="visually-hidden" for="my-drive-tag-filter">Filter by tag</label>
         <select id="my-drive-tag-filter" class="form-select form-select-sm" name="tag">
@@ -56,6 +74,41 @@
             {% endfor %}
         </select>
     </div>
+    {% endif %}
+    {% if active_page == "my-drive" %}
+    <div class="col-12 d-flex flex-wrap align-items-center gap-2" role="group" aria-label="Filter by owner identity tag">
+        <span class="small fw-semibold text-body-secondary me-1">Owner tags:</span>
+        <input id="my-drive-owner-identity-tag-filter" type="hidden" name="owner_identity_tag" value="{{ owner_identity_tag_filter }}">
+        <button class="btn btn-sm rounded-pill boreal-tag-filter-pill {% if owner_identity_tag_filter.len() == 0 %}btn-secondary{% else %}btn-outline-secondary{% endif %}"
+                type="button" data-filter-input="my-drive-owner-identity-tag-filter" data-tag-value="" aria-pressed="{% if owner_identity_tag_filter.len() == 0 %}true{% else %}false{% endif %}">
+            {% if owner_identity_tag_filter.len() == 0 %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% endif %}Any owner
+        </button>
+        {% for tag in identity_filter_tags %}
+        <button class="btn btn-sm rounded-pill boreal-tag-filter-pill" type="button"
+                data-filter-input="my-drive-owner-identity-tag-filter" data-tag-value="{{ tag.slug }}"
+                aria-pressed="{% if tag.owner_selected %}true{% else %}false{% endif %}" title="{{ tag.description }}"
+                style="border-color: {{ tag.color }}; background-color: {% if tag.owner_selected %}{{ tag.color }}{% else %}transparent{% endif %}; color: {% if tag.owner_selected %}{{ tag.text_color }}{% else %}{{ tag.color }}{% endif %};">
+            {% if tag.owner_selected %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% endif %}{{ tag.name }}
+        </button>
+        {% endfor %}
+    </div>
+    <div class="col-12 d-flex flex-wrap align-items-center gap-2" role="group" aria-label="Filter by permission identity tag">
+        <span class="small fw-semibold text-body-secondary me-1">Permission tags:</span>
+        <input id="my-drive-permission-identity-tag-filter" type="hidden" name="permission_identity_tag" value="{{ permission_identity_tag_filter }}">
+        <button class="btn btn-sm rounded-pill boreal-tag-filter-pill {% if permission_identity_tag_filter.len() == 0 %}btn-secondary{% else %}btn-outline-secondary{% endif %}"
+                type="button" data-filter-input="my-drive-permission-identity-tag-filter" data-tag-value="" aria-pressed="{% if permission_identity_tag_filter.len() == 0 %}true{% else %}false{% endif %}">
+            {% if permission_identity_tag_filter.len() == 0 %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% endif %}Any permission
+        </button>
+        {% for tag in identity_filter_tags %}
+        <button class="btn btn-sm rounded-pill boreal-tag-filter-pill" type="button"
+                data-filter-input="my-drive-permission-identity-tag-filter" data-tag-value="{{ tag.slug }}"
+                aria-pressed="{% if tag.permission_selected %}true{% else %}false{% endif %}" title="{{ tag.description }}"
+                style="border-color: {{ tag.color }}; background-color: {% if tag.permission_selected %}{{ tag.color }}{% else %}transparent{% endif %}; color: {% if tag.permission_selected %}{{ tag.text_color }}{% else %}{{ tag.color }}{% endif %};">
+            {% if tag.permission_selected %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% endif %}{{ tag.name }}
+        </button>
+        {% endfor %}
+    </div>
+    {% else %}
     <div class="col-sm-4 col-lg-3">
         <label class="visually-hidden" for="my-drive-owner-identity-tag-filter">Filter by owner identity tag</label>
         <select id="my-drive-owner-identity-tag-filter" class="form-select form-select-sm" name="owner_identity_tag">
@@ -74,6 +127,7 @@
             {% endfor %}
         </select>
     </div>
+    {% endif %}
     <div class="col-auto"><button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-funnel me-1"></i>Apply filters</button></div>
     <div class="col-auto"><a class="btn btn-sm btn-outline-secondary" href="{{ clear_search_url }}">Clear filters</a></div>
     <div class="col-auto"><button class="btn btn-sm btn-outline-success" type="submit" formaction="{{ export_path }}"><i class="bi bi-file-earmark-excel me-1"></i>Export Excel</button></div>
@@ -81,7 +135,6 @@
         <input class="form-check-input" type="checkbox" id="my-drive-include-deleted" name="include_deleted" value="true" {% if include_deleted %}checked{% endif %}>
         <label class="form-check-label small" for="my-drive-include-deleted">Include deleted items</label>
     </div>
-    <div class="col-auto small text-body-secondary align-self-center">Prefix Owner with <code>!</code> to exclude a value.</div>
 </form>
 
 <section class="card mb-3" aria-labelledby="explorer-summary-heading">
@@ -260,6 +313,16 @@
 
 <script>
     (() => {
+        const tagFilterForm = document.getElementById("my-drive-filter-form");
+        document.querySelectorAll(".boreal-tag-filter-pill").forEach((button) => {
+            button.addEventListener("click", () => {
+                const tagFilterInput = document.getElementById(button.dataset.filterInput);
+                const requestedTag = button.dataset.tagValue;
+                tagFilterInput.value = requestedTag === tagFilterInput.value ? "" : requestedTag;
+                tagFilterForm.requestSubmit();
+            });
+        });
+
         document.querySelectorAll(".boreal-download-item").forEach((button) => {
             button.addEventListener("click", () => {
                 document.getElementById("download-item-id").value = button.dataset.itemId;

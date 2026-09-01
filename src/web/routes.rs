@@ -242,6 +242,27 @@ pub struct TagPill {
 }
 
 #[allow(dead_code)]
+pub struct TagFilterPill {
+    pub slug: String,
+    pub name: String,
+    pub description: String,
+    pub color: String,
+    pub text_color: &'static str,
+    pub selected: bool,
+}
+
+#[allow(dead_code)]
+pub struct IdentityTagFilterPill {
+    pub slug: String,
+    pub name: String,
+    pub description: String,
+    pub color: String,
+    pub text_color: &'static str,
+    pub owner_selected: bool,
+    pub permission_selected: bool,
+}
+
+#[allow(dead_code)]
 #[derive(Template)]
 #[template(path = "my-drive.html", config = "askama.toml")]
 struct MyDriveTemplate {
@@ -265,7 +286,9 @@ struct MyDriveTemplate {
     owner_sort_url: String,
     clear_search_url: String,
     tags: Vec<database::inventory::Tag>,
+    filter_tags: Vec<TagFilterPill>,
     directory_tags: Vec<database::inventory::Tag>,
+    identity_filter_tags: Vec<IdentityTagFilterPill>,
     tag_filter: String,
     tagged_count: usize,
     untagged_count: usize,
@@ -2311,11 +2334,34 @@ fn render_drive_explorer(
         eprintln!("Unable to load My Drive tags: {error}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+    let filter_tags = tags
+        .iter()
+        .map(|tag| TagFilterPill {
+            slug: tag.slug.clone(),
+            name: tag.name.clone(),
+            description: tag.description.clone(),
+            color: tag.color.clone(),
+            text_color: tag_text_color(&tag.color),
+            selected: query.tag == tag.slug,
+        })
+        .collect();
     let directory_tags = database::inventory::list_tags_for_scope(
         &database,
         database::inventory::TagScope::Directory,
     )
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let identity_filter_tags = directory_tags
+        .iter()
+        .map(|tag| IdentityTagFilterPill {
+            slug: tag.slug.clone(),
+            name: tag.name.clone(),
+            description: tag.description.clone(),
+            color: tag.color.clone(),
+            text_color: tag_text_color(&tag.color),
+            owner_selected: query.owner_identity_tag == tag.slug,
+            permission_selected: query.permission_identity_tag == tag.slug,
+        })
+        .collect();
 
     let template = MyDriveTemplate {
         title: heading.to_string(),
@@ -2369,7 +2415,9 @@ fn render_drive_explorer(
             false,
         ),
         tags,
+        filter_tags,
         directory_tags,
+        identity_filter_tags,
         tag_filter: query.tag,
         tagged_count: query.tagged,
         untagged_count: query.untagged,
