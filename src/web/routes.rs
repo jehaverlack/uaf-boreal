@@ -4,8 +4,9 @@ use askama::Template;
 
 use axum::{
     Router,
+    body::Body,
     extract::{Form, Multipart, Path, Query, State},
-    http::{StatusCode, header},
+    http::{Response, StatusCode, header},
     response::{Html, IntoResponse, Redirect},
     routing::{get, post},
 };
@@ -24,6 +25,8 @@ use crate::{
         remotes::{RemoteKind, RemoteState},
     },
 };
+
+use super::xlsx;
 
 fn remote_state_label(state: &RemoteState) -> &'static str {
     match state {
@@ -278,6 +281,7 @@ struct MyDriveTemplate {
     description: String,
     root_label: String,
     explorer_path: String,
+    export_path: &'static str,
     drive_id: String,
     inventory_scope: String,
     tag_action: &'static str,
@@ -723,9 +727,11 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/remotes", get(remotes_page))
         .route("/my-drive", get(my_drive_page))
+        .route("/my-drive/export.xlsx", get(export_my_drive))
         .route("/my-drive/tags", post(apply_my_drive_tag))
         .route("/my-drive/tags/remove", post(remove_my_drive_tag))
         .route("/shared-drives", get(shared_drives_page))
+        .route("/shared-drives/export.xlsx", get(export_shared_drives))
         .route(
             "/shared-drives/manage-tags",
             post(apply_shared_drive_list_tag),
@@ -737,6 +743,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/shared-drives/tags", post(apply_shared_drive_tag))
         .route("/shared-drives/tags/remove", post(remove_shared_drive_tag))
         .route("/shared-with-me", get(shared_with_me_page))
+        .route("/shared-with-me/export.xlsx", get(export_shared_with_me))
         .route("/shared-with-me/tags", post(apply_shared_with_me_tag))
         .route(
             "/shared-with-me/tags/remove",
@@ -1571,6 +1578,387 @@ async fn shared_with_me_page(
     )
 }
 
+async fn export_my_drive(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<DrivePathQuery>,
+) -> Result<Response<Body>, StatusCode> {
+    export_drive_view(
+        &state,
+        &query,
+        database::inventory::MY_DRIVE_SCOPE,
+        "My Drive",
+        "boreal-my-drive-report.xlsx",
+    )
+}
+
+async fn export_shared_with_me(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<DrivePathQuery>,
+) -> Result<Response<Body>, StatusCode> {
+    export_drive_view(
+        &state,
+        &query,
+        database::inventory::SHARED_WITH_ME_SCOPE,
+        "Shared with me",
+        "boreal-shared-with-me-report.xlsx",
+    )
+}
+
+fn export_drive_view(
+    state: &AppState,
+    query: &DrivePathQuery,
+    inventory_scope: &str,
+    view_name: &str,
+    filename: &'static str,
+) -> Result<Response<Body>, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let sort = match query.sort.as_str() {
+        "type" | "size" | "modified" | "owner" => query.sort.as_str(),
+        _ => "name",
+    };
+    let (exclude_owner, owner_filter) = match query.owner_filter.strip_prefix('!') {
+        Some(owner) => (true, owner.trim()),
+        None => (false, query.owner_filter.trim()),
+    };
+    let items = database::inventory::list_drive_directory(
+        &database,
+        inventory_scope,
+        (!query.path.is_empty()).then_some(query.path.as_str()),
+        &query.q,
+        &query.tag,
+        &query.type_filter,
+        &query.size_filter,
+        &query.modified_filter,
+        owner_filter,
+        exclude_owner,
+        &query.permission_filter,
+        &query.owner_identity_tag,
+        &query.permission_identity_tag,
+        query.include_deleted,
+        sort,
+        query.direction == "desc",
+    )
+    .map_err(|error| {
+        eprintln!("Unable to export {view_name}: {error}");
+        StatusCode::BAD_REQUEST
+    })?;
+    let context = drive_export_context(view_name, query, sort, items.len());
+    let rows = items
+        .into_iter()
+        .map(|item| {
+            let size_bytes = item.size_bytes.unwrap_or(0);
+            let drive_url = if item.is_directory {
+                format!("https://drive.google.com/drive/folders/{}", item.item_id)
+            } else {
+                format!("https://drive.google.com/open?id={}", item.item_id)
+            };
+            vec![
+                item.name.into(),
+                if item.is_directory { "Folder" } else { "File" }.into(),
+                item.relative_path.into(),
+                item.mime_type.unwrap_or_default().into(),
+                xlsx::Cell::Number(size_bytes),
+                format_bytes(size_bytes).into(),
+                item.modified_at.unwrap_or_default().into(),
+                item.owner_email.unwrap_or_default().into(),
+                item.permissions
+                    .iter()
+                    .map(|permission| permission.label.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+                    .into(),
+                item.tags
+                    .iter()
+                    .map(|tag| tag.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+                    .into(),
+                (if item.is_deleted { "Yes" } else { "No" }).into(),
+                xlsx::Cell::Link {
+                    url: drive_url,
+                    label: "Open in Google Drive".to_string(),
+                },
+            ]
+        })
+        .collect::<Vec<_>>();
+    let bytes = xlsx::workbook(
+        &context,
+        &[
+            "Name",
+            "Type",
+            "Path",
+            "MIME type",
+            "Size (bytes)",
+            "Size",
+            "Modified",
+            "Owner",
+            "Permissions",
+            "Tags",
+            "Deleted",
+            "Google Drive",
+        ],
+        &rows,
+    )
+    .map_err(|error| {
+        eprintln!("Unable to build Excel report: {error}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    xlsx_download(bytes, filename)
+}
+
+fn drive_export_context(
+    view_name: &str,
+    query: &DrivePathQuery,
+    sort: &str,
+    result_count: usize,
+) -> Vec<(String, String)> {
+    vec![
+        ("View".into(), view_name.into()),
+        (
+            "Location".into(),
+            if query.path.is_empty() {
+                view_name.into()
+            } else {
+                query.path.clone()
+            },
+        ),
+        ("Results".into(), result_count.to_string()),
+        ("Search".into(), filter_value(&query.q)),
+        ("Tag".into(), filter_value(&query.tag)),
+        ("Type".into(), filter_value(&query.type_filter)),
+        ("Size".into(), filter_value(&query.size_filter)),
+        ("Modified".into(), filter_value(&query.modified_filter)),
+        ("Owner".into(), filter_value(&query.owner_filter)),
+        ("Permission".into(), filter_value(&query.permission_filter)),
+        (
+            "Owner person tag".into(),
+            filter_value(&query.owner_identity_tag),
+        ),
+        (
+            "Permission person tag".into(),
+            filter_value(&query.permission_identity_tag),
+        ),
+        ("Include deleted".into(), query.include_deleted.to_string()),
+        (
+            "Sort".into(),
+            format!(
+                "{sort} {}",
+                if query.direction == "desc" {
+                    "desc"
+                } else {
+                    "asc"
+                }
+            ),
+        ),
+    ]
+}
+
+fn filter_value(value: &str) -> String {
+    if value.trim().is_empty() {
+        "Any".to_string()
+    } else {
+        value.to_string()
+    }
+}
+
+fn xlsx_download(bytes: Vec<u8>, filename: &'static str) -> Result<Response<Body>, StatusCode> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(
+            header::CONTENT_TYPE,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{filename}\""),
+        )
+        .header(header::CACHE_CONTROL, "no-store")
+        .body(Body::from(bytes))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn export_shared_drives(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<DrivePathQuery>,
+) -> Result<Response<Body>, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if !query.drive.is_empty() {
+        let drive = database::inventory::get_shared_drive(&database, &query.drive)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
+        return export_drive_view(
+            &state,
+            &query,
+            &drive.inventory_scope,
+            &format!("Shared Drive: {}", drive.name),
+            "boreal-shared-drive-content-report.xlsx",
+        );
+    }
+
+    let mut drives = database::inventory::list_shared_drives_filtered(
+        &database,
+        &query.q,
+        &query.tag,
+        &query.files_filter,
+        &query.folders_filter,
+        &query.size_filter,
+        &query.shared_drive_manager_filter,
+        &query.shared_drive_permission_filter,
+    )
+    .map_err(|error| {
+        eprintln!("Unable to export Shared Drives: {error}");
+        StatusCode::BAD_REQUEST
+    })?
+    .into_iter()
+    .filter(|drive| query.show_inaccessible || drive.is_accessible)
+    .collect::<Vec<_>>();
+    sort_shared_drives(&mut drives, &query);
+
+    let context = vec![
+        ("View".into(), "Shared Drives".into()),
+        ("Results".into(), drives.len().to_string()),
+        ("Search".into(), filter_value(&query.q)),
+        ("Tag".into(), filter_value(&query.tag)),
+        ("Files".into(), filter_value(&query.files_filter)),
+        ("Folders".into(), filter_value(&query.folders_filter)),
+        ("Total size".into(), filter_value(&query.size_filter)),
+        (
+            "Manager".into(),
+            filter_value(&query.shared_drive_manager_filter),
+        ),
+        (
+            "Permission".into(),
+            filter_value(&query.shared_drive_permission_filter),
+        ),
+        (
+            "Show inaccessible".into(),
+            query.show_inaccessible.to_string(),
+        ),
+        (
+            "Sort".into(),
+            format!("{} {}", shared_drive_sort(&query), query.direction),
+        ),
+    ];
+    let rows = drives
+        .into_iter()
+        .map(|drive| {
+            let managers = drive
+                .permission_identities
+                .iter()
+                .filter(|identity| {
+                    identity.roles.iter().any(|role| {
+                        role.eq_ignore_ascii_case("organizer") || role.eq_ignore_ascii_case("owner")
+                    })
+                })
+                .map(|identity| identity.label.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            vec![
+                drive.name.into(),
+                drive.drive_id.clone().into(),
+                (if drive.is_accessible { "Yes" } else { "No" }).into(),
+                xlsx::Cell::Number(drive.files_scanned),
+                xlsx::Cell::Number(drive.folders_scanned),
+                xlsx::Cell::Number(drive.bytes_discovered),
+                format_bytes(drive.bytes_discovered).into(),
+                xlsx::Cell::Number(drive.permissions_scanned),
+                managers.into(),
+                drive
+                    .permission_identities
+                    .iter()
+                    .map(|identity| identity.label.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+                    .into(),
+                drive
+                    .tags
+                    .iter()
+                    .map(|tag| tag.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+                    .into(),
+                xlsx::Cell::Link {
+                    url: format!("https://drive.google.com/drive/folders/{}", drive.drive_id),
+                    label: "Open in Google Drive".into(),
+                },
+            ]
+        })
+        .collect::<Vec<_>>();
+    let bytes = xlsx::workbook(
+        &context,
+        &[
+            "Name",
+            "Drive ID",
+            "Accessible",
+            "Files",
+            "Folders",
+            "Total size (bytes)",
+            "Total size",
+            "Permission references",
+            "Managers",
+            "Permissions",
+            "Tags",
+            "Google Drive",
+        ],
+        &rows,
+    )
+    .map_err(|error| {
+        eprintln!("Unable to build Shared Drives Excel report: {error}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    xlsx_download(bytes, "boreal-shared-drives-report.xlsx")
+}
+
+fn shared_drive_sort(query: &DrivePathQuery) -> &str {
+    match query.sort.as_str() {
+        "tags" | "files" | "folders" | "size" | "managers" | "permissions" => &query.sort,
+        _ => "name",
+    }
+}
+
+fn sort_shared_drives(drives: &mut [database::inventory::SharedDriveRow], query: &DrivePathQuery) {
+    let sort = shared_drive_sort(query);
+    drives.sort_by(|left, right| {
+        let ordering = match sort {
+            "tags" => left
+                .tags
+                .first()
+                .map(|tag| tag.name.to_ascii_lowercase())
+                .cmp(&right.tags.first().map(|tag| tag.name.to_ascii_lowercase())),
+            "files" => left.files_scanned.cmp(&right.files_scanned),
+            "folders" => left.folders_scanned.cmp(&right.folders_scanned),
+            "size" => left.bytes_discovered.cmp(&right.bytes_discovered),
+            "managers" => {
+                shared_drive_manager_sort_key(left).cmp(&shared_drive_manager_sort_key(right))
+            }
+            "permissions" => left
+                .permission_identities
+                .first()
+                .map(|identity| identity.label.to_ascii_lowercase())
+                .cmp(
+                    &right
+                        .permission_identities
+                        .first()
+                        .map(|identity| identity.label.to_ascii_lowercase()),
+                ),
+            _ => left
+                .name
+                .to_ascii_lowercase()
+                .cmp(&right.name.to_ascii_lowercase()),
+        };
+        if query.direction.eq_ignore_ascii_case("desc") {
+            ordering.reverse()
+        } else {
+            ordering
+        }
+        .then_with(|| left.drive_id.cmp(&right.drive_id))
+    });
+}
+
 async fn shared_drives_page(
     State(state): State<Arc<AppState>>,
     Query(query): Query<DrivePathQuery>,
@@ -1600,47 +1988,8 @@ async fn shared_drives_page(
             .into_iter()
             .filter(|drive| query.show_inaccessible || drive.is_accessible)
             .collect::<Vec<_>>();
-        let sort = match query.sort.as_str() {
-            "tags" | "files" | "folders" | "size" | "managers" | "permissions" => {
-                query.sort.clone()
-            }
-            _ => "name".to_string(),
-        };
-        filtered_drives.sort_by(|left, right| {
-            let ordering = match sort.as_str() {
-                "tags" => left
-                    .tags
-                    .first()
-                    .map(|tag| tag.name.to_ascii_lowercase())
-                    .cmp(&right.tags.first().map(|tag| tag.name.to_ascii_lowercase())),
-                "files" => left.files_scanned.cmp(&right.files_scanned),
-                "folders" => left.folders_scanned.cmp(&right.folders_scanned),
-                "size" => left.bytes_discovered.cmp(&right.bytes_discovered),
-                "managers" => {
-                    shared_drive_manager_sort_key(left).cmp(&shared_drive_manager_sort_key(right))
-                }
-                "permissions" => left
-                    .permission_identities
-                    .first()
-                    .map(|identity| identity.label.to_ascii_lowercase())
-                    .cmp(
-                        &right
-                            .permission_identities
-                            .first()
-                            .map(|identity| identity.label.to_ascii_lowercase()),
-                    ),
-                _ => left
-                    .name
-                    .to_ascii_lowercase()
-                    .cmp(&right.name.to_ascii_lowercase()),
-            };
-            if query.direction.eq_ignore_ascii_case("desc") {
-                ordering.reverse()
-            } else {
-                ordering
-            }
-            .then_with(|| left.drive_id.cmp(&right.drive_id))
-        });
+        let sort = shared_drive_sort(&query).to_string();
+        sort_shared_drives(&mut filtered_drives, &query);
         let summary_size = filtered_drives
             .iter()
             .map(|drive| drive.bytes_discovered)
@@ -2036,6 +2385,11 @@ fn render_drive_explorer(
         description: description.to_string(),
         root_label: root_label.to_string(),
         explorer_path: explorer_path.to_string(),
+        export_path: match active_page {
+            "my-drive" => "/my-drive/export.xlsx",
+            "shared-with-me" => "/shared-with-me/export.xlsx",
+            _ => "/shared-drives/export.xlsx",
+        },
         drive_id,
         inventory_scope: inventory_scope.to_string(),
         tag_action,
