@@ -233,6 +233,7 @@ pub struct ExplorerSummary {
 #[allow(dead_code)]
 pub struct TagPill {
     pub name: String,
+    pub description: String,
     pub color: String,
     pub text_color: &'static str,
 }
@@ -654,6 +655,8 @@ struct TagForm {
     #[serde(default)]
     slug: String,
     name: String,
+    #[serde(default)]
+    description: String,
     color: String,
     #[serde(default)]
     directory: Option<String>,
@@ -1695,6 +1698,7 @@ async fn shared_drives_page(
                         .map(|tag| TagPill {
                             text_color: tag_text_color(&tag.color),
                             name: tag.name,
+                            description: tag.description,
                             color: tag.color,
                         })
                         .collect(),
@@ -1930,6 +1934,7 @@ fn render_drive_explorer(
                     .map(|tag| TagPill {
                         text_color: tag_text_color(&tag.color),
                         name: tag.name,
+                        description: tag.description,
                         color: tag.color,
                     })
                     .collect(),
@@ -2068,7 +2073,13 @@ fn identity_display(
             format!(
                 "Identity tags: {}",
                 tags.iter()
-                    .map(|tag| tag.name.as_str())
+                    .map(|tag| {
+                        if tag.description.is_empty() {
+                            tag.name.clone()
+                        } else {
+                            format!("{}: {}", tag.name, tag.description)
+                        }
+                    })
                     .collect::<Vec<_>>()
                     .join(", ")
             )
@@ -3085,11 +3096,17 @@ async fn create_tag(
         .database()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let scopes = tag_form_scopes(&form);
-    database::inventory::create_tag_with_scopes(&database, &form.name, &form.color, &scopes)
-        .map_err(|error| {
-            eprintln!("Unable to create tag: {error}");
-            StatusCode::BAD_REQUEST
-        })?;
+    database::inventory::create_tag_with_description_and_scopes(
+        &database,
+        &form.name,
+        &form.description,
+        &form.color,
+        &scopes,
+    )
+    .map_err(|error| {
+        eprintln!("Unable to create tag: {error}");
+        StatusCode::BAD_REQUEST
+    })?;
     println!("Tag created: name={}", form.name.trim());
     Ok(Redirect::to("/tags?saved=true"))
 }
@@ -3102,10 +3119,11 @@ async fn update_tag(
         .database()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let scopes = tag_form_scopes(&form);
-    database::inventory::update_tag_with_scopes(
+    database::inventory::update_tag_with_description_and_scopes(
         &database,
         &form.slug,
         &form.name,
+        &form.description,
         &form.color,
         &scopes,
     )

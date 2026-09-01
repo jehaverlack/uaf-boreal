@@ -40,9 +40,10 @@
                             <form id="tag-scope-form-{{ loop.index }}" method="post" action="/tags/update">
                                 <input type="hidden" name="slug" value="{{ tag.slug }}">
                                 <input type="hidden" name="name" value="{{ tag.name }}">
+                                <input type="hidden" name="description" value="{{ tag.description }}">
                                 <input type="hidden" name="color" value="{{ tag.color }}">
                             </form>
-                            <span class="badge rounded-pill px-3 py-2" style="background-color: {{ tag.color }}; color: #fff;">{{ tag.name }}</span>
+                            <span class="badge rounded-pill px-3 py-2" style="background-color: {{ tag.color }}; color: #fff;" title="{{ tag.description }}">{{ tag.name }}</span>
                         </td>
                         <td class="text-center"><input class="form-check-input tag-scope-checkbox" type="checkbox" name="directory" form="tag-scope-form-{{ loop.index }}" {% if tag.directory %}checked{% endif %} aria-label="Make {{ tag.name }} available for Persons"></td>
                         <td class="text-center"><input class="form-check-input tag-scope-checkbox" type="checkbox" name="my_drive" form="tag-scope-form-{{ loop.index }}" {% if tag.my_drive %}checked{% endif %} aria-label="Make {{ tag.name }} available for My Drive"></td>
@@ -82,6 +83,11 @@
                     <div class="mb-3">
                         <label class="form-label" for="new-tag-name">Name</label>
                         <input class="form-control" id="new-tag-name" name="name" maxlength="40" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="new-tag-description">Description</label>
+                        <textarea class="form-control" id="new-tag-description" name="description" rows="3" maxlength="500"></textarea>
+                        <div class="form-text">Shown when a user hovers over this tag.</div>
                     </div>
                     <div class="mb-3" data-tag-color-editor>
                         <label class="form-label" for="new-tag-color-code">Color</label>
@@ -126,6 +132,11 @@
                     <div class="mb-3">
                         <label class="form-label" for="tag-name-{{ loop.index }}">Name</label>
                         <input class="form-control" id="tag-name-{{ loop.index }}" name="name" value="{{ tag.name }}" maxlength="40" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="tag-description-{{ loop.index }}">Description</label>
+                        <textarea class="form-control" id="tag-description-{{ loop.index }}" name="description" rows="3" maxlength="500">{{ tag.description }}</textarea>
+                        <div class="form-text">Shown when a user hovers over this tag.</div>
                     </div>
                     <div class="mb-3" data-tag-color-editor>
                         <label class="form-label" for="tag-color-code-{{ loop.index }}">Color</label>

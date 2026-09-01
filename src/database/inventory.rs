@@ -107,7 +107,7 @@ pub fn list_shared_drives_filtered(
         "SELECT sd.drive_id, sd.name, sd.inventory_scope, sd.is_accessible,
                 COALESCE(last_error, ''),
                 files_scanned, folders_scanned, permissions_scanned, bytes_discovered,
-                (SELECT group_concat(t.slug || char(30) || t.name || char(30) || t.color, char(31))
+                (SELECT group_concat(t.slug || char(30) || t.name || char(30) || t.color || char(30) || t.description, char(31))
                  FROM shared_drive_tags sdt JOIN tags t ON t.id = sdt.tag_id
                  WHERE sdt.drive_id = sd.drive_id),
                 (SELECT group_concat(label || char(30) || role, char(31)) FROM (
@@ -196,6 +196,7 @@ pub fn list_shared_drives_filtered(
                                         slug: fields.next()?.to_string(),
                                         name: fields.next()?.to_string(),
                                         color: fields.next()?.to_string(),
+                                        description: fields.next()?.to_string(),
                                         directory: false,
                                         my_drive: false,
                                         shared_drives: false,
@@ -455,6 +456,7 @@ pub struct PermissionIdentity {
 pub struct Tag {
     pub slug: String,
     pub name: String,
+    pub description: String,
     pub color: String,
     pub directory: bool,
     pub my_drive: bool,
@@ -543,7 +545,7 @@ pub fn list_drive_directory(
         "SELECT item_id, name, relative_path, is_directory, mime_type,
                 CASE WHEN is_directory THEN cumulative_size_bytes ELSE size_bytes END,
                 modified_at, owner_email,
-                (SELECT group_concat(t.name || char(30) || t.color, char(31))
+                (SELECT group_concat(t.name || char(30) || t.color || char(30) || t.description, char(31))
                  FROM drive_item_tags dit JOIN tags t ON t.id = dit.tag_id
                  WHERE dit.remote_name = drive_items.remote_name
                    AND dit.item_id = drive_items.item_id),
@@ -660,11 +662,12 @@ pub fn list_drive_directory(
                     .map(|tags| {
                         tags.split('\u{1f}')
                             .filter_map(|tag| {
-                                let (name, color) = tag.split_once('\u{1e}')?;
+                                let mut fields = tag.split('\u{1e}');
                                 Some(Tag {
                                     slug: String::new(),
-                                    name: name.to_string(),
-                                    color: color.to_string(),
+                                    name: fields.next()?.to_string(),
+                                    color: fields.next()?.to_string(),
+                                    description: fields.next()?.to_string(),
                                     directory: false,
                                     my_drive: false,
                                     shared_drives: false,
@@ -703,7 +706,7 @@ pub fn list_drive_directory(
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<Result<HashSet<_>, _>>()?;
     let mut tag_statement = connection.prepare(
-        "SELECT lower(pe.email), t.slug, t.name, t.color
+        "SELECT lower(pe.email), t.slug, t.name, t.color, t.description
          FROM principal_emails pe
          JOIN principal_tags pt ON pt.principal_id = pe.principal_id
          JOIN tags t ON t.id = pt.tag_id
@@ -716,6 +719,7 @@ pub fn list_drive_directory(
                 slug: row.get(1)?,
                 name: row.get(2)?,
                 color: row.get(3)?,
+                description: row.get(4)?,
                 directory: false,
                 my_drive: false,
                 shared_drives: false,
@@ -841,7 +845,7 @@ fn list_tags_query(
 ) -> Result<Vec<Tag>, DatabaseError> {
     let connection = database.connect()?;
     let mut statement = connection.prepare(
-        "SELECT t.slug, t.name, t.color,
+        "SELECT t.slug, t.name, t.description, t.color,
                 EXISTS(SELECT 1 FROM tag_scopes s WHERE s.tag_id = t.id AND s.scope = 'directory'),
                 EXISTS(SELECT 1 FROM tag_scopes s WHERE s.tag_id = t.id AND s.scope = 'my-drive'),
                 EXISTS(SELECT 1 FROM tag_scopes s WHERE s.tag_id = t.id AND s.scope = 'shared-drives'),
@@ -857,11 +861,12 @@ fn list_tags_query(
         Ok(Tag {
             slug: row.get(0)?,
             name: row.get(1)?,
-            color: row.get(2)?,
-            directory: row.get(3)?,
-            my_drive: row.get(4)?,
-            shared_drives: row.get(5)?,
-            shared_with_me: row.get(6)?,
+            description: row.get(2)?,
+            color: row.get(3)?,
+            directory: row.get(4)?,
+            my_drive: row.get(5)?,
+            shared_drives: row.get(6)?,
+            shared_with_me: row.get(7)?,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -888,7 +893,18 @@ pub fn create_tag_with_scopes(
     color: &str,
     scopes: &[TagScope],
 ) -> Result<(), DatabaseError> {
+    create_tag_with_description_and_scopes(database, name, "", color, scopes)
+}
+
+pub fn create_tag_with_description_and_scopes(
+    database: &Database,
+    name: &str,
+    description: &str,
+    color: &str,
+    scopes: &[TagScope],
+) -> Result<(), DatabaseError> {
     let color = validate_tag(name, color)?;
+    let description = validate_tag_description(description)?;
     validate_tag_scopes(scopes)?;
     let slug = tag_slug(name);
     if slug.is_empty() {
@@ -897,8 +913,8 @@ pub fn create_tag_with_scopes(
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
     transaction.execute(
-        "INSERT INTO tags (slug, name, color) VALUES (?1, ?2, ?3)",
-        params![slug, name.trim(), color],
+        "INSERT INTO tags (slug, name, description, color) VALUES (?1, ?2, ?3, ?4)",
+        params![slug, name.trim(), description, color],
     )?;
     let tag_id = transaction.last_insert_rowid();
     save_tag_scopes(&transaction, tag_id, scopes)?;
@@ -923,13 +939,25 @@ pub fn update_tag_with_scopes(
     color: &str,
     scopes: &[TagScope],
 ) -> Result<(), DatabaseError> {
+    update_tag_with_description_and_scopes(database, slug, name, "", color, scopes)
+}
+
+pub fn update_tag_with_description_and_scopes(
+    database: &Database,
+    slug: &str,
+    name: &str,
+    description: &str,
+    color: &str,
+    scopes: &[TagScope],
+) -> Result<(), DatabaseError> {
     let color = validate_tag(name, color)?;
+    let description = validate_tag_description(description)?;
     validate_tag_scopes(scopes)?;
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
     let updated = transaction.execute(
-        "UPDATE tags SET name = ?2, color = ?3 WHERE slug = ?1",
-        params![slug, name.trim(), color],
+        "UPDATE tags SET name = ?2, description = ?3, color = ?4 WHERE slug = ?1",
+        params![slug, name.trim(), description, color],
     )?;
     if updated == 0 {
         return Err(format!("Unknown tag: {slug}").into());
@@ -998,6 +1026,14 @@ fn validate_tag(name: &str, color: &str) -> Result<String, DatabaseError> {
         7 => Ok(color.to_ascii_lowercase()),
         _ => Err("Tag color must use #RGB or #RRGGBB format".into()),
     }
+}
+
+fn validate_tag_description(description: &str) -> Result<&str, DatabaseError> {
+    let description = description.trim();
+    if description.len() > 500 {
+        return Err("Tag description must not exceed 500 characters".into());
+    }
+    Ok(description)
 }
 
 fn tag_slug(name: &str) -> String {

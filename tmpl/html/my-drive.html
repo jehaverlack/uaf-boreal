@@ -52,7 +52,7 @@
         <select id="my-drive-tag-filter" class="form-select form-select-sm" name="tag">
             <option value="">All tags</option>
             {% for tag in tags %}
-            <option value="{{ tag.slug }}" {% if tag_filter == tag.slug %}selected{% endif %}>{{ tag.name }}</option>
+            <option value="{{ tag.slug }}" title="{{ tag.description }}" {% if tag_filter == tag.slug %}selected{% endif %}>{{ tag.name }}</option>
             {% endfor %}
         </select>
     </div>
@@ -61,7 +61,7 @@
         <select id="my-drive-owner-identity-tag-filter" class="form-select form-select-sm" name="owner_identity_tag">
             <option value="">Any owner identity tag</option>
             {% for tag in directory_tags %}
-            <option value="{{ tag.slug }}" {% if owner_identity_tag_filter == tag.slug %}selected{% endif %}>Owner: {{ tag.name }}</option>
+            <option value="{{ tag.slug }}" title="{{ tag.description }}" {% if owner_identity_tag_filter == tag.slug %}selected{% endif %}>Owner: {{ tag.name }}</option>
             {% endfor %}
         </select>
     </div>
@@ -70,7 +70,7 @@
         <select id="my-drive-permission-identity-tag-filter" class="form-select form-select-sm" name="permission_identity_tag">
             <option value="">Any permission identity tag</option>
             {% for tag in directory_tags %}
-            <option value="{{ tag.slug }}" {% if permission_identity_tag_filter == tag.slug %}selected{% endif %}>Shared with: {{ tag.name }}</option>
+            <option value="{{ tag.slug }}" title="{{ tag.description }}" {% if permission_identity_tag_filter == tag.slug %}selected{% endif %}>Shared with: {{ tag.name }}</option>
             {% endfor %}
         </select>
     </div>
@@ -126,7 +126,7 @@
     <div class="d-flex align-items-center gap-2 mb-2">
         <label class="small fw-semibold" for="my-drive-apply-tag">Apply tag to selected:</label>
         <select id="my-drive-apply-tag" class="form-select form-select-sm w-auto" name="tag" required>
-            {% for tag in tags %}<option value="{{ tag.slug }}">{{ tag.name }}</option>{% endfor %}
+            {% for tag in tags %}<option value="{{ tag.slug }}" title="{{ tag.description }}">{{ tag.name }}</option>{% endfor %}
         </select>
         <button id="my-drive-apply-tag-button" class="btn btn-sm btn-outline-primary" type="submit" disabled>
             <i class="bi bi-tag me-1"></i>Apply
@@ -194,7 +194,7 @@
                         <a href="{{ row.name_url }}" {% if row.name_new_tab %}target="_blank" rel="noopener noreferrer"{% endif %} class="text-decoration-none boreal-name-link" title="{% if row.is_directory %}Browse folder in BOREAL{% else %}Open in Google Drive{% endif %}">
                             {{ row.name }}
                         </a>
-                        <span class="boreal-item-tags">{% for tag in row.tags %}<span class="badge rounded-pill ms-1" style="background-color: {{ tag.color }}; color: {{ tag.text_color }};">{{ tag.name }}</span>{% endfor %}</span>
+                        <span class="boreal-item-tags">{% for tag in row.tags %}<span class="badge rounded-pill ms-1" style="background-color: {{ tag.color }}; color: {{ tag.text_color }};" title="{{ tag.description }}">{{ tag.name }}</span>{% endfor %}</span>
                         {% if row.is_deleted %}<span class="badge rounded-pill text-bg-secondary ms-1">Deleted</span>{% endif %}
                     </th>
                     <td class="text-nowrap">{{ row.size }}</td>

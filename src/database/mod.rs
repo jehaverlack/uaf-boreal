@@ -186,7 +186,7 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 16,);
+        assert_eq!(migration_count, 17,);
 
         let safe_to_delete_scope_count: i64 = connection
             .query_row(
@@ -216,15 +216,35 @@ mod tests {
             assert_eq!(scope_count, expected_scope_count, "scope count for {slug}");
         }
 
-        let safe_to_delete_tag: (String, String) = connection
+        let safe_to_delete_tag: (String, String, String) = connection
             .query_row(
-                "SELECT name, color FROM tags WHERE slug = 'safe-to-delete'",
+                "SELECT name, description, color FROM tags WHERE slug = 'safe-to-delete'",
                 [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .expect("safe-to-delete tag should exist");
         assert_eq!(safe_to_delete_tag.0, "Safe to Delete");
-        assert_eq!(safe_to_delete_tag.1, "#198754");
+        assert_eq!(
+            safe_to_delete_tag.1,
+            "Content confirmed as migrated or backed up and ready to be deleted manually from Google Drive."
+        );
+        assert_eq!(safe_to_delete_tag.2, "#198754");
+
+        for slug in [
+            "data-loss-risk",
+            "safe-to-delete",
+            "to-delete",
+            "to-migrate",
+        ] {
+            let description: String = connection
+                .query_row(
+                    "SELECT description FROM tags WHERE slug = ?1",
+                    [slug],
+                    |row| row.get(0),
+                )
+                .expect("built-in tag description should be readable");
+            assert!(!description.is_empty(), "description for {slug}");
+        }
 
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
@@ -868,17 +888,19 @@ mod tests {
         );
         inventory::apply_tag_recursively(&database, &["folder-id-1".to_string()], "to-migrate")
             .expect("recursive tag should reapply");
-        inventory::create_tag_with_scopes(
+        inventory::create_tag_with_description_and_scopes(
             &database,
             "Needs Review",
+            "Content that needs an initial review",
             "#abcdef",
             &[inventory::TagScope::Directory],
         )
         .expect("custom tag should be created");
-        inventory::update_tag_with_scopes(
+        inventory::update_tag_with_description_and_scopes(
             &database,
             "needs-review",
             "Review Soon",
+            "Review this content before migration",
             "#159",
             &[inventory::TagScope::Directory],
         )
@@ -889,6 +911,10 @@ mod tests {
             .find(|tag| tag.slug == "needs-review")
             .expect("custom tag should remain available");
         assert_eq!(custom_tag.name, "Review Soon");
+        assert_eq!(
+            custom_tag.description,
+            "Review this content before migration"
+        );
         assert_eq!(custom_tag.color, "#115599");
         assert!(custom_tag.directory);
         assert!(!custom_tag.my_drive);

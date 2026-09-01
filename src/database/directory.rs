@@ -39,6 +39,7 @@ pub struct PrincipalRow {
 pub struct IdentityTag {
     pub slug: String,
     pub name: String,
+    pub description: String,
     pub color: String,
 }
 
@@ -230,7 +231,7 @@ pub fn list_principals_filtered(
     drop(statement);
     for principal in &mut principals {
         let mut tag_statement = connection.prepare(
-            "SELECT t.slug, t.name, t.color
+            "SELECT t.slug, t.name, t.description, t.color
              FROM principal_tags pt JOIN tags t ON t.id = pt.tag_id
              WHERE pt.principal_id = ?1 ORDER BY t.name COLLATE NOCASE",
         )?;
@@ -239,7 +240,8 @@ pub fn list_principals_filtered(
                 Ok(IdentityTag {
                     slug: row.get(0)?,
                     name: row.get(1)?,
-                    color: row.get(2)?,
+                    description: row.get(2)?,
+                    color: row.get(3)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;

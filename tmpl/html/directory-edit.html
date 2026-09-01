@@ -26,7 +26,7 @@
                     <form method="post" action="/directory/principals/{{ principal_id }}/edit/tags/remove" class="d-inline">
                         <input type="hidden" name="selected_principal_ids" value="{{ principal_id }}">
                         <input type="hidden" name="tag" value="{{ tag.slug }}">
-                        <button class="badge rounded-pill border-0" style="background-color: {{ tag.color }}; color: #fff" type="submit" title="Remove {{ tag.name }}">
+                        <button class="badge rounded-pill border-0" style="background-color: {{ tag.color }}; color: #fff" type="submit" title="{% if tag.description.len() > 0 %}{{ tag.description }} — {% endif %}Click to remove {{ tag.name }}">
                             {{ tag.name }} <span class="ms-1" aria-hidden="true">&times;</span><span class="visually-hidden">Remove tag</span>
                         </button>
                     </form>
@@ -37,7 +37,7 @@
                     <input type="hidden" name="selected_principal_ids" value="{{ principal_id }}">
                     <label class="form-label mb-0" for="directory-entry-add-tag">Add tag</label>
                     <select class="form-select form-select-sm w-auto" id="directory-entry-add-tag" name="tag" required>
-                        {% for tag in tags %}<option value="{{ tag.slug }}">{{ tag.name }}</option>{% endfor %}
+                        {% for tag in tags %}<option value="{{ tag.slug }}" title="{{ tag.description }}">{{ tag.name }}</option>{% endfor %}
                     </select>
                     <button class="btn btn-sm btn-outline-primary" type="submit"><i class="bi bi-plus-lg me-1"></i>Add</button>
                     <a class="btn btn-sm btn-link" href="/tags">Manage tags</a>

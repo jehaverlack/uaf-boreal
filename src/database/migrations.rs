@@ -89,6 +89,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "builtin_tag_scopes",
         sql: include_str!("migrations/0016_builtin_tag_scopes.sql"),
     },
+    Migration {
+        version: 17,
+        name: "builtin_tag_descriptions",
+        sql: include_str!("migrations/0017_builtin_tag_descriptions.sql"),
+    },
 ];
 
 pub fn apply(connection: &mut Connection) -> Result<(), DatabaseError> {
