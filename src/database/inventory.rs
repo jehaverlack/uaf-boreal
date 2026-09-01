@@ -888,7 +888,7 @@ pub fn create_tag_with_scopes(
     color: &str,
     scopes: &[TagScope],
 ) -> Result<(), DatabaseError> {
-    validate_tag(name, color)?;
+    let color = validate_tag(name, color)?;
     validate_tag_scopes(scopes)?;
     let slug = tag_slug(name);
     if slug.is_empty() {
@@ -923,7 +923,7 @@ pub fn update_tag_with_scopes(
     color: &str,
     scopes: &[TagScope],
 ) -> Result<(), DatabaseError> {
-    validate_tag(name, color)?;
+    let color = validate_tag(name, color)?;
     validate_tag_scopes(scopes)?;
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
@@ -939,6 +939,17 @@ pub fn update_tag_with_scopes(
     })?;
     transaction.execute("DELETE FROM tag_scopes WHERE tag_id = ?1", [tag_id])?;
     save_tag_scopes(&transaction, tag_id, scopes)?;
+    transaction.commit()?;
+    Ok(())
+}
+
+pub fn delete_tag(database: &Database, slug: &str) -> Result<(), DatabaseError> {
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    let deleted = transaction.execute("DELETE FROM tags WHERE slug = ?1", [slug])?;
+    if deleted == 0 {
+        return Err(format!("Unknown tag: {slug}").into());
+    }
     transaction.commit()?;
     Ok(())
 }
@@ -964,17 +975,29 @@ fn save_tag_scopes(
     Ok(())
 }
 
-fn validate_tag(name: &str, color: &str) -> Result<(), DatabaseError> {
+fn validate_tag(name: &str, color: &str) -> Result<String, DatabaseError> {
     if name.trim().is_empty() || name.trim().len() > 40 {
         return Err("Tag name must be between 1 and 40 characters".into());
     }
-    if color.len() != 7
-        || !color.starts_with('#')
-        || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
-    {
-        return Err("Tag color must use #RRGGBB format".into());
+
+    let color = color.trim();
+    if !color.starts_with('#') || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("Tag color must use #RGB or #RRGGBB format".into());
     }
-    Ok(())
+
+    match color.len() {
+        4 => {
+            let mut normalized = String::with_capacity(7);
+            normalized.push('#');
+            for digit in color[1..].chars() {
+                normalized.push(digit);
+                normalized.push(digit);
+            }
+            Ok(normalized.to_ascii_lowercase())
+        }
+        7 => Ok(color.to_ascii_lowercase()),
+        _ => Err("Tag color must use #RGB or #RRGGBB format".into()),
+    }
 }
 
 fn tag_slug(name: &str) -> String {

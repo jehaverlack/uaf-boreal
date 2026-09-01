@@ -666,6 +666,11 @@ struct TagForm {
 }
 
 #[derive(serde::Deserialize)]
+struct DeleteTagForm {
+    slug: String,
+}
+
+#[derive(serde::Deserialize)]
 struct SettingsForm {
     #[serde(default)]
     directory_sheet_url: String,
@@ -770,6 +775,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/directory/import/csv", post(import_directory_csv))
         .route("/tags/create", post(create_tag))
         .route("/tags/update", post(update_tag))
+        .route("/tags/delete", post(delete_tag))
         .route("/settings", get(settings_page).post(save_settings))
         .route("/settings/directory/test", post(test_directory_sheet))
         .route("/status", get(status))
@@ -3108,6 +3114,21 @@ async fn update_tag(
         StatusCode::BAD_REQUEST
     })?;
     println!("Tag updated: slug={}", form.slug);
+    Ok(Redirect::to("/tags?saved=true"))
+}
+
+async fn delete_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<DeleteTagForm>,
+) -> Result<Redirect, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::inventory::delete_tag(&database, &form.slug).map_err(|error| {
+        eprintln!("Unable to delete tag: {error}");
+        StatusCode::BAD_REQUEST
+    })?;
+    println!("Tag deleted: slug={}", form.slug);
     Ok(Redirect::to("/tags?saved=true"))
 }
 

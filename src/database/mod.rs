@@ -319,6 +319,30 @@ mod tests {
     }
 
     #[test]
+    fn deletes_tags_and_their_scopes() {
+        let root = temporary_directory();
+        let database = Database::initialize(&runtime(&root)).expect("database should initialize");
+        inventory::create_tag_with_scopes(
+            &database,
+            "Temporary Tag",
+            "#369",
+            &[inventory::TagScope::Directory],
+        )
+        .expect("tag should be created");
+
+        inventory::delete_tag(&database, "temporary-tag").expect("tag should be deleted");
+
+        assert!(
+            inventory::list_tags(&database)
+                .expect("tags should be readable")
+                .iter()
+                .all(|tag| tag.slug != "temporary-tag")
+        );
+
+        fs::remove_dir_all(root).expect("temporary database directory should be removable");
+    }
+
+    #[test]
     fn directory_csv_import_is_idempotent() {
         let root = temporary_directory();
         let database = Database::initialize(&runtime(&root)).expect("database should initialize");
@@ -855,7 +879,7 @@ mod tests {
             &database,
             "needs-review",
             "Review Soon",
-            "#123456",
+            "#159",
             &[inventory::TagScope::Directory],
         )
         .expect("custom tag should be editable");
@@ -865,7 +889,7 @@ mod tests {
             .find(|tag| tag.slug == "needs-review")
             .expect("custom tag should remain available");
         assert_eq!(custom_tag.name, "Review Soon");
-        assert_eq!(custom_tag.color, "#123456");
+        assert_eq!(custom_tag.color, "#115599");
         assert!(custom_tag.directory);
         assert!(!custom_tag.my_drive);
         assert!(
