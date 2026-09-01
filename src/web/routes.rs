@@ -1148,16 +1148,19 @@ fn build_metadata_view(
 }
 
 fn format_bytes(bytes: u64) -> String {
+    const TB: f64 = 1_000_000_000_000.0;
     const GB: f64 = 1_000_000_000.0;
     const MB: f64 = 1_000_000.0;
     const KB: f64 = 1_000.0;
 
-    if bytes as f64 >= GB {
+    if bytes as f64 >= TB {
+        format!("{:.1} TB", bytes as f64 / TB,)
+    } else if bytes as f64 >= GB {
         format!("{:.1} GB", bytes as f64 / GB,)
     } else if bytes as f64 >= MB {
         format!("{:.1} MB", bytes as f64 / MB,)
     } else if bytes as f64 >= KB {
-        format!("{:.1} kB", bytes as f64 / KB,)
+        format!("{:.1} KB", bytes as f64 / KB,)
     } else {
         format!("{bytes} B",)
     }
@@ -3813,6 +3816,15 @@ where
 mod tests {
     use super::*;
     use crate::app::MetadataProgress;
+
+    #[test]
+    fn formats_dashboard_sizes_with_one_decimal_and_adaptive_units() {
+        assert_eq!(format_bytes(2_208_400_000_000), "2.2 TB");
+        assert_eq!(format_bytes(2_208_400_000), "2.2 GB");
+        assert_eq!(format_bytes(2_208_400), "2.2 MB");
+        assert_eq!(format_bytes(2_208), "2.2 KB");
+        assert_eq!(format_bytes(208), "208 B");
+    }
 
     #[test]
     fn active_scope_progress_does_not_replace_my_drive_summary() {
