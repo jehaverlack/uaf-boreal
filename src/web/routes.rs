@@ -670,8 +670,6 @@ struct SettingsForm {
     #[serde(default)]
     permission_scanning: Option<String>,
     #[serde(default)]
-    directory_sheet_enabled: Option<String>,
-    #[serde(default)]
     directory_sheet_url: String,
 }
 
@@ -746,6 +744,7 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/directory/tags", post(apply_directory_tag))
         .route("/directory/tags/remove", post(remove_directory_tag))
+        .route("/directory/template.csv", get(directory_csv_template))
         .route(
             "/directory/principals/{principal_id}/tags",
             post(apply_principal_tag),
@@ -781,6 +780,21 @@ async fn uaf_logo() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=86400"),
         ],
         include_bytes!("../../tmpl/html/img/UAFLogo_A_blue.png").as_slice(),
+    )
+}
+
+const PERSONS_CSV_TEMPLATE: &str = "name,email,organization,type,status,departure_date,notes\r\n";
+
+async fn directory_csv_template() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"boreal-persons-template.csv\"",
+            ),
+        ],
+        PERSONS_CSV_TEMPLATE,
     )
 }
 
@@ -1192,14 +1206,15 @@ async fn save_settings(
     State(state): State<Arc<AppState>>,
     Form(form): Form<SettingsForm>,
 ) -> Result<axum::response::Response, StatusCode> {
+    let directory_sheet_url = form.directory_sheet_url.trim().to_string();
     let inventory_settings = InventorySettings {
         automatic_updates: false,
         refresh_interval_hours: form.refresh_interval_hours,
         full_reconciliation_days: form.full_reconciliation_days,
         update_when_overdue_at_startup: false,
         permission_scanning: form.permission_scanning.is_some(),
-        directory_sheet_enabled: form.directory_sheet_enabled.is_some(),
-        directory_sheet_url: form.directory_sheet_url.trim().to_string(),
+        directory_sheet_enabled: !directory_sheet_url.is_empty(),
+        directory_sheet_url,
     };
     if inventory_settings.directory_sheet_enabled {
         if let Err(error) =
@@ -1237,14 +1252,15 @@ async fn test_directory_sheet(
     State(state): State<Arc<AppState>>,
     Form(form): Form<SettingsForm>,
 ) -> Result<axum::response::Response, StatusCode> {
+    let directory_sheet_url = form.directory_sheet_url.trim().to_string();
     let inventory_settings = InventorySettings {
         automatic_updates: false,
         refresh_interval_hours: form.refresh_interval_hours,
         full_reconciliation_days: form.full_reconciliation_days,
         update_when_overdue_at_startup: false,
         permission_scanning: form.permission_scanning.is_some(),
-        directory_sheet_enabled: form.directory_sheet_enabled.is_some(),
-        directory_sheet_url: form.directory_sheet_url.trim().to_string(),
+        directory_sheet_enabled: !directory_sheet_url.is_empty(),
+        directory_sheet_url,
     };
     if let Err(error) =
         crate::rclone::identity::parse_google_sheet_url(&inventory_settings.directory_sheet_url)
@@ -3816,6 +3832,14 @@ where
 mod tests {
     use super::*;
     use crate::app::MetadataProgress;
+
+    #[test]
+    fn persons_csv_template_has_supported_import_columns() {
+        assert_eq!(
+            PERSONS_CSV_TEMPLATE,
+            "name,email,organization,type,status,departure_date,notes\r\n"
+        );
+    }
 
     #[test]
     fn formats_dashboard_sizes_with_one_decimal_and_adaptive_units() {
