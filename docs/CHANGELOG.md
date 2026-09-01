@@ -11,6 +11,10 @@
 
 ## v0.1.2 - 2026-09-01 (BETA)
 
+- Fixed Close button, added link to Persons Sheet
+- Skip to client id upload
+- Readme Clean up
+- Mac Bin Issues
 - Start v0.1.2
 
 ## v0.1.1 - 2026-09-01 (BETA)
@@ -161,5 +165,9 @@
 **Summary**
 Project Initialization
 
+- Fixed Close button, added link to Persons Sheet
+- Skip to client id upload
+- Readme Clean up
+- Mac Bin Issues
 - Start v0.1.2
 
