@@ -39,6 +39,9 @@
   "MANIFEST": [
     "Cargo.toml",
     "README.md",
+    "docs/Install-Linux.md",
+    "docs/Install-Windows.md",
+    "docs/Install-MACOS.md",
     "docs/DESIGN.md"
   ]
 }

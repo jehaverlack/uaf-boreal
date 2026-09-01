@@ -84,9 +84,9 @@ update_markdown() {
 }
 
 # -----------------------------
-# Update current README release links and filenames
+# Update current release links and filenames
 # -----------------------------
-update_readme_release_links() {
+update_release_links() {
   local file="$1"
   local version
 
@@ -100,7 +100,7 @@ update_readme_release_links() {
     -e "s#(BOREAL v)[0-9]+\.[0-9]+\.[0-9]+#\1${version}#g" \
     "$file"
 
-  echo "Updated README release links for v${version}"
+  echo "Updated release links in $file for v${version}"
 }
 
 # -----------------------------
@@ -152,9 +152,11 @@ jq -r '.MANIFEST[]' "$META_FILE" | while read -r rel_path; do
     *.md)
       update_markdown "$file"
 
-      if [[ "$(basename "$file")" == "README.md" ]]; then
-        update_readme_release_links "$file"
-      fi
+      case "$(basename "$file")" in
+        README.md|Install-*.md)
+          update_release_links "$file"
+          ;;
+      esac
       ;;
     *)
       echo "WARN: No handler for $rel_path"
