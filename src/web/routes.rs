@@ -287,7 +287,6 @@ struct MyDriveTemplate {
     clear_search_url: String,
     tags: Vec<database::inventory::Tag>,
     filter_tags: Vec<TagFilterPill>,
-    directory_tags: Vec<database::inventory::Tag>,
     identity_filter_tags: Vec<IdentityTagFilterPill>,
     tag_filter: String,
     tagged_count: usize,
@@ -301,7 +300,6 @@ struct MyDriveTemplate {
     permission_identity_tag_filter: String,
     include_deleted: bool,
     heading: String,
-    description: String,
     root_label: String,
     explorer_path: String,
     export_path: &'static str,
@@ -357,6 +355,7 @@ struct SharedDrivesTemplate {
     show_inaccessible: bool,
     inaccessible_count: usize,
     tags: Vec<database::inventory::Tag>,
+    filter_tags: Vec<TagFilterPill>,
     search: String,
     tag_filter: String,
     tagged_count: usize,
@@ -1573,7 +1572,6 @@ async fn my_drive_page(
         database::inventory::MY_DRIVE_SCOPE,
         "my-drive",
         "My Drive Explorer",
-        "Browse the latest local My Drive metadata inventory and open items in Google Drive.",
         "My Drive",
         "/my-drive",
         "/my-drive/tags",
@@ -1592,7 +1590,6 @@ async fn shared_with_me_page(
         database::inventory::SHARED_WITH_ME_SCOPE,
         "shared-with-me",
         "Shared with me Explorer",
-        "Browse content other people have shared with the authenticated Google account.",
         "Shared with me",
         "/shared-with-me",
         "/shared-with-me/tags",
@@ -2082,6 +2079,17 @@ async fn shared_drives_page(
             database::inventory::TagScope::SharedDrives,
         )
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let filter_tags = tags
+            .iter()
+            .map(|tag| TagFilterPill {
+                slug: tag.slug.clone(),
+                name: tag.name.clone(),
+                description: tag.description.clone(),
+                color: tag.color.clone(),
+                text_color: tag_text_color(&tag.color),
+                selected: query.tag == tag.slug,
+            })
+            .collect();
         let rclone_state = state.rclone_state();
         let google_client_state = state.google_client_state();
         let google_remotes_state = state.google_remotes_state();
@@ -2104,6 +2112,7 @@ async fn shared_drives_page(
             show_inaccessible: query.show_inaccessible,
             inaccessible_count,
             tags,
+            filter_tags,
             search: query.q,
             tag_filter: query.tag,
             tagged_count: query.tagged,
@@ -2136,7 +2145,6 @@ async fn shared_drives_page(
         &drive.inventory_scope,
         "shared-drives",
         &format!("{} — Shared Drive Explorer", drive.name),
-        "Browse the latest local metadata inventory for this Shared Drive.",
         &drive.name,
         &explorer_path,
         "/shared-drives/tags",
@@ -2187,7 +2195,6 @@ fn render_drive_explorer(
     inventory_scope: &str,
     active_page: &'static str,
     heading: &str,
-    description: &str,
     root_label: &str,
     explorer_path: &str,
     tag_action: &'static str,
@@ -2416,7 +2423,6 @@ fn render_drive_explorer(
         ),
         tags,
         filter_tags,
-        directory_tags,
         identity_filter_tags,
         tag_filter: query.tag,
         tagged_count: query.tagged,
@@ -2430,7 +2436,6 @@ fn render_drive_explorer(
         permission_identity_tag_filter: query.permission_identity_tag,
         include_deleted: query.include_deleted,
         heading: heading.to_string(),
-        description: description.to_string(),
         root_label: root_label.to_string(),
         explorer_path: explorer_path.to_string(),
         export_path: match active_page {

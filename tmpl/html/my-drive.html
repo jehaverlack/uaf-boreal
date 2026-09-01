@@ -7,7 +7,6 @@
 <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
     <div>
         <h1 class="h3 mb-1"><i class="bi bi-folder2-open text-primary me-2"></i>{{ heading }}</h1>
-        <p class="text-body-secondary mb-0">{{ description }}</p>
     </div>
     <div class="d-flex gap-2">
         {% if drive_id.len() > 0 %}<a class="btn btn-sm btn-outline-secondary" href="/shared-drives"><i class="bi bi-arrow-left me-1"></i>All Shared Drives</a>{% endif %}
@@ -19,8 +18,8 @@
 <div class="alert alert-danger" role="alert"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>
 {% endif %}
 
+{% if has_parent %}
 <div class="d-flex align-items-center gap-2 mb-3">
-    {% if has_parent %}
     <form method="get" action="{{ explorer_path }}">
         <input type="hidden" name="drive" value="{{ drive_id }}">
         <input type="hidden" name="path" value="{{ parent_path }}">
@@ -37,17 +36,16 @@
         <input type="hidden" name="include_deleted" value="{{ include_deleted }}">
         <button class="btn btn-sm btn-outline-secondary" type="submit" title="Browse parent folder"><i class="bi bi-arrow-up"></i></button>
     </form>
-    {% endif %}
     <span class="small text-body-secondary">Location:</span>
     <span class="fw-semibold">{{ current_path }}</span>
 </div>
+{% endif %}
 
 <form id="my-drive-filter-form" method="get" action="{{ explorer_path }}" class="row g-2 mb-3" role="search">
     <input type="hidden" name="drive" value="{{ drive_id }}">
     <input type="hidden" name="path" value="{% if has_parent %}{{ current_path }}{% endif %}">
     <input type="hidden" name="sort" value="{{ sort }}">
     <input type="hidden" name="direction" value="{{ direction }}">
-    {% if active_page == "my-drive" %}
     <div class="col-12 d-flex flex-wrap align-items-center gap-2" role="group" aria-label="Filter by tag">
         <span class="small fw-semibold text-body-secondary me-1">Tags:</span>
         <input id="my-drive-tag-filter" type="hidden" name="tag" value="{{ tag_filter }}">
@@ -64,18 +62,6 @@
         </button>
         {% endfor %}
     </div>
-    {% else %}
-    <div class="col-sm-4 col-lg-3">
-        <label class="visually-hidden" for="my-drive-tag-filter">Filter by tag</label>
-        <select id="my-drive-tag-filter" class="form-select form-select-sm" name="tag">
-            <option value="">All tags</option>
-            {% for tag in tags %}
-            <option value="{{ tag.slug }}" title="{{ tag.description }}" {% if tag_filter == tag.slug %}selected{% endif %}>{{ tag.name }}</option>
-            {% endfor %}
-        </select>
-    </div>
-    {% endif %}
-    {% if active_page == "my-drive" %}
     <div class="col-12 d-flex flex-wrap align-items-center gap-2" role="group" aria-label="Filter by owner identity tag">
         <span class="small fw-semibold text-body-secondary me-1">Owner tags:</span>
         <input id="my-drive-owner-identity-tag-filter" type="hidden" name="owner_identity_tag" value="{{ owner_identity_tag_filter }}">
@@ -108,26 +94,6 @@
         </button>
         {% endfor %}
     </div>
-    {% else %}
-    <div class="col-sm-4 col-lg-3">
-        <label class="visually-hidden" for="my-drive-owner-identity-tag-filter">Filter by owner identity tag</label>
-        <select id="my-drive-owner-identity-tag-filter" class="form-select form-select-sm" name="owner_identity_tag">
-            <option value="">Any owner identity tag</option>
-            {% for tag in directory_tags %}
-            <option value="{{ tag.slug }}" title="{{ tag.description }}" {% if owner_identity_tag_filter == tag.slug %}selected{% endif %}>Owner: {{ tag.name }}</option>
-            {% endfor %}
-        </select>
-    </div>
-    <div class="col-sm-4 col-lg-3">
-        <label class="visually-hidden" for="my-drive-permission-identity-tag-filter">Filter by permission identity tag</label>
-        <select id="my-drive-permission-identity-tag-filter" class="form-select form-select-sm" name="permission_identity_tag">
-            <option value="">Any permission identity tag</option>
-            {% for tag in directory_tags %}
-            <option value="{{ tag.slug }}" title="{{ tag.description }}" {% if permission_identity_tag_filter == tag.slug %}selected{% endif %}>Shared with: {{ tag.name }}</option>
-            {% endfor %}
-        </select>
-    </div>
-    {% endif %}
     <div class="col-auto"><button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-funnel me-1"></i>Apply filters</button></div>
     <div class="col-auto"><a class="btn btn-sm btn-outline-secondary" href="{{ clear_search_url }}">Clear filters</a></div>
     <div class="col-auto"><button class="btn btn-sm btn-outline-success" type="submit" formaction="{{ export_path }}"><i class="bi bi-file-earmark-excel me-1"></i>Export Excel</button></div>
