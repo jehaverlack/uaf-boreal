@@ -3,7 +3,7 @@
 | **Name** | boreal |
 | **Author** | John Haverlack |
 | **License** | MIT |
-| **Version** | 0.1.3 |
+| **Version** | 0.1.4 |
 | **Maturity** | BETA |
 | **Date** | 2026-09-01 |
 
@@ -389,4 +389,3 @@ Near-term work should proceed in this order:
 
 Any feature that expands Google permissions, changes remote content, or communicates outside the local machine requires an explicit design and safety review before implementation.
 
-# Design
