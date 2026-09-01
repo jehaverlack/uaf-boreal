@@ -64,6 +64,44 @@ TARGET_ORDER=(
 EXPECTED_FILES=()
 MISSING_FILES=()
 
+remove_old_release_artifacts() {
+    local dist_path
+    local artifact
+    local filename
+    local artifact_version
+    local -a old_artifacts=()
+
+    dist_path="$(cd "$DIST_DIR" && pwd -P)"
+
+    if [[ "$dist_path" != "$PROJECT_ROOT/dist" ]]; then
+        echo "ERROR: Refusing to clean unexpected dist directory: $dist_path"
+        return 1
+    fi
+
+    while IFS= read -r -d '' artifact; do
+        filename="$(basename "$artifact")"
+
+        if [[ "$filename" =~ ^boreal-v([0-9]+\.[0-9]+\.[0-9]+)-(linux-(x86_64|aarch64|armv7)|windows-x86_64\.exe|macos-(x86_64|aarch64))$ ]]; then
+            artifact_version="${BASH_REMATCH[1]}"
+
+            if [[ "$artifact_version" != "$VERSION" ]]; then
+                old_artifacts+=("$artifact")
+            fi
+        fi
+    done < <(find "$dist_path" -maxdepth 1 -type f -name 'boreal-v*' -print0)
+
+    if (( ${#old_artifacts[@]} == 0 )); then
+        return
+    fi
+
+    echo "==> Removing old release artifacts from dist"
+
+    for artifact in "${old_artifacts[@]}"; do
+        echo "  Removing ${artifact#"$PROJECT_ROOT/"}"
+        rm -- "$artifact"
+    done
+}
+
 for target in "${TARGET_ORDER[@]}"; do
     if jq -e --arg target "$target" '.BUILD_TARGETS[$target] == true' metadata.json \
         >/dev/null
@@ -115,6 +153,8 @@ else
     echo "ERROR: sha256sum or shasum is required to generate checksums."
     exit 1
 fi
+
+remove_old_release_artifacts
 
 echo "  ${CHECKSUM_FILE}"
 echo
