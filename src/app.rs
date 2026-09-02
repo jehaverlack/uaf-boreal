@@ -1154,12 +1154,20 @@ impl AppState {
                         item.is_directory,
                     )
                     .map_err(|error| error.to_string())?;
-                    database::inventory::refresh_drive_items(
-                        &database,
-                        &inventory_scope,
-                        scan_id,
-                        &items,
-                    )
+                    match items {
+                        Some(items) => database::inventory::refresh_drive_items(
+                            &database,
+                            &inventory_scope,
+                            scan_id,
+                            &items,
+                        ),
+                        None => database::inventory::mark_drive_item_missing(
+                            &database,
+                            &inventory_scope,
+                            scan_id,
+                            &item_id,
+                        ),
+                    }
                     .map_err(|error| error.to_string())?;
                 }
                 Ok(())

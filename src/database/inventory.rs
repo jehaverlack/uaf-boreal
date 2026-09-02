@@ -1270,6 +1270,79 @@ pub fn refresh_drive_items(
     synchronize_drive_inner(database, inventory_scope, scan_id, items, true, false)
 }
 
+pub fn mark_drive_item_missing(
+    database: &Database,
+    inventory_scope: &str,
+    scan_id: i64,
+    item_id: &str,
+) -> Result<InventorySummary, DatabaseError> {
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    let (relative_path, is_directory): (String, bool) = transaction.query_row(
+        "SELECT relative_path, is_directory FROM drive_items
+         WHERE remote_name = ?1 AND item_id = ?2 AND is_deleted = 0",
+        params![inventory_scope, item_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    let child_prefix = format!("{relative_path}/%");
+    let deleted_items = transaction.execute(
+        "UPDATE drive_items
+         SET is_deleted = 1, deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP)
+         WHERE remote_name = ?1 AND is_deleted = 0
+           AND (item_id = ?2 OR (?3 = 1 AND relative_path LIKE ?4))",
+        params![inventory_scope, item_id, is_directory, child_prefix],
+    )? as u64;
+
+    let mut folder_sizes: HashMap<String, u64> = HashMap::new();
+    {
+        let mut statement = transaction.prepare(
+            "SELECT relative_path, COALESCE(size_bytes, 0) FROM drive_items
+             WHERE remote_name = ?1 AND is_deleted = 0 AND is_directory = 0",
+        )?;
+        let rows = statement.query_map([inventory_scope], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        for row in rows {
+            let (path, size) = row?;
+            let mut ancestor = path.rsplit_once('/').map(|(parent, _)| parent);
+            while let Some(folder_path) = ancestor {
+                let total = folder_sizes.entry(folder_path.to_string()).or_default();
+                *total = total.saturating_add(size.max(0) as u64);
+                ancestor = folder_path.rsplit_once('/').map(|(parent, _)| parent);
+            }
+        }
+    }
+    transaction.execute(
+        "UPDATE drive_items SET cumulative_size_bytes = 0
+         WHERE remote_name = ?1 AND is_directory = 1",
+        [inventory_scope],
+    )?;
+    for (folder_path, size) in folder_sizes {
+        transaction.execute(
+            "UPDATE drive_items SET cumulative_size_bytes = ?3
+             WHERE remote_name = ?1 AND relative_path = ?2 AND is_directory = 1",
+            params![inventory_scope, folder_path, size as i64],
+        )?;
+    }
+
+    transaction.execute(
+        "UPDATE scan_runs SET status = 'complete', completed_at = CURRENT_TIMESTAMP,
+             error_message = NULL, deleted_items = ?2 WHERE id = ?1",
+        params![scan_id, deleted_items as i64],
+    )?;
+    let completed_at = transaction.query_row(
+        "SELECT completed_at FROM scan_runs WHERE id = ?1",
+        [scan_id],
+        |row| row.get(0),
+    )?;
+    transaction.commit()?;
+    Ok(InventorySummary {
+        deleted_items,
+        completed_at,
+        ..InventorySummary::default()
+    })
+}
+
 fn synchronize_drive_inner(
     database: &Database,
     inventory_scope: &str,
