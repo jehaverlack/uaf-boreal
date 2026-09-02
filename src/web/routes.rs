@@ -212,10 +212,13 @@ pub struct MigrationView {
     pub created_at: String,
     pub started_at: String,
     pub completed_at: String,
+    pub copy_completed_at: String,
     pub error_message: String,
     pub archived_at: String,
     pub can_cancel: bool,
     pub can_archive: bool,
+    pub can_start: bool,
+    pub running: bool,
     pub sources: Vec<database::migration::MigrationSource>,
 }
 
@@ -906,6 +909,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/migrations/{migration_id}/destination",
             post(save_migration_destination),
+        )
+        .route(
+            "/migrations/{migration_id}/start",
+            post(start_migration_copy),
         )
         .route("/downloads/start", post(start_download))
         .route("/ui/download-status", get(ui_download_status))
@@ -1966,6 +1973,18 @@ async fn save_migration_destination(
     }
 }
 
+async fn start_migration_copy(
+    State(state): State<Arc<AppState>>,
+    Path(migration_id): Path<i64>,
+) -> Result<axum::response::Response, StatusCode> {
+    match AppState::start_migration_copy(Arc::clone(&state), migration_id) {
+        Ok(()) => Ok(Redirect::to(&format!("/migrations/{migration_id}")).into_response()),
+        Err(error) => {
+            render_migration_wizard(&state, migration_id, error).map(IntoResponse::into_response)
+        }
+    }
+}
+
 fn render_migration_wizard(
     state: &AppState,
     migration_id: i64,
@@ -2007,6 +2026,8 @@ fn render_migration_wizard(
 fn migration_view(job: database::migration::MigrationJob) -> MigrationView {
     let can_cancel = job.started_at.is_empty() && matches!(job.status.as_str(), "draft" | "ready");
     let can_archive = job.status == "completed" && job.archived_at.is_empty();
+    let can_start = job.status == "ready" && job.started_at.is_empty();
+    let running = matches!(job.status.as_str(), "preflight" | "running");
     MigrationView {
         id: job.id,
         source_label: if job.source_kind == "my-drive" {
@@ -2036,10 +2057,13 @@ fn migration_view(job: database::migration::MigrationJob) -> MigrationView {
         created_at: job.created_at,
         started_at: job.started_at,
         completed_at: job.completed_at,
+        copy_completed_at: job.copy_completed_at,
         error_message: job.error_message,
         archived_at: job.archived_at,
         can_cancel,
         can_archive,
+        can_start,
+        running,
         sources: job.sources,
     }
 }

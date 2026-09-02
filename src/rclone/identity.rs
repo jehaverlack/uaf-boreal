@@ -25,21 +25,33 @@ pub struct GoogleDriveFolder {
     pub id: String,
     pub name: String,
     pub drive_id: String,
+    pub can_add_children: bool,
 }
 
 pub fn fetch_google_drive_folder(
     runtime: &Runtime,
     folder_id: &str,
 ) -> Result<GoogleDriveFolder, RcloneError> {
+    fetch_google_drive_folder_for_remote(runtime, RemoteKind::MyDriveRo, folder_id)
+}
+
+pub fn fetch_google_drive_folder_for_remote(
+    runtime: &Runtime,
+    kind: RemoteKind,
+    folder_id: &str,
+) -> Result<GoogleDriveFolder, RcloneError> {
     let config_path = config::path(runtime)?;
-    let access_token = read_access_token(&config_path)?;
+    let access_token = read_access_token(&config_path, kind)?;
     let mut url = reqwest::Url::parse(&format!(
         "https://www.googleapis.com/drive/v3/files/{folder_id}"
     ))
     .map_err(|error| format!("Unable to build Google Drive folder URL: {error}"))?;
     url.query_pairs_mut()
         .append_pair("supportsAllDrives", "true")
-        .append_pair("fields", "id,name,mimeType,driveId");
+        .append_pair(
+            "fields",
+            "id,name,mimeType,driveId,capabilities(canAddChildren)",
+        );
     let response = google_client()?
         .get(url)
         .bearer_auth(access_token)
@@ -74,6 +86,11 @@ pub fn fetch_google_drive_folder(
         drive_id: value_string("driveId").ok_or(
             "The destination is not in a Shared Drive. Select a Shared Drive or one of its folders.",
         )?,
+        can_add_children: value
+            .get("capabilities")
+            .and_then(|capabilities| capabilities.get("canAddChildren"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     })
 }
 
@@ -112,7 +129,7 @@ pub fn download_google_sheet_csv(
 ) -> Result<(GoogleSheetLocation, Vec<u8>), RcloneError> {
     let location = parse_google_sheet_url(url)?;
     let config_path = config::path(runtime)?;
-    let access_token = read_access_token(&config_path)?;
+    let access_token = read_access_token(&config_path, RemoteKind::MyDriveRo)?;
     let export_url = format!(
         "https://docs.google.com/spreadsheets/d/{}/export?format=csv&gid={}",
         location.spreadsheet_id, location.gid,
@@ -142,7 +159,7 @@ pub fn fetch_shared_drive_permissions(
     drive_id: &str,
 ) -> Result<Vec<Value>, RcloneError> {
     let config_path = config::path(runtime)?;
-    let access_token = read_access_token(&config_path)?;
+    let access_token = read_access_token(&config_path, RemoteKind::MyDriveRo)?;
     let client = google_client()?;
     let mut page_token: Option<String> = None;
     let mut permissions = Vec::new();
@@ -230,7 +247,7 @@ fn parse_rclone_userinfo(bytes: &[u8]) -> Result<RemoteIdentity, RcloneError> {
 }
 
 fn fetch_drive_about(config_path: &Path) -> Result<RemoteIdentity, RcloneError> {
-    let access_token = read_access_token(config_path)?;
+    let access_token = read_access_token(config_path, RemoteKind::MyDriveRo)?;
     let client = google_client()?;
     let response = client
         .get("https://www.googleapis.com/drive/v3/about?fields=user%28displayName%2CemailAddress%2CpermissionId%29")
@@ -265,12 +282,16 @@ fn google_client() -> Result<reqwest::blocking::Client, RcloneError> {
         .map_err(|error| format!("Unable to create Google API client: {error}").into())
 }
 
-fn read_access_token(config_path: &Path) -> Result<String, RcloneError> {
+fn read_access_token(config_path: &Path, kind: RemoteKind) -> Result<String, RcloneError> {
     let config_text = fs::read_to_string(config_path).map_err(|error| {
         format!("Unable to read rclone configuration for Google access: {error}")
     })?;
-    let token_json = remote_setting(&config_text, RemoteKind::MyDriveRo.name(), "token")
-        .ok_or("The read-only rclone remote does not contain an OAuth token")?;
+    let token_json = remote_setting(&config_text, kind.name(), "token").ok_or_else(|| {
+        format!(
+            "The {} rclone remote does not contain an OAuth token",
+            kind.label()
+        )
+    })?;
     let token: Value = serde_json::from_str(token_json)
         .map_err(|error| format!("Invalid OAuth token in the read-only rclone remote: {error}"))?;
     token
@@ -278,7 +299,13 @@ fn read_access_token(config_path: &Path) -> Result<String, RcloneError> {
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
         .map(str::to_string)
-        .ok_or_else(|| "The read-only rclone remote OAuth token has no access token".into())
+        .ok_or_else(|| {
+            format!(
+                "The {} rclone remote OAuth token has no access token",
+                kind.label()
+            )
+            .into()
+        })
 }
 
 fn identity_from_value(value: Value) -> Result<RemoteIdentity, RcloneError> {

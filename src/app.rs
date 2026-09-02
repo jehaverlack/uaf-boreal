@@ -441,6 +441,91 @@ impl AppState {
         }
     }
 
+    pub fn start_migration_copy(state: Arc<Self>, migration_id: i64) -> Result<(), String> {
+        let database = state.database()?;
+        let job = database::migration::get(&database, migration_id)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| format!("Unknown migration: {migration_id}"))?;
+        if job.destination_drive_name.is_empty() || job.destination_folder_name.is_empty() {
+            return Err("Validate a migration destination before starting the copy".to_string());
+        }
+        let executable = match state.rclone_state() {
+            RcloneState::Ready(status) => status.path,
+            _ => return Err("Rclone is not ready".to_string()),
+        };
+        let remotes = state.google_remotes_state();
+        if !matches!(remotes.ro, RemoteState::Ready) {
+            return Err("My Drive RO is not ready".to_string());
+        }
+        if !matches!(remotes.rw, RemoteState::Ready) {
+            return Err("Add and authorize My Drive RW before starting a migration".to_string());
+        }
+        database::migration::begin_copy(&database, migration_id)
+            .map_err(|error| error.to_string())?;
+
+        tokio::spawn(async move {
+            let failure_database = database.clone();
+            let result = tokio::task::spawn_blocking(move || -> Result<(), String> {
+                if let Err(error) = rclone::migration::preflight_copy(
+                    &state.runtime,
+                    &executable,
+                    &job.destination_drive_id,
+                    &job.destination_folder_id,
+                    &job.sources,
+                ) {
+                    let message = error.to_string();
+                    let _ = database::migration::fail_preflight(&database, migration_id, &message);
+                    return Err(message);
+                }
+                database::migration::confirm_copy_started(&database, migration_id)
+                    .map_err(|error| error.to_string())?;
+                for source in &job.sources {
+                    database::migration::start_source(&database, migration_id, &source.item_id)
+                        .map_err(|error| error.to_string())?;
+                    if let Err(error) = rclone::migration::copy_source(
+                        &state.runtime,
+                        &executable,
+                        &job.source_kind,
+                        source,
+                        &job.destination_drive_id,
+                        &job.destination_folder_id,
+                    ) {
+                        let message = error.to_string();
+                        let _ = database::migration::fail_copy(
+                            &database,
+                            migration_id,
+                            Some(&source.item_id),
+                            &message,
+                        );
+                        return Err(message);
+                    }
+                    database::migration::complete_source(&database, migration_id, &source.item_id)
+                        .map_err(|error| error.to_string())?;
+                }
+                database::migration::complete_copy(&database, migration_id)
+                    .map_err(|error| error.to_string())
+            })
+            .await;
+            let task_error = match result {
+                Ok(Ok(())) => None,
+                Ok(Err(error)) => Some(error),
+                Err(error) => Some(format!("Migration copy task failed: {error}")),
+            };
+            if let Some(message) = task_error {
+                let preflight_failed = database::migration::get(&failure_database, migration_id)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|job| job.status == "ready" && job.started_at.is_empty());
+                if preflight_failed {
+                    return;
+                }
+                let _ =
+                    database::migration::fail_copy(&failure_database, migration_id, None, &message);
+            }
+        });
+        Ok(())
+    }
+
     pub fn database(&self) -> Result<Database, String> {
         match &self.database {
             DatabaseState::Ready(database) => Ok(database.clone()),

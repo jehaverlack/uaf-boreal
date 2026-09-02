@@ -11,6 +11,8 @@ pub struct MigrationJob {
     pub destination_url: String,
     pub destination_drive_name: String,
     pub destination_folder_name: String,
+    pub destination_drive_id: String,
+    pub destination_folder_id: String,
     pub files_total: u64,
     pub folders_total: u64,
     pub bytes_total: u64,
@@ -20,6 +22,7 @@ pub struct MigrationJob {
     pub created_at: String,
     pub started_at: String,
     pub completed_at: String,
+    pub copy_completed_at: String,
     pub archived_at: String,
     pub error_message: String,
     pub sources: Vec<MigrationSource>,
@@ -34,6 +37,8 @@ pub struct MigrationSource {
     pub files_total: u64,
     pub folders_total: u64,
     pub bytes_total: u64,
+    pub status: String,
+    pub error_message: String,
 }
 
 pub fn create(
@@ -126,7 +131,8 @@ pub fn list(
                 destination_folder_name, files_total, folders_total, bytes_total,
                 files_copied, bytes_copied, exceptions_count, created_at,
                 COALESCE(started_at, ''), COALESCE(completed_at, ''), error_message,
-                COALESCE(archived_at, '')
+                COALESCE(archived_at, ''), destination_drive_id, destination_folder_id,
+                COALESCE(copy_completed_at, '')
          FROM migration_jobs mj
          WHERE (?1 OR mj.archived_at IS NULL)
            AND (?2 = '' OR CAST(mj.id AS TEXT) LIKE ?3 OR mj.source_kind LIKE ?3
@@ -157,7 +163,8 @@ pub fn get(database: &Database, id: i64) -> Result<Option<MigrationJob>, Databas
                     destination_folder_name, files_total, folders_total, bytes_total,
                     files_copied, bytes_copied, exceptions_count, created_at,
                     COALESCE(started_at, ''), COALESCE(completed_at, ''), error_message
-                    , COALESCE(archived_at, '')
+                    , COALESCE(archived_at, ''), destination_drive_id, destination_folder_id,
+                    COALESCE(copy_completed_at, '')
              FROM migration_jobs WHERE id = ?1",
             [id],
             job_from_row,
@@ -165,7 +172,8 @@ pub fn get(database: &Database, id: i64) -> Result<Option<MigrationJob>, Databas
         .optional()?;
     if let Some(job) = &mut job {
         let mut statement = connection.prepare(
-            "SELECT item_id, name, relative_path, is_directory, files_total, folders_total, bytes_total
+            "SELECT item_id, name, relative_path, is_directory, files_total, folders_total, bytes_total,
+                    status, error_message
              FROM migration_sources WHERE migration_id = ?1 ORDER BY name COLLATE NOCASE",
         )?;
         job.sources = statement
@@ -178,6 +186,8 @@ pub fn get(database: &Database, id: i64) -> Result<Option<MigrationJob>, Databas
                     files_total: row.get::<_, i64>(4)? as u64,
                     folders_total: row.get::<_, i64>(5)? as u64,
                     bytes_total: row.get::<_, i64>(6)? as u64,
+                    status: row.get(7)?,
+                    error_message: row.get(8)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -196,6 +206,106 @@ pub fn cancel(database: &Database, id: i64) -> Result<(), DatabaseError> {
     if changed == 0 {
         return Err("Only migrations that have not started can be canceled".into());
     }
+    Ok(())
+}
+
+pub fn begin_copy(database: &Database, id: i64) -> Result<(), DatabaseError> {
+    let connection = database.connect()?;
+    let changed = connection.execute(
+        "UPDATE migration_jobs
+         SET status = 'preflight', phase = 'Validating destination write access',
+             updated_at = CURRENT_TIMESTAMP, error_message = ''
+         WHERE id = ?1 AND status = 'ready' AND started_at IS NULL AND archived_at IS NULL",
+        [id],
+    )?;
+    if changed == 0 {
+        return Err("Only a ready migration that has not started can be started".into());
+    }
+    Ok(())
+}
+
+pub fn confirm_copy_started(database: &Database, id: i64) -> Result<(), DatabaseError> {
+    let changed = database.connect()?.execute(
+        "UPDATE migration_jobs SET status = 'running', phase = 'Copying selected items',
+             started_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?1 AND status = 'preflight' AND started_at IS NULL",
+        [id],
+    )?;
+    if changed == 0 {
+        return Err("Migration preflight is no longer active".into());
+    }
+    Ok(())
+}
+
+pub fn fail_preflight(database: &Database, id: i64, error: &str) -> Result<(), DatabaseError> {
+    database.connect()?.execute(
+        "UPDATE migration_jobs SET status = 'ready', phase = 'Preflight requires attention',
+             error_message = ?2, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?1 AND status = 'preflight' AND started_at IS NULL",
+        params![id, error],
+    )?;
+    Ok(())
+}
+
+pub fn start_source(database: &Database, id: i64, item_id: &str) -> Result<(), DatabaseError> {
+    database.connect()?.execute(
+        "UPDATE migration_sources SET status = 'running', started_at = CURRENT_TIMESTAMP,
+             error_message = '' WHERE migration_id = ?1 AND item_id = ?2",
+        params![id, item_id],
+    )?;
+    Ok(())
+}
+
+pub fn complete_source(database: &Database, id: i64, item_id: &str) -> Result<(), DatabaseError> {
+    let connection = database.connect()?;
+    connection.execute(
+        "UPDATE migration_sources SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+         WHERE migration_id = ?1 AND item_id = ?2",
+        params![id, item_id],
+    )?;
+    connection.execute(
+        "UPDATE migration_jobs SET
+             files_copied = (SELECT COALESCE(SUM(files_total), 0) FROM migration_sources
+                             WHERE migration_id = ?1 AND status = 'completed'),
+             bytes_copied = (SELECT COALESCE(SUM(bytes_total), 0) FROM migration_sources
+                             WHERE migration_id = ?1 AND status = 'completed'),
+             updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+        [id],
+    )?;
+    Ok(())
+}
+
+pub fn fail_copy(
+    database: &Database,
+    id: i64,
+    item_id: Option<&str>,
+    error: &str,
+) -> Result<(), DatabaseError> {
+    let connection = database.connect()?;
+    if let Some(item_id) = item_id {
+        connection.execute(
+            "UPDATE migration_sources SET status = 'failed', completed_at = CURRENT_TIMESTAMP,
+                 error_message = ?3 WHERE migration_id = ?1 AND item_id = ?2",
+            params![id, item_id, error],
+        )?;
+    }
+    connection.execute(
+        "UPDATE migration_jobs SET status = 'error', phase = 'Copy failed', error_message = ?2,
+             exceptions_count = exceptions_count + 1,
+             updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+        params![id, error],
+    )?;
+    Ok(())
+}
+
+pub fn complete_copy(database: &Database, id: i64) -> Result<(), DatabaseError> {
+    database.connect()?.execute(
+        "UPDATE migration_jobs SET status = 'copied', phase = 'Copy complete; verification pending',
+             files_copied = files_total, bytes_copied = bytes_total,
+             copy_completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?1 AND status = 'running'",
+        [id],
+    )?;
     Ok(())
 }
 
@@ -275,6 +385,9 @@ fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MigrationJob> {
         completed_at: row.get(15)?,
         error_message: row.get(16)?,
         archived_at: row.get(17)?,
+        destination_drive_id: row.get(18)?,
+        destination_folder_id: row.get(19)?,
+        copy_completed_at: row.get(20)?,
         sources: Vec::new(),
     })
 }
