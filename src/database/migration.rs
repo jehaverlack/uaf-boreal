@@ -146,12 +146,16 @@ pub fn list(
     );
     let mut statement = connection.prepare(&sql)?;
     let pattern = format!("%{}%", search.trim());
-    let jobs = statement
+    let mut jobs = statement
         .query_map(
             params![include_archived, search.trim(), pattern],
             job_from_row,
         )?
         .collect::<Result<Vec<_>, _>>()?;
+    drop(statement);
+    for job in &mut jobs {
+        job.sources = load_sources(&connection, job.id)?;
+    }
     Ok(jobs)
 }
 
@@ -171,28 +175,36 @@ pub fn get(database: &Database, id: i64) -> Result<Option<MigrationJob>, Databas
         )
         .optional()?;
     if let Some(job) = &mut job {
-        let mut statement = connection.prepare(
-            "SELECT item_id, name, relative_path, is_directory, files_total, folders_total, bytes_total,
-                    status, error_message
-             FROM migration_sources WHERE migration_id = ?1 ORDER BY name COLLATE NOCASE",
-        )?;
-        job.sources = statement
-            .query_map([id], |row| {
-                Ok(MigrationSource {
-                    item_id: row.get(0)?,
-                    name: row.get(1)?,
-                    relative_path: row.get(2)?,
-                    is_directory: row.get(3)?,
-                    files_total: row.get::<_, i64>(4)? as u64,
-                    folders_total: row.get::<_, i64>(5)? as u64,
-                    bytes_total: row.get::<_, i64>(6)? as u64,
-                    status: row.get(7)?,
-                    error_message: row.get(8)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
+        job.sources = load_sources(&connection, id)?;
     }
     Ok(job)
+}
+
+fn load_sources(
+    connection: &rusqlite::Connection,
+    id: i64,
+) -> Result<Vec<MigrationSource>, DatabaseError> {
+    let mut statement = connection.prepare(
+        "SELECT item_id, name, relative_path, is_directory, files_total, folders_total, bytes_total,
+                status, error_message
+         FROM migration_sources WHERE migration_id = ?1 ORDER BY name COLLATE NOCASE",
+    )?;
+    statement
+        .query_map([id], |row| {
+            Ok(MigrationSource {
+                item_id: row.get(0)?,
+                name: row.get(1)?,
+                relative_path: row.get(2)?,
+                is_directory: row.get(3)?,
+                files_total: row.get::<_, i64>(4)? as u64,
+                folders_total: row.get::<_, i64>(5)? as u64,
+                bytes_total: row.get::<_, i64>(6)? as u64,
+                status: row.get(7)?,
+                error_message: row.get(8)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(Into::into)
 }
 
 pub fn cancel(database: &Database, id: i64) -> Result<(), DatabaseError> {
