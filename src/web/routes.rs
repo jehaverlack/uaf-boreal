@@ -220,7 +220,21 @@ pub struct MigrationView {
     pub can_start: bool,
     pub running: bool,
     pub allows_my_drive_destination: bool,
-    pub sources: Vec<database::migration::MigrationSource>,
+    pub sources: Vec<MigrationSourceView>,
+}
+
+#[allow(dead_code)]
+pub struct MigrationSourceView {
+    pub item_id: String,
+    pub name: String,
+    pub relative_path: String,
+    pub is_directory: bool,
+    pub files_total: u64,
+    pub folders_total: u64,
+    pub bytes_total: u64,
+    pub status: String,
+    pub error_message: String,
+    pub drive_url: String,
 }
 
 #[allow(dead_code)]
@@ -2039,6 +2053,26 @@ fn migration_view(job: database::migration::MigrationJob) -> MigrationView {
     let can_start = job.status == "ready" && job.started_at.is_empty();
     let running = matches!(job.status.as_str(), "preflight" | "running");
     let allows_my_drive_destination = job.source_kind == "shared-with-me";
+    let sources = job
+        .sources
+        .into_iter()
+        .map(|source| MigrationSourceView {
+            drive_url: if source.is_directory {
+                format!("https://drive.google.com/drive/folders/{}", source.item_id)
+            } else {
+                format!("https://drive.google.com/open?id={}", source.item_id)
+            },
+            item_id: source.item_id,
+            name: source.name,
+            relative_path: source.relative_path,
+            is_directory: source.is_directory,
+            files_total: source.files_total,
+            folders_total: source.folders_total,
+            bytes_total: source.bytes_total,
+            status: source.status,
+            error_message: source.error_message,
+        })
+        .collect();
     MigrationView {
         id: job.id,
         source_label: if job.source_kind == "my-drive" {
@@ -2076,7 +2110,7 @@ fn migration_view(job: database::migration::MigrationJob) -> MigrationView {
         can_start,
         running,
         allows_my_drive_destination,
-        sources: job.sources,
+        sources,
     }
 }
 
