@@ -73,7 +73,7 @@
                                 <a href="https://drive.google.com/drive/folders/{{ drive.drive_id }}" target="_blank" rel="noopener noreferrer" title="Open {{ drive.name }} in Google Drive" aria-label="Open {{ drive.name }} in Google Drive">
                                     <svg class="boreal-google-drive-icon" viewBox="0 0 87.3 78" aria-hidden="true"><path fill="#0066da" d="m6.6 66.9 3.8 6.6c.8 1.4 2 2.5 3.4 3.3L27.4 53H.2c0 1.6.4 3.2 1.2 4.6z"/><path fill="#00ac47" d="M43.7 25.2 30.1 1.4A10 10 0 0 0 26.6 0L13.8 22.3 27.4 46z"/><path fill="#ea4335" d="M73.5 76.8a10 10 0 0 0 3.4-3.3l1.6-2.8 7.5-13.1c.8-1.4 1.2-3 1.2-4.6H59.8l5.8 11.4z"/><path fill="#00832d" d="M43.7 25.2 57.3 1.4A10 10 0 0 0 53.8 0H33.6c-2.5 0-4.8.5-7 1.4z"/><path fill="#2684fc" d="M59.8 53H27.4L13.8 76.8c1.4.8 3 1.2 4.6 1.2h50.5c1.6 0 3.2-.4 4.6-1.2z"/><path fill="#ffba00" d="M73.3 26.7 60.7 4.6a10 10 0 0 0-3.4-3.2L43.7 25.2 59.8 53h27.3c0-1.6-.4-3.2-1.2-4.6z"/></svg>
                                 </a>
-                                {% if drive.is_accessible %}<button class="btn btn-link btn-sm p-0 ms-1 boreal-download-shared-drive" type="button" data-bs-toggle="modal" data-bs-target="#sharedDriveDownloadModal" data-drive-id="{{ drive.drive_id }}" data-drive-name="{{ drive.name }}" title="Download this Shared Drive to a local folder" aria-label="Download {{ drive.name }}"><i class="bi bi-download" aria-hidden="true"></i></button>{% endif %}
+                                {% if drive.is_accessible %}<button class="btn btn-link btn-sm p-0 ms-1" type="submit" formaction="/migrations/download/shared-drive/{{ drive.drive_id }}" formmethod="post" title="Download this Shared Drive to a local folder" aria-label="Download {{ drive.name }}"><i class="bi bi-download" aria-hidden="true"></i></button>{% endif %}
                             </td>
                             <td><a class="text-decoration-none fw-semibold" href="/shared-drives?drive={{ drive.drive_id }}">{{ drive.name }}</a>{% if !drive.is_accessible %}<span class="badge text-bg-warning ms-1">Not accessible</span>{% else if drive.last_error.len() > 0 %}<span class="badge text-bg-danger ms-1" title="{{ drive.last_error }}">Scan failed</span>{% endif %}</td>
                             <td><div class="d-flex flex-wrap gap-1">{% for tag in drive.tags %}<span class="badge rounded-pill" style="background-color: {{ tag.color }}; color: {{ tag.text_color }}" title="{{ tag.description }}">{{ tag.name }}</span>{% endfor %}</div></td>
@@ -90,31 +90,7 @@
     </form>
 </div>
 
-<div class="modal fade" id="sharedDriveDownloadModal" tabindex="-1" aria-labelledby="sharedDriveDownloadModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
-        <div class="modal-header"><h2 class="modal-title fs-5" id="sharedDriveDownloadModalLabel"><i class="bi bi-download me-2"></i>Download <span id="shared-drive-download-name"></span></h2><button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Close"></button></div>
-        <div class="modal-body">
-            <p>Choose a local destination folder. BOREAL will copy the entire Shared Drive into a folder named after the drive using its read-only Rclone remote.</p>
-            <p class="small text-body-secondary">Existing files with the same names may be updated. Other files in the destination will not be deleted.</p>
-            <form hx-post="/downloads/start" hx-target="#download-status" hx-swap="outerHTML" hx-disabled-elt="#shared-drive-download-choose-folder" hx-on::after-request="window.borealRefreshDownloadStatus?.()">
-                <input type="hidden" name="item_id" value=""><input id="shared-drive-download-scope" type="hidden" name="inventory_scope"><input id="shared-drive-download-id" type="hidden" name="drive"><input type="hidden" name="shared_drive_root" value="true">
-                <button id="shared-drive-download-choose-folder" class="btn btn-primary mb-3" type="submit"><i class="bi bi-folder2-open me-1"></i>Choose destination folder</button>
-            </form>
-            <div id="download-status"><p class="text-body-secondary mb-0">Choose a destination folder to begin.</p></div>
-        </div>
-    </div></div>
-</div>
-
 <script>
-    document.querySelectorAll(".boreal-download-shared-drive").forEach((button) => {
-        button.addEventListener("click", () => {
-            document.getElementById("shared-drive-download-id").value = button.dataset.driveId;
-            document.getElementById("shared-drive-download-scope").value = `shared-drive:${button.dataset.driveId}`;
-            document.getElementById("shared-drive-download-name").textContent = button.dataset.driveName;
-            document.getElementById("download-status").innerHTML = '<p class="text-body-secondary mb-0">Choose a destination folder to begin.</p>';
-        });
-    });
-
     document.querySelectorAll(".boreal-tag-filter-pill").forEach((button) => {
         button.addEventListener("click", () => {
             const input = document.getElementById("shared-drive-tag-filter");

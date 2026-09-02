@@ -1,4 +1,8 @@
-use std::sync::{Arc, OnceLock};
+use std::{
+    path::{Path as FsPath, PathBuf},
+    process::Command,
+    sync::{Arc, OnceLock},
+};
 
 use askama::Template;
 
@@ -222,9 +226,24 @@ struct HelpTemplate {
 }
 
 #[allow(dead_code)]
+#[derive(Template)]
+#[template(path = "google-client.html", config = "askama.toml")]
+struct GoogleClientTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+}
+
+#[allow(dead_code)]
 pub struct MigrationView {
     pub id: i64,
     pub source_label: String,
+    pub operation_label: String,
+    pub destination_kind: String,
+    pub destination_path: String,
+    pub can_open_local: bool,
     pub status: String,
     pub phase: String,
     pub destination_url: String,
@@ -239,13 +258,16 @@ pub struct MigrationView {
     pub started_at: String,
     pub completed_at: String,
     pub copy_completed_at: String,
+    pub resume_count: u64,
     pub error_message: String,
     pub archived_at: String,
     pub can_cancel: bool,
     pub can_archive: bool,
     pub can_start: bool,
+    pub can_resume: bool,
     pub running: bool,
     pub allows_my_drive_destination: bool,
+    pub allows_google_destination: bool,
     pub sources: Vec<MigrationSourceView>,
 }
 
@@ -758,16 +780,6 @@ struct ApplyTagForm {
 }
 
 #[derive(serde::Deserialize)]
-struct DownloadForm {
-    item_id: String,
-    inventory_scope: String,
-    #[serde(default)]
-    drive: String,
-    #[serde(default)]
-    shared_drive_root: bool,
-}
-
-#[derive(serde::Deserialize)]
 struct SharedDriveTagForm {
     #[serde(default)]
     selected_drive_ids: String,
@@ -872,6 +884,12 @@ struct MetadataUpdateForm {
     directory_info: Option<String>,
 }
 
+#[derive(Default, serde::Deserialize)]
+struct QuitQuery {
+    #[serde(default)]
+    force: bool,
+}
+
 #[derive(serde::Deserialize)]
 struct SelectedMetadataUpdateForm {
     #[serde(default)]
@@ -889,6 +907,14 @@ struct NewMigrationForm {
     #[serde(default)]
     selected_item_ids: String,
     #[serde(default)]
+    inventory_scope: String,
+    #[serde(default)]
+    intent: String,
+}
+
+#[derive(serde::Deserialize)]
+struct DownloadMigrationForm {
+    item_id: String,
     inventory_scope: String,
 }
 
@@ -966,6 +992,11 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/migrations", get(migrations_page))
         .route("/migrations/new", post(create_migration))
+        .route("/migrations/download", post(create_download_migration))
+        .route(
+            "/migrations/download/shared-drive/{drive_id}",
+            post(create_shared_drive_download_migration),
+        )
         .route("/migrations/{migration_id}", get(migration_wizard))
         .route("/migrations/{migration_id}/cancel", post(cancel_migration))
         .route(
@@ -977,10 +1008,17 @@ pub fn router() -> Router<Arc<AppState>> {
             post(save_migration_destination),
         )
         .route(
+            "/migrations/{migration_id}/local-destination",
+            post(save_local_migration_destination),
+        )
+        .route(
+            "/migrations/{migration_id}/open-local",
+            post(open_local_migration_destination),
+        )
+        .route(
             "/migrations/{migration_id}/start",
             post(start_migration_copy),
         )
-        .route("/downloads/start", post(start_download))
         .route("/ui/download-status", get(ui_download_status))
         .route("/ui/download-status-item", get(ui_download_status_item))
         .route("/tags", get(tags_page))
@@ -1018,6 +1056,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/tags/update", post(update_tag))
         .route("/tags/delete", post(delete_tag))
         .route("/settings", get(settings_page).post(save_settings))
+        .route("/google-client", get(google_client_page))
         .route(
             "/settings/bookmark-reminder/dismiss",
             post(dismiss_bookmark_reminder),
@@ -1028,6 +1067,7 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/settings/directory/test", post(test_directory_sheet))
         .route("/status", get(status))
+        .route("/app/instance", get(instance_identity))
         .route("/rclone-gui", get(open_rclone_gui))
         .route("/ui/alerts", get(ui_alerts))
         .route("/ui/status", get(ui_status))
@@ -1260,11 +1300,9 @@ fn build_setup_progress(
     let google_step = match google_client_state {
         GoogleClientState::NotConfigured => SetupStep {
             icon: "bi-key",
-            title: "Configure Google Client ID",
-            description:
-                "Enable the Google Drive API, create a Desktop OAuth client, and import its JSON file."
-                    .to_string(),
-            state_label: "Set up",
+            title: "Upload Google Client ID",
+            description: "Upload a Google OAuth Desktop app credentials JSON file.".to_string(),
+            state_label: "Upload JSON",
             state_class: "text-bg-warning",
             complete: false,
             modal_target: "googleClientSetupModal",
@@ -1273,11 +1311,9 @@ fn build_setup_progress(
             detail: String::new(),
         },
 
-        GoogleClientState::Ready(
-            _,
-        ) => SetupStep {
+        GoogleClientState::Ready(_) => SetupStep {
             icon: "bi-check-circle-fill",
-            title: "Configure Google Client ID",
+            title: "Upload Google Client ID",
             description:
                 "Google Desktop OAuth credentials are stored in BOREAL's private conf directory."
                     .to_string(),
@@ -1290,15 +1326,11 @@ fn build_setup_progress(
             detail: String::new(),
         },
 
-        GoogleClientState::Error(
-            error,
-        ) => SetupStep {
+        GoogleClientState::Error(error) => SetupStep {
             icon: "bi-exclamation-triangle-fill",
-            title: "Configure Google Client ID",
-            description: format!(
-                "The saved credentials are invalid: {error}"
-            ),
-            state_label: "Fix setup",
+            title: "Upload Google Client ID",
+            description: format!("The saved credentials are invalid: {error}"),
+            state_label: "Upload JSON",
             state_class: "text-bg-danger",
             complete: false,
             modal_target: "googleClientSetupModal",
@@ -1913,6 +1945,35 @@ async fn help_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, S
     })
 }
 
+async fn google_client_page(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    render_template(&GoogleClientTemplate {
+        title: "Create Google Client ID - BOREAL",
+        active_page: "google-client",
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
+        status_items: build_status_items(
+            &state.download_state(),
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(&state),
+            &state.update_state(),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+    })
+}
+
 async fn migrations_page(
     State(state): State<Arc<AppState>>,
     Query(query): Query<MigrationListQuery>,
@@ -2064,15 +2125,61 @@ async fn create_migration(
     let database = state
         .database()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let id = database::migration::create(&database, &form.inventory_scope, source_kind, &item_ids)
-        .map_err(|error| {
-            eprintln!("Unable to create migration plan: {error}");
-            StatusCode::BAD_REQUEST
-        })?;
+    let operation_kind = if form.intent == "local-download" {
+        "local-download"
+    } else {
+        "drive-copy"
+    };
+    let id = database::migration::create(
+        &database,
+        &form.inventory_scope,
+        source_kind,
+        &item_ids,
+        operation_kind,
+    )
+    .map_err(|error| {
+        eprintln!("Unable to create migration plan: {error}");
+        StatusCode::BAD_REQUEST
+    })?;
     log::info!(
         "Migration plan created: migration_id={id}, source_kind={source_kind}, sources={}",
         item_ids.len(),
     );
+    Ok(Redirect::to(&format!("/migrations/{id}")))
+}
+
+async fn create_download_migration(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<DownloadMigrationForm>,
+) -> Result<Redirect, StatusCode> {
+    let source_kind = match form.inventory_scope.as_str() {
+        database::inventory::MY_DRIVE_SCOPE => "my-drive",
+        database::inventory::SHARED_WITH_ME_SCOPE => "shared-with-me",
+        _ => return Err(StatusCode::BAD_REQUEST),
+    };
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let id = database::migration::create(
+        &database,
+        &form.inventory_scope,
+        source_kind,
+        &[form.item_id],
+        "local-download",
+    )
+    .map_err(|_| StatusCode::BAD_REQUEST)?;
+    Ok(Redirect::to(&format!("/migrations/{id}")))
+}
+
+async fn create_shared_drive_download_migration(
+    State(state): State<Arc<AppState>>,
+    Path(drive_id): Path<String>,
+) -> Result<Redirect, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let id = database::migration::create_shared_drive_download(&database, &drive_id)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
     Ok(Redirect::to(&format!("/migrations/{id}")))
 }
 
@@ -2094,6 +2201,9 @@ async fn save_migration_destination(
         let job = database::migration::get(&database, migration_id)
             .map_err(|error| error.to_string())?
             .ok_or_else(|| format!("Unknown migration: {migration_id}"))?;
+        if job.source_kind == "shared-drive" {
+            return Err("Shared Drives can only be copied to a local destination.".to_string());
+        }
         let require_shared_drive = job.source_kind == "my-drive";
         let executable = match state.rclone_state() {
             RcloneState::Ready(status) => status.path,
@@ -2180,6 +2290,126 @@ async fn save_migration_destination(
     }
 }
 
+async fn save_local_migration_destination(
+    State(state): State<Arc<AppState>>,
+    Path(migration_id): Path<i64>,
+) -> Result<axum::response::Response, StatusCode> {
+    let selected = crate::desktop::pick_folder("Choose BOREAL migration destination");
+    let Some(selected) = selected else {
+        return render_migration_wizard(
+            &state,
+            migration_id,
+            "Local folder selection was cancelled.".to_string(),
+        )
+        .map(IntoResponse::into_response);
+    };
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::migration::set_local_destination(
+        &database,
+        migration_id,
+        &selected.display().to_string(),
+    )
+    .map_err(|_| StatusCode::CONFLICT)?;
+    Ok(Redirect::to(&format!("/migrations/{migration_id}")).into_response())
+}
+
+async fn open_local_migration_destination(
+    State(state): State<Arc<AppState>>,
+    Path(migration_id): Path<i64>,
+) -> Result<axum::response::Response, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let migration = database::migration::get(&database, migration_id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if migration.destination_kind != "local" || migration.destination_path.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let path = FsPath::new(&migration.destination_path);
+    if !path.is_dir() {
+        return render_migration_wizard(
+            &state,
+            migration_id,
+            format!(
+                "The local destination folder no longer exists: {}",
+                migration.destination_path
+            ),
+        )
+        .map(IntoResponse::into_response);
+    }
+    let open_path = PathBuf::from(path);
+    let open_result = tokio::task::spawn_blocking(move || open_folder_in_os(&open_path))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if let Err(error) = open_result {
+        log::warn!(
+            "Unable to open local migration destination: migration_id={migration_id}, path={}, error={error}",
+            migration.destination_path,
+        );
+        return render_migration_wizard(&state, migration_id, error)
+            .map(IntoResponse::into_response);
+    }
+    log::info!(
+        "Opened local migration destination: migration_id={migration_id}, path={}",
+        migration.destination_path,
+    );
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+fn open_folder_in_os(path: &FsPath) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    let result = Command::new("explorer").arg(path).status();
+    #[cfg(target_os = "macos")]
+    let result = Command::new("open").arg(path).status();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = Command::new("xdg-open").arg(path).status();
+    #[cfg(not(any(target_os = "windows", target_os = "macos", unix)))]
+    let result: std::io::Result<std::process::ExitStatus> = Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "No supported file explorer command is available",
+    ));
+
+    match result {
+        Ok(status) if status.success() => Ok(()),
+        result => {
+            let command_error = match result {
+                Ok(status) => format!("file explorer exited with {status}"),
+                Err(error) => error.to_string(),
+            };
+            let file_url = local_file_url(path)?;
+            webbrowser::open(&file_url).map_err(|browser_error| {
+                format!(
+                    "Unable to open the folder in the OS file explorer ({command_error}) or as a file URL ({browser_error})."
+                )
+            })
+        }
+    }
+}
+
+fn local_file_url(path: &FsPath) -> Result<String, String> {
+    let canonical = path
+        .canonicalize()
+        .map_err(|error| format!("Unable to resolve the local destination: {error}"))?;
+    let normalized = canonical.to_string_lossy().replace('\\', "/");
+    let encoded = normalized
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b':' | b'-' | b'.' | b'_' | b'~' => {
+                (byte as char).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect::<String>();
+    Ok(if encoded.starts_with('/') {
+        format!("file://{encoded}")
+    } else {
+        format!("file:///{encoded}")
+    })
+}
+
 async fn start_migration_copy(
     State(state): State<Arc<AppState>>,
     Path(migration_id): Path<i64>,
@@ -2236,8 +2466,11 @@ fn migration_view(job: database::migration::MigrationJob) -> MigrationView {
     let can_archive =
         !matches!(job.status.as_str(), "preflight" | "running") && job.archived_at.is_empty();
     let can_start = job.status == "ready" && job.started_at.is_empty();
+    let can_resume = matches!(job.status.as_str(), "interrupted" | "error" | "copied")
+        && job.archived_at.is_empty();
     let running = matches!(job.status.as_str(), "preflight" | "running");
     let allows_my_drive_destination = job.source_kind == "shared-with-me";
+    let allows_google_destination = job.source_kind != "shared-drive";
     let sources = job
         .sources
         .into_iter()
@@ -2260,15 +2493,29 @@ fn migration_view(job: database::migration::MigrationJob) -> MigrationView {
         .collect();
     MigrationView {
         id: job.id,
-        source_label: if job.source_kind == "my-drive" {
-            "My Drive".into()
-        } else {
-            "Shared with Me".into()
+        source_label: match job.source_kind.as_str() {
+            "my-drive" => "My Drive".into(),
+            "shared-drive" => "Shared Drive".into(),
+            _ => "Shared with Me".into(),
         },
+        operation_label: if job.destination_kind == "local"
+            || job.operation_kind == "local-download"
+        {
+            "Local Download".into()
+        } else {
+            "Google Drive Migration".into()
+        },
+        destination_kind: job.destination_kind.clone(),
+        destination_path: job.destination_path.clone(),
+        can_open_local: job.destination_kind == "local"
+            && !job.destination_path.is_empty()
+            && FsPath::new(&job.destination_path).is_dir(),
         status: job.status,
         phase: job.phase,
         destination_url: job.destination_url,
-        destination_label: if job.destination_drive_name.is_empty() {
+        destination_label: if job.destination_kind == "local" {
+            job.destination_path.clone()
+        } else if job.destination_drive_name.is_empty() {
             "Not selected".into()
         } else if job.destination_folder_name == job.destination_drive_name {
             job.destination_drive_name
@@ -2288,13 +2535,16 @@ fn migration_view(job: database::migration::MigrationJob) -> MigrationView {
         started_at: job.started_at,
         completed_at: job.completed_at,
         copy_completed_at: job.copy_completed_at,
+        resume_count: job.resume_count,
         error_message: job.error_message,
         archived_at: job.archived_at,
         can_cancel,
         can_archive,
         can_start,
+        can_resume,
         running,
         allows_my_drive_destination,
+        allows_google_destination,
         sources,
     }
 }
@@ -2323,6 +2573,10 @@ fn google_drive_folder_id(url: &str) -> Result<String, String> {
 
 async fn status() -> StatusCode {
     StatusCode::NO_CONTENT
+}
+
+async fn instance_identity() -> &'static str {
+    "BOREAL"
 }
 
 async fn remotes_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
@@ -3724,146 +3978,6 @@ fn change_drive_tag(
     Ok(Redirect::to(&url))
 }
 
-async fn start_download(
-    State(state): State<Arc<AppState>>,
-    Form(form): Form<DownloadForm>,
-) -> Result<Html<String>, StatusCode> {
-    if matches!(state.download_state(), DownloadState::Running { .. }) {
-        return render_download_status(&state.download_state());
-    }
-    let executable = match state.rclone_state() {
-        RcloneState::Ready(status) => status.path,
-        _ => {
-            return render_download_message(
-                "error",
-                "Rclone must be ready before a download can start.".to_string(),
-                false,
-            );
-        }
-    };
-    let shared_drive_id = if let Some(id) = form
-        .inventory_scope
-        .strip_prefix(database::inventory::SHARED_DRIVE_SCOPE_PREFIX)
-    {
-        if id.is_empty() || id != form.drive {
-            return Err(StatusCode::BAD_REQUEST);
-        }
-        Some(id.to_string())
-    } else if form.inventory_scope == database::inventory::MY_DRIVE_SCOPE
-        || form.inventory_scope == database::inventory::SHARED_WITH_ME_SCOPE
-    {
-        None
-    } else {
-        return Err(StatusCode::BAD_REQUEST);
-    };
-    let database = state
-        .database()
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let item = if form.shared_drive_root {
-        let drive_id = shared_drive_id.as_deref().ok_or(StatusCode::BAD_REQUEST)?;
-        let drive = database::inventory::get_shared_drive(&database, drive_id)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .ok_or(StatusCode::NOT_FOUND)?;
-        if !drive.is_accessible {
-            return render_download_message(
-                "error",
-                "This Shared Drive is not currently accessible to the Rclone account.".to_string(),
-                false,
-            );
-        }
-        database::inventory::DriveDownloadItem {
-            name: drive.name,
-            relative_path: String::new(),
-            is_directory: true,
-            is_deleted: false,
-        }
-    } else {
-        database::inventory::get_drive_download_item(
-            &database,
-            &form.inventory_scope,
-            &form.item_id,
-        )
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?
-    };
-    if item.is_deleted {
-        return render_download_message(
-            "error",
-            "Deleted inventory items cannot be downloaded.".to_string(),
-            false,
-        );
-    }
-
-    let selected_folder = rfd::FileDialog::new()
-        .set_title("Choose BOREAL download destination")
-        .pick_folder();
-    let Some(selected_folder) = selected_folder else {
-        return render_download_message("cancelled", String::new(), false);
-    };
-    let destination = selected_folder.join(safe_download_name(&item.name));
-    let destination_label = destination.display().to_string();
-    let config_path =
-        rclone::config::path(&state.runtime).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    state.set_download_state(DownloadState::Running {
-        item_name: item.name.clone(),
-        destination: destination_label.clone(),
-    });
-    log::info!(
-        "Download started: scope={}, item_id={}, item_name={}, destination={}",
-        form.inventory_scope,
-        if form.shared_drive_root {
-            "<drive-root>"
-        } else {
-            &form.item_id
-        },
-        item.name,
-        destination_label,
-    );
-    let worker_state = Arc::clone(&state);
-    let item_name = item.name;
-    let shared_with_me = form.inventory_scope == database::inventory::SHARED_WITH_ME_SCOPE;
-    tokio::spawn(async move {
-        let result = tokio::task::spawn_blocking(move || {
-            rclone::download::copy_item(rclone::download::DownloadRequest {
-                executable: &executable,
-                config_path: &config_path,
-                relative_path: &item.relative_path,
-                destination: &destination,
-                is_directory: item.is_directory,
-                shared_with_me,
-                shared_drive_id: shared_drive_id.as_deref(),
-            })
-        })
-        .await;
-        match result {
-            Ok(Ok(())) => {
-                log::info!(
-                    "Download completed: item_name={item_name}, destination={destination_label}"
-                );
-                worker_state.set_download_state(DownloadState::Complete {
-                    item_name,
-                    destination: destination_label,
-                });
-            }
-            Ok(Err(error)) => {
-                log::error!("Download failed: item_name={item_name}, error={error}");
-                worker_state.set_download_state(DownloadState::Error {
-                    item_name,
-                    message: error.to_string(),
-                });
-            }
-            Err(error) => {
-                log::error!("Download task failed: item_name={item_name}, error={error}");
-                worker_state.set_download_state(DownloadState::Error {
-                    item_name,
-                    message: format!("Download task failed: {error}"),
-                });
-            }
-        }
-    });
-    render_download_status(&state.download_state())
-}
-
 async fn ui_download_status(
     State(state): State<Arc<AppState>>,
 ) -> Result<Html<String>, StatusCode> {
@@ -3919,53 +4033,6 @@ fn render_download_message(
         message,
         poll,
     })
-}
-
-fn safe_download_name(name: &str) -> String {
-    let sanitized = name
-        .chars()
-        .map(|character| match character {
-            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            _ => character,
-        })
-        .collect::<String>();
-    let sanitized = sanitized.trim().trim_matches('.');
-    if sanitized.is_empty() {
-        "Drive item".to_string()
-    } else if matches!(
-        sanitized
-            .split('.')
-            .next()
-            .unwrap_or_default()
-            .to_ascii_uppercase()
-            .as_str(),
-        "CON"
-            | "PRN"
-            | "AUX"
-            | "NUL"
-            | "COM1"
-            | "COM2"
-            | "COM3"
-            | "COM4"
-            | "COM5"
-            | "COM6"
-            | "COM7"
-            | "COM8"
-            | "COM9"
-            | "LPT1"
-            | "LPT2"
-            | "LPT3"
-            | "LPT4"
-            | "LPT5"
-            | "LPT6"
-            | "LPT7"
-            | "LPT8"
-            | "LPT9"
-    ) {
-        format!("_{sanitized}")
-    } else {
-        sanitized.to_string()
-    }
 }
 
 async fn tags_page(
@@ -4573,12 +4640,31 @@ async fn open_rclone_gui(State(state): State<Arc<AppState>>) -> Result<Redirect,
     Ok(Redirect::to(&url))
 }
 
-async fn quit(State(state): State<Arc<AppState>>) -> StatusCode {
+async fn quit(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<QuitQuery>,
+) -> axum::response::Response {
+    let active_jobs = state.active_job_descriptions();
+    if !query.force && !active_jobs.is_empty() {
+        return (
+            StatusCode::CONFLICT,
+            format!(
+                "BOREAL is currently running {}. Quitting now will interrupt active work. Quit anyway?",
+                active_jobs.join(" and ")
+            ),
+        )
+            .into_response();
+    }
     println!("Quit requested from WebUI.");
 
-    state.request_shutdown();
+    tokio::spawn(async move {
+        // Give the initiating browser tab time to process its close attempt
+        // before the local WebUI disappears.
+        tokio::time::sleep(std::time::Duration::from_millis(750)).await;
+        state.request_shutdown();
+    });
 
-    StatusCode::ACCEPTED
+    StatusCode::ACCEPTED.into_response()
 }
 
 async fn ui_alerts(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
@@ -4774,50 +4860,46 @@ fn metadata_scope_progress_views(
     };
     let my_drive = match phase {
         "Fetching My Drive metadata" => (true, false, 40, phase.to_string()),
-        "Saving My Drive metadata" => (true, false, 85, phase.to_string()),
-        "Saving Shared with me metadata" => (false, true, 100, "Complete".to_string()),
+        "Indexing My Drive metadata" => (true, false, 85, phase.to_string()),
         "Connecting" | "Downloading directory spreadsheet" | "Importing directory spreadsheet" => {
             (false, false, 0, "Waiting".to_string())
         }
-        _ => (false, false, 65, "Downloaded; waiting to index".to_string()),
+        _ => (false, true, 100, "Complete".to_string()),
     };
-    let shared_drives =
-        if phase == "Discovering Shared Drives" || phase.starts_with("Scanning Shared Drive ") {
-            (true, false, shared_drive_percent, phase.to_string())
-        } else if matches!(
-            phase,
-            "Fetching Shared with me metadata"
-                | "Saving My Drive metadata"
-                | "Saving Shared with me metadata"
-        ) {
-            (false, true, 100, "Complete".to_string())
-        } else {
-            (false, false, 0, "Waiting".to_string())
-        };
+    let shared_drives = if phase == "Discovering Shared Drives"
+        || phase.starts_with("Fetching Shared Drive managers ")
+        || phase.starts_with("Scanning Shared Drive ")
+    {
+        (true, false, shared_drive_percent, phase.to_string())
+    } else {
+        (false, false, 0, "Waiting".to_string())
+    };
     let shared_with_me = match phase {
         "Fetching Shared with me metadata" => (true, false, 45, phase.to_string()),
-        "Saving My Drive metadata" => {
-            (false, false, 65, "Downloaded; waiting to index".to_string())
-        }
-        "Saving Shared with me metadata" => (true, false, 85, phase.to_string()),
-        _ => (false, false, 0, "Waiting".to_string()),
+        "Indexing Shared with me metadata" => (true, false, 85, phase.to_string()),
+        "Connecting"
+        | "Downloading directory spreadsheet"
+        | "Importing directory spreadsheet"
+        | "Fetching My Drive metadata"
+        | "Indexing My Drive metadata" => (false, false, 0, "Waiting".to_string()),
+        _ => (false, true, 100, "Complete".to_string()),
     };
 
     [
+        ("Persons", selection.directory_info, "", directory),
         ("My Drive", selection.my_drive, "my-drive", my_drive),
-        (
-            "Shared Drives",
-            selection.shared_drives,
-            "shared-drives",
-            shared_drives,
-        ),
         (
             "Shared with me",
             selection.shared_with_me,
             "shared-with-me",
             shared_with_me,
         ),
-        ("Persons", selection.directory_info, "", directory),
+        (
+            "Shared Drives",
+            selection.shared_drives,
+            "shared-drives",
+            shared_drives,
+        ),
     ]
     .into_iter()
     .map(
@@ -5141,19 +5223,9 @@ fn rclone_gui_url(rclone_state: &RcloneState) -> String {
 fn build_alerts(
     rclone_state: &RcloneState,
     google_client_state: &GoogleClientState,
-    show_bookmark_reminder: bool,
+    _show_bookmark_reminder: bool,
 ) -> Vec<AlertItem> {
     let mut alerts = Vec::new();
-
-    if show_bookmark_reminder {
-        alerts.push(AlertItem {
-            level: "primary",
-            icon: "bi-bookmark-star",
-            message: "Bookmark this page so you can reopen BOREAL while it is running".to_string(),
-            modal_target: "",
-            dismiss_action: "/settings/bookmark-reminder/dismiss",
-        });
-    }
 
     match rclone_state {
         RcloneState::Initializing => {
@@ -5489,17 +5561,6 @@ mod tests {
         assert_eq!(view.progress_files_scanned, 500);
         assert_eq!(view.progress_folders_scanned, 75);
         assert_eq!(view.progress_permissions_scanned, 900);
-    }
-
-    #[test]
-    fn download_names_are_safe_local_path_components() {
-        assert_eq!(
-            safe_download_name("Budget: 2026/Final?.xlsx"),
-            "Budget_ 2026_Final_.xlsx"
-        );
-        assert_eq!(safe_download_name(".."), "Drive item");
-        assert_eq!(safe_download_name("CON.txt"), "_CON.txt");
-        assert_eq!(safe_download_name("Research"), "Research");
     }
 
     #[test]

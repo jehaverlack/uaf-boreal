@@ -30,6 +30,16 @@ pub async fn run(state: Arc<AppState>) -> Result<(), Box<dyn Error>> {
      */
     let listener = tokio::net::TcpListener::bind(&bind_address).await?;
 
+    if let Ok(database) = state.database() {
+        match crate::database::migration::recover_interrupted(&database) {
+            Ok(recovered) if recovered > 0 => {
+                log::warn!("Marked {recovered} interrupted migration(s) as resumable");
+            }
+            Ok(_) => {}
+            Err(error) => log::error!("Unable to recover interrupted migrations: {error}"),
+        }
+    }
+
     let app: Router = routes::router().with_state(Arc::clone(&state));
 
     let browser_host = match webapp.listen.as_str() {
@@ -59,7 +69,7 @@ pub async fn run(state: Arc<AppState>) -> Result<(), Box<dyn Error>> {
         .with_graceful_shutdown(shutdown_signal(Arc::clone(&state), shutdown_rx))
         .await?;
 
-    println!("BOREAL stopped.");
+    println!("BOREAL WebUI stopped.");
 
     Ok(())
 }

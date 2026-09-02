@@ -187,7 +187,7 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 25,);
+        assert_eq!(migration_count, 26,);
 
         let safe_to_delete_scope_count: i64 = connection
             .query_row(
@@ -754,6 +754,10 @@ mod tests {
             )
             .expect("running migration should insert");
         let migration_id = connection.last_insert_rowid();
+        assert_eq!(
+            migration::active_count(&database).expect("active migrations should be countable"),
+            1,
+        );
         connection
             .execute(
                 "INSERT INTO migration_sources
@@ -765,6 +769,10 @@ mod tests {
         drop(connection);
         migration::complete_copy(&database, migration_id)
             .expect("completed copy should tag its source");
+        assert_eq!(
+            migration::active_count(&database).expect("completed migrations should be excluded"),
+            0,
+        );
         let migrated_items: i64 = database
             .connect()
             .expect("database should connect")
@@ -1352,6 +1360,47 @@ mod tests {
         assert_eq!(archived.len(), 1);
         assert_eq!(archived[0].id, completed_id);
         assert!(!archived[0].archived_at.is_empty());
+
+        fs::remove_dir_all(root).expect("temporary database directory should be removable");
+    }
+
+    #[test]
+    fn local_download_migrations_are_recoverable_and_resumable() {
+        let root = temporary_directory();
+        let database = Database::initialize(&runtime(&root)).expect("database should initialize");
+        let connection = database.connect().expect("database should connect");
+        connection
+            .execute(
+                "INSERT INTO migration_jobs
+                 (source_scope, source_kind, operation_kind)
+                 VALUES ('my-drive', 'my-drive', 'local-download')",
+                [],
+            )
+            .expect("download migration should insert");
+        let id = connection.last_insert_rowid();
+        drop(connection);
+
+        migration::set_local_destination(&database, id, "/tmp/boreal-download")
+            .expect("local destination should save");
+        migration::begin_copy(&database, id).expect("download should enter preflight");
+        migration::confirm_copy_started(&database, id).expect("download should start");
+        assert_eq!(
+            migration::recover_interrupted(&database).expect("recovery should succeed"),
+            1
+        );
+        let interrupted = migration::get(&database, id)
+            .expect("migration should load")
+            .expect("migration should exist");
+        assert_eq!(interrupted.status, "interrupted");
+        assert_eq!(interrupted.destination_kind, "local");
+        assert_eq!(interrupted.destination_path, "/tmp/boreal-download");
+
+        migration::begin_copy(&database, id).expect("interrupted download should resume");
+        let resumed = migration::get(&database, id)
+            .expect("migration should load")
+            .expect("migration should exist");
+        assert_eq!(resumed.status, "preflight");
+        assert_eq!(resumed.resume_count, 1);
 
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }

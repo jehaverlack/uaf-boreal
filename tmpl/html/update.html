@@ -35,7 +35,7 @@
             {% if download_url.len() > 0 %}<a class="btn btn-primary" href="{{ download_url }}"><i class="bi bi-download me-1"></i>Download for this system</a>{% endif %}
             <a class="btn btn-outline-secondary" href="{{ release_url }}" target="_blank" rel="noopener noreferrer"><i class="bi bi-github me-1"></i>View release</a>
         </div>
-        <div class="alert alert-light border small">BOREAL will not replace the running executable automatically. Download the new binary and follow the installation instructions for your operating system.</div>
+        <div class="alert alert-light border small">BOREAL will not replace the running executable automatically. Download the new binary and follow the <a href="/docs#upgrading">Upgrading instructions</a>.</div>
         {% else if error.len() > 0 %}
         <div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>
         {% else %}
