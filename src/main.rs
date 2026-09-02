@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let state = Arc::new(AppState::new(runtime));
 
     AppState::initialize_rclone(Arc::clone(&state));
-    AppState::check_for_updates(Arc::clone(&state));
+    AppState::start_update_monitor(Arc::clone(&state));
 
     let web_result = web::run(Arc::clone(&state)).await;
 

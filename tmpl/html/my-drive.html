@@ -198,7 +198,7 @@
                 {% for row in rows %}
                 <tr class="{% if row.is_deleted %}table-secondary opacity-75{% endif %}" data-is-directory="{% if row.is_directory %}true{% else %}false{% endif %}" data-size-bytes="{{ row.size_bytes }}" data-permission-count="{{ row.permission_count }}">
                     <td class="text-center">
-                        <input class="form-check-input my-drive-item-select" type="checkbox" value="{{ row.item_id }}" aria-label="Select {{ row.name }}" {% if row.is_deleted %}disabled title="Deleted items cannot be tagged"{% endif %}>
+                        <input class="form-check-input my-drive-item-select" type="checkbox" value="{{ row.item_id }}" data-is-deleted="{% if row.is_deleted %}true{% else %}false{% endif %}" aria-label="Select {{ row.name }} for tag editing">
                     </td>
                     <td class="text-center">
                         <a href="{{ row.drive_url }}" target="_blank" rel="noopener noreferrer" title="Open in Google Drive" aria-label="Open {{ row.name }} in Google Drive">
@@ -324,12 +324,17 @@
         function updateSelectAll() {
             const selectedCheckboxes = itemCheckboxes.filter((checkbox) => checkbox.checked);
             const selected = selectedCheckboxes.length;
+            const includesDeleted = selectedCheckboxes.some((checkbox) => checkbox.dataset.isDeleted === "true");
             selectAll.checked = itemCheckboxes.length > 0 && selected === itemCheckboxes.length;
             selectAll.indeterminate = selected > 0 && selected < itemCheckboxes.length;
             applyButton.disabled = selected === 0;
             removeButton.disabled = selected === 0;
-            updateMetadataButton.disabled = selected === 0;
-            if (migrateButton) migrateButton.disabled = selected === 0;
+            updateMetadataButton.disabled = selected === 0 || includesDeleted;
+            updateMetadataButton.title = includesDeleted ? "Deleted items can be tagged but cannot be refreshed" : "";
+            if (migrateButton) {
+                migrateButton.disabled = selected === 0 || includesDeleted;
+                migrateButton.title = includesDeleted ? "Deleted items cannot be migrated" : "";
+            }
             selectionCount.textContent = `${selected} selected`;
             selectedItemIds.value = itemCheckboxes
                 .filter((checkbox) => checkbox.checked)

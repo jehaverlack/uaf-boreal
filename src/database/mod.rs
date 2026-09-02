@@ -1212,6 +1212,40 @@ mod tests {
         assert_eq!(retained_tags, 4);
 
         drop(connection);
+        let deleted_items = inventory::list_my_drive_directory(
+            &database,
+            None,
+            "",
+            inventory::DELETED_TAG_FILTER,
+            "",
+            "",
+            "",
+            "",
+            false,
+            "",
+            "",
+            "",
+            true,
+            "name",
+            false,
+        )
+        .expect("deleted state filter should be readable");
+        assert_eq!(deleted_items.len(), 1);
+        assert!(deleted_items[0].is_deleted);
+        let changed = inventory::apply_tag_recursively(
+            &database,
+            &["folder-id-1".to_string()],
+            "needs-review",
+        )
+        .expect("deleted folder tags should be editable");
+        assert_eq!(changed, 2);
+        let retained_tags: i64 = database
+            .connect()
+            .expect("database should connect")
+            .query_row("SELECT COUNT(*) FROM drive_item_tags", [], |row| row.get(0))
+            .expect("deleted item tags should remain queryable");
+        assert_eq!(retained_tags, 6);
+
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
 

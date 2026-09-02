@@ -4,6 +4,7 @@ use serde::Deserialize;
 
 pub const CHANGELOG_URL: &str =
     "https://raw.githubusercontent.com/jehaverlack/uaf-boreal/main/changelog.json";
+pub const CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 
 #[derive(Debug, Clone)]
 pub enum UpdateState {

@@ -3092,6 +3092,8 @@ fn render_drive_explorer(
         StatusCode::SERVICE_UNAVAILABLE
     })?;
     let has_parent = !query.path.is_empty();
+    let include_deleted =
+        query.include_deleted || query.tag == database::inventory::DELETED_TAG_FILTER;
     let parent_filter = has_parent.then_some(query.path.as_str());
     let sort = match query.sort.as_str() {
         "type" | "size" | "modified" | "owner" => query.sort.as_str(),
@@ -3116,7 +3118,7 @@ fn render_drive_explorer(
         &query.permission_filter,
         &query.owner_identity_tag,
         &query.permission_identity_tag,
-        query.include_deleted,
+        include_deleted,
         sort,
         descending,
     ) {
@@ -3175,7 +3177,7 @@ fn render_drive_explorer(
                         &query.permission_identity_tag,
                         sort,
                         if descending { "desc" } else { "asc" },
-                        query.include_deleted,
+                        include_deleted,
                     )
                 } else {
                     format!("https://drive.google.com/open?id={}", item.item_id)
@@ -3223,7 +3225,7 @@ fn render_drive_explorer(
         eprintln!("Unable to load My Drive tags: {error}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    let filter_tags = tags
+    let mut filter_tags = tags
         .iter()
         .map(|tag| TagFilterPill {
             slug: tag.slug.clone(),
@@ -3233,7 +3235,17 @@ fn render_drive_explorer(
             text_color: tag_text_color(&tag.color),
             selected: query.tag == tag.slug,
         })
-        .collect();
+        .collect::<Vec<_>>();
+    filter_tags.push(TagFilterPill {
+        slug: database::inventory::DELETED_TAG_FILTER.to_string(),
+        name: "Deleted".to_string(),
+        description:
+            "Items no longer present in Google Drive but retained in BOREAL's local inventory."
+                .to_string(),
+        color: "#6c757d".to_string(),
+        text_color: "#ffffff",
+        selected: query.tag == database::inventory::DELETED_TAG_FILTER,
+    });
     let directory_tags = database::inventory::list_tags_for_scope(
         &database,
         database::inventory::TagScope::Directory,
@@ -3321,7 +3333,7 @@ fn render_drive_explorer(
         permission_filter: query.permission_filter,
         owner_identity_tag_filter: query.owner_identity_tag,
         permission_identity_tag_filter: query.permission_identity_tag,
-        include_deleted: query.include_deleted,
+        include_deleted,
         heading: heading.to_string(),
         root_label: root_label.to_string(),
         explorer_path: explorer_path.to_string(),

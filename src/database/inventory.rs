@@ -10,6 +10,7 @@ use super::{Database, DatabaseError};
 pub const MY_DRIVE_SCOPE: &str = "my-drive-ro";
 pub const SHARED_WITH_ME_SCOPE: &str = "shared-with-me";
 pub const SHARED_DRIVE_SCOPE_PREFIX: &str = "shared-drive:";
+pub const DELETED_TAG_FILTER: &str = "__deleted__";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TagScope {
@@ -645,11 +646,12 @@ pub fn list_drive_directory(
            AND (?13 = 1 OR is_deleted = 0)
            AND ((?2 IS NULL AND parent_path IS NULL) OR parent_path = ?2)
            AND (?3 = '' OR instr(lower(name), lower(?3)) > 0)
-           AND (?4 = '' OR EXISTS (
+           AND (?4 = '' OR (?4 = '__deleted__' AND is_deleted = 1) OR
+                (?4 <> '__deleted__' AND EXISTS (
                 SELECT 1 FROM drive_item_tags dit JOIN tags t ON t.id = dit.tag_id
                 WHERE dit.remote_name = drive_items.remote_name
                   AND dit.item_id = drive_items.item_id AND t.slug = ?4
-           ))
+           )))
            AND (?5 = '' OR instr(lower(
                 CASE WHEN is_directory THEN 'folder' ELSE COALESCE(mime_type, '') END
            ), lower(?5)) > 0)
@@ -1173,7 +1175,7 @@ pub fn apply_tag_recursively_for_scope(
              FROM drive_items selected
              JOIN drive_items descendant
                ON descendant.remote_name = selected.remote_name
-              AND descendant.is_deleted = 0
+              AND descendant.is_deleted = selected.is_deleted
               AND (
                    descendant.item_id = selected.item_id
                    OR (selected.is_directory = 1 AND
@@ -1181,8 +1183,7 @@ pub fn apply_tag_recursively_for_scope(
                            = selected.relative_path || '/')
               )
              WHERE selected.remote_name = ?1
-               AND selected.item_id = ?2
-               AND selected.is_deleted = 0",
+               AND selected.item_id = ?2",
             params![remote, item_id, tag_id],
         )?;
     }
@@ -1216,6 +1217,7 @@ pub fn remove_tag_recursively_for_scope(
                 FROM drive_items selected
                 JOIN drive_items descendant
                   ON descendant.remote_name = selected.remote_name
+                 AND descendant.is_deleted = selected.is_deleted
                  AND (descendant.item_id = selected.item_id
                       OR (selected.is_directory = 1 AND
                           substr(descendant.relative_path, 1, length(selected.relative_path) + 1)

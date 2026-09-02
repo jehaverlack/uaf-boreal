@@ -39,6 +39,8 @@ pub struct AppState {
 
     remote_setup_active: Mutex<bool>,
 
+    update_check_active: Mutex<bool>,
+
     rclone_gui: Mutex<Option<Child>>,
 
     shutdown_tx: watch::Sender<bool>,
@@ -211,6 +213,8 @@ impl AppState {
 
             remote_setup_active: Mutex::new(false),
 
+            update_check_active: Mutex::new(false),
+
             rclone_gui: Mutex::new(None),
 
             shutdown_tx,
@@ -294,7 +298,33 @@ impl AppState {
         });
     }
 
+    pub fn start_update_monitor(state: Arc<Self>) {
+        log::info!(
+            "BOREAL update monitor started: interval_hours=6, source={}",
+            crate::update::CHANGELOG_URL,
+        );
+        tokio::spawn(async move {
+            loop {
+                Self::check_for_updates(Arc::clone(&state));
+                tokio::time::sleep(crate::update::CHECK_INTERVAL).await;
+            }
+        });
+    }
+
     pub fn check_for_updates(state: Arc<Self>) {
+        let mut active = match state.update_check_active.lock() {
+            Ok(active) => active,
+            Err(error) => {
+                log::error!("Unable to start BOREAL update check: {error}");
+                return;
+            }
+        };
+        if *active {
+            log::debug!("BOREAL update check skipped because another check is active");
+            return;
+        }
+        *active = true;
+        drop(active);
         log::info!(
             "BOREAL update check started: source={}",
             crate::update::CHANGELOG_URL
@@ -329,6 +359,9 @@ impl AppState {
                     log::warn!("BOREAL update check failed: {error}")
                 }
                 crate::update::UpdateState::Checking => {}
+            }
+            if let Ok(mut active) = state.update_check_active.lock() {
+                *active = false;
             }
         });
     }
