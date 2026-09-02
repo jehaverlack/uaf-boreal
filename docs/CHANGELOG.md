@@ -5,9 +5,13 @@
 | **Name** | boreal |
 | **Author** | John Haverlack |
 | **License** | MIT |
-| **Version** | 1.0.0 |
+| **Version** | 1.0.1 |
 | **Maturity** | STABLE |
 | **Date** | 2026-09-01 |
+
+## v1.0.1 - 2026-09-01 (STABLE)
+
+- Start v1.0.1
 
 ## v1.0.0 - 2026-09-01 (STABLE)
 
@@ -17,6 +21,8 @@ Stable Release
 **Notes**
 Version Updates
 
+- v1.0.0
+- v1.0.0
 - Shared Drive View Updates
 - Shared Drive View Updates
 - Clost Tab Button
@@ -231,13 +237,5 @@ Added Migration Assitant and Polished Interfaces
 **Summary**
 Project Initialization
 
-- Shared Drive View Updates
-- Shared Drive View Updates
-- Clost Tab Button
-- Adding Issues Link
-- Search on Delete Tag
-- Clean up Logging
-- Fixing Update for removed items
-- Adding App Updates
-- Start v1.0.0
+- Start v1.0.1
 
