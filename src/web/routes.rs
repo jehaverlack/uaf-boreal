@@ -174,6 +174,28 @@ struct AboutTemplate {
 }
 
 #[allow(dead_code)]
+#[derive(Template)]
+#[template(path = "docs.html", config = "askama.toml")]
+struct DocsTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+}
+
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(path = "help.html", config = "askama.toml")]
+struct HelpTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+}
+
+#[allow(dead_code)]
 pub struct RemoteView {
     pub name: String,
     pub backend: String,
@@ -733,6 +755,8 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(index))
         .route("/about", get(about))
+        .route("/docs", get(docs_page))
+        .route("/help", get(help_page))
         .route("/assets/uaf-logo.png", get(uaf_logo))
         .route("/assets/acep-logo.png", get(acep_logo))
         .route(
@@ -1556,6 +1580,58 @@ async fn about(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
     };
 
     render_template(&template)
+}
+
+async fn docs_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    render_template(&DocsTemplate {
+        title: "BOREAL Docs",
+        active_page: "docs",
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
+        status_items: build_status_items(
+            &state.download_state(),
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(&state),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+    })
+}
+
+async fn help_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    render_template(&HelpTemplate {
+        title: "BOREAL Help",
+        active_page: "help",
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
+        status_items: build_status_items(
+            &state.download_state(),
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(&state),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+    })
 }
 
 async fn status() -> StatusCode {

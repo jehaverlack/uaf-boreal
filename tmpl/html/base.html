@@ -302,7 +302,7 @@
                     <li class="nav-item dropdown">
 
                         <a
-                            class="nav-link dropdown-toggle{% if active_page == "about" || active_page == "settings" || active_page == "tags" %} active{% endif %}"
+                            class="nav-link dropdown-toggle{% if active_page == "about" || active_page == "settings" || active_page == "tags" || active_page == "docs" || active_page == "help" %} active{% endif %}"
                             href="#"
                             role="button"
                             data-bs-toggle="dropdown"
@@ -336,6 +336,30 @@
                                 >
                                     <i class="bi bi-gear me-2"></i>
                                     Settings
+                                </a>
+
+                            </li>
+
+                            <li>
+
+                                <a
+                                    class="dropdown-item{% if active_page == "docs" %} active{% endif %}"
+                                    href="/docs"
+                                >
+                                    <i class="bi bi-book me-2"></i>
+                                    Docs
+                                </a>
+
+                            </li>
+
+                            <li>
+
+                                <a
+                                    class="dropdown-item{% if active_page == "help" %} active{% endif %}"
+                                    href="/help"
+                                >
+                                    <i class="bi bi-question-circle me-2"></i>
+                                    Help
                                 </a>
 
                             </li>

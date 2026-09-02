@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row g-4">
+    <aside class="col-lg-3">
+        <div class="position-sticky" style="top: 1rem">
+            <h1 class="h3 mb-3"><i class="bi bi-book me-2"></i>BOREAL Docs</h1>
+            <label class="form-label fw-semibold" for="docs-search">Search documentation</label>
+            <div class="input-group mb-3">
+                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                <input class="form-control" id="docs-search" type="search" placeholder="Try tags, export, metadata…" autocomplete="off">
+            </div>
+            <nav class="nav nav-pills flex-column small" aria-label="Documentation sections">
+                <a class="nav-link" href="#getting-started">Getting started</a>
+                <a class="nav-link" href="#metadata">Metadata updates</a>
+                <a class="nav-link" href="#explorers">Drive explorers</a>
+                <a class="nav-link" href="#tags">Tags</a>
+                <a class="nav-link" href="#persons">Persons</a>
+                <a class="nav-link" href="#reports">Reports and downloads</a>
+                <a class="nav-link" href="#application">Application controls</a>
+            </nav>
+            <a class="btn btn-sm btn-outline-primary mt-3" href="/help"><i class="bi bi-question-circle me-1"></i>Troubleshooting help</a>
+        </div>
+    </aside>
+
+    <div class="col-lg-9">
+        <p class="lead">Use BOREAL to inventory, explore, classify, and report on Google Drive metadata from this computer.</p>
+        <div id="docs-no-results" class="alert alert-warning d-none">No documentation matched your search. Try a shorter term or visit <a href="/help">Help</a>.</div>
+
+        <section id="getting-started" class="mb-4" data-doc-entry>
+            <h2 class="h4">Getting started</h2>
+            <div class="card"><div class="card-body">
+                <ol class="mb-0">
+                    <li>Let BOREAL install and verify its private Rclone executable.</li>
+                    <li>Import a Google OAuth <strong>Desktop app</strong> client JSON file.</li>
+                    <li>Set up and authorize the read-only <code>my-drive-ro</code> remote.</li>
+                    <li>Optionally link a Persons Google Sheet in <strong>App → Settings</strong>.</li>
+                    <li>Open <strong>Updates</strong> and import the Google Drive metadata you want to explore.</li>
+                </ol>
+            </div></div>
+        </section>
+
+        <section id="metadata" class="mb-4" data-doc-entry>
+            <h2 class="h4">Update the local metadata inventory</h2>
+            <div class="card"><div class="card-body">
+                <p>BOREAL searches its local SQLite inventory. Use <strong>Updates</strong> to refresh that inventory from Google Drive.</p>
+                <ul class="mb-0">
+                    <li><strong>Persons</strong> imports the configured directory spreadsheet.</li>
+                    <li><strong>My Drive</strong> inventories content owned by or visible in My Drive.</li>
+                    <li><strong>Shared with Me</strong> inventories content shared with the authenticated account.</li>
+                    <li><strong>Shared Drives</strong> discovers and inventories accessible Shared Drives. This can take several hours.</li>
+                </ul>
+                <p class="mt-3 mb-0">You may close the update modal while a job runs. Progress remains available from the Updates page and status bar.</p>
+            </div></div>
+        </section>
+
+        <section id="explorers" class="mb-4" data-doc-entry>
+            <h2 class="h4">Explore Drive content</h2>
+            <div class="card"><div class="card-body">
+                <p>Use <strong>My Drive</strong>, <strong>Shared Drives</strong>, and <strong>Shared with Me</strong> to browse the latest completed inventory.</p>
+                <ul>
+                    <li>Click a folder name to browse it inside BOREAL.</li>
+                    <li>Click the Google Drive icon or a file name to open the item in Google Drive.</li>
+                    <li>Use column fields to filter by name, type, size, date, owner, or permission.</li>
+                    <li>Click a hollow tag pill to apply that filter. A solid pill with a checkmark is active; click it again to clear it.</li>
+                    <li>Prefix an Owner value with <code>!</code> to exclude matching owners.</li>
+                    <li>Enable <strong>Include deleted items</strong> to see content retained from an older inventory but missing from the latest completed scan.</li>
+                </ul>
+                <p class="mb-0">Filters combine: an item must satisfy the active column and tag filters. Use <strong>Clear filters</strong> to reset the view.</p>
+            </div></div>
+        </section>
+
+        <section id="tags" class="mb-4" data-doc-entry>
+            <h2 class="h4">Classify content with tags</h2>
+            <div class="card"><div class="card-body">
+                <p>Tags are private BOREAL annotations. They do not change Google Drive labels, permissions, or files.</p>
+                <ol class="mb-0">
+                    <li>Open <strong>App → Tags</strong> to add or edit a tag, description, color, and applicable explorer scopes.</li>
+                    <li>In an explorer, select one or more rows.</li>
+                    <li>Choose a tag and click <strong>Apply</strong> or <strong>Remove</strong>.</li>
+                    <li>Use colored tag pills above the explorer to filter the results.</li>
+                </ol>
+            </div></div>
+        </section>
+
+        <section id="persons" class="mb-4" data-doc-entry>
+            <h2 class="h4">Connect people and permissions</h2>
+            <div class="card"><div class="card-body">
+                <p>The Persons directory connects email addresses in Drive ownership and permissions to people, groups, service accounts, and organizations.</p>
+                <ul class="mb-0">
+                    <li>Add or edit an individual entry from <strong>Persons</strong>.</li>
+                    <li>Download the CSV template and import a prepared directory file.</li>
+                    <li>Link a Google Sheet under <strong>App → Settings</strong> and include Persons in a metadata update.</li>
+                    <li>Apply person-only tags such as Data Loss Risk, then filter Drive owners and permissions by those tags.</li>
+                    <li>Click an unknown identity badge in an explorer to begin adding it to Persons.</li>
+                </ul>
+            </div></div>
+        </section>
+
+        <section id="reports" class="mb-4" data-doc-entry>
+            <h2 class="h4">Export reports and download content</h2>
+            <div class="card"><div class="card-body">
+                <h3 class="h6">Excel reports</h3>
+                <p>Apply explorer filters and click <strong>Export Excel</strong>. The workbook contains a Report Context sheet describing the filters and a Results sheet with clickable Google Drive links.</p>
+                <h3 class="h6">Local downloads</h3>
+                <p class="mb-0">Click the download icon beside an inventory item, choose a local destination folder, and let BOREAL copy it with Rclone. Closing the modal does not cancel the copy; use the Download status item to check completion.</p>
+            </div></div>
+        </section>
+
+        <section id="application" class="mb-4" data-doc-entry>
+            <h2 class="h4">Application controls and safety</h2>
+            <div class="card"><div class="card-body">
+                <ul class="mb-0">
+                    <li>Bookmark the local URL shown under <strong>App → Settings</strong>. Closing a browser tab does not stop BOREAL.</li>
+                    <li>Use <strong>App → Quit BOREAL</strong> or Ctrl-C in the terminal to stop the application gracefully.</li>
+                    <li><strong>Remotes</strong> shows BOREAL’s Rclone configuration status. The Rclone menu opens its advanced WebGUI.</li>
+                    <li>BOREAL binds only to the local computer and stores its database, configuration, credentials, and logs under the user-specific BOREAL directory.</li>
+                    <li>Current inventory operations are read-only. Local tagging and reporting do not alter Google Drive content.</li>
+                </ul>
+            </div></div>
+        </section>
+    </div>
+</div>
+
+{% include "partials/docs-search-script.html" %}
+{% endblock %}
