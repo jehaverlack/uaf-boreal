@@ -5,8 +5,9 @@ use askama::Template;
 use axum::{
     Router,
     body::Body,
-    extract::{Form, Multipart, Path, Query, State},
+    extract::{Form, Multipart, Path, Query, Request, State},
     http::{Response, StatusCode, header},
+    middleware::{self, Next},
     response::{Html, IntoResponse, Redirect},
     routing::{get, post},
 };
@@ -1036,6 +1037,22 @@ pub fn router() -> Router<Arc<AppState>> {
             post(start_selected_metadata_update),
         )
         .route("/app/quit", post(quit))
+        .layer(middleware::from_fn(log_http_request))
+}
+
+async fn log_http_request(request: Request, next: Next) -> axum::response::Response {
+    let method = request.method().clone();
+    let uri = request.uri().clone();
+    let started = std::time::Instant::now();
+    let response = next.run(request).await;
+    let status = response.status();
+    let elapsed_ms = started.elapsed().as_millis();
+    if method == axum::http::Method::GET {
+        log::debug!("HTTP {method} {uri} -> {status} ({elapsed_ms} ms)");
+    } else {
+        log::info!("HTTP {method} {uri} -> {status} ({elapsed_ms} ms)");
+    }
+    response
 }
 
 async fn uaf_logo() -> impl IntoResponse {
@@ -1975,6 +1992,7 @@ async fn cancel_migration(
         log::warn!("Unable to cancel migration {migration_id}: {error}");
         StatusCode::CONFLICT
     })?;
+    log::info!("Migration canceled and removed: migration_id={migration_id}");
     Ok(Redirect::to("/migrations"))
 }
 
@@ -1989,6 +2007,7 @@ async fn archive_migration(
         log::warn!("Unable to archive migration {migration_id}: {error}");
         StatusCode::CONFLICT
     })?;
+    log::info!("Migration archived: migration_id={migration_id}");
     Ok(Redirect::to("/migrations"))
 }
 
@@ -2042,6 +2061,10 @@ async fn create_migration(
             eprintln!("Unable to create migration plan: {error}");
             StatusCode::BAD_REQUEST
         })?;
+    log::info!(
+        "Migration plan created: migration_id={id}, source_kind={source_kind}, sources={}",
+        item_ids.len(),
+    );
     Ok(Redirect::to(&format!("/migrations/{id}")))
 }
 
@@ -2136,8 +2159,14 @@ async fn save_migration_destination(
     }
     .await;
     match result {
-        Ok(()) => Ok(Redirect::to(&format!("/migrations/{migration_id}")).into_response()),
+        Ok(()) => {
+            log::info!("Migration destination validated: migration_id={migration_id}");
+            Ok(Redirect::to(&format!("/migrations/{migration_id}")).into_response())
+        }
         Err(error) => {
+            log::warn!(
+                "Migration destination validation failed: migration_id={migration_id}, error={error}"
+            );
             render_migration_wizard(&state, migration_id, error).map(IntoResponse::into_response)
         }
     }
@@ -3732,6 +3761,13 @@ async fn start_download(
         item_name: item.name.clone(),
         destination: destination_label.clone(),
     });
+    log::info!(
+        "Download started: scope={}, item_id={}, item_name={}, destination={}",
+        form.inventory_scope,
+        form.item_id,
+        item.name,
+        destination_label,
+    );
     let worker_state = Arc::clone(&state);
     let item_name = item.name;
     let shared_with_me = form.inventory_scope == database::inventory::SHARED_WITH_ME_SCOPE;
@@ -3749,18 +3785,29 @@ async fn start_download(
         })
         .await;
         match result {
-            Ok(Ok(())) => worker_state.set_download_state(DownloadState::Complete {
-                item_name,
-                destination: destination_label,
-            }),
-            Ok(Err(error)) => worker_state.set_download_state(DownloadState::Error {
-                item_name,
-                message: error.to_string(),
-            }),
-            Err(error) => worker_state.set_download_state(DownloadState::Error {
-                item_name,
-                message: format!("Download task failed: {error}"),
-            }),
+            Ok(Ok(())) => {
+                log::info!(
+                    "Download completed: item_name={item_name}, destination={destination_label}"
+                );
+                worker_state.set_download_state(DownloadState::Complete {
+                    item_name,
+                    destination: destination_label,
+                });
+            }
+            Ok(Err(error)) => {
+                log::error!("Download failed: item_name={item_name}, error={error}");
+                worker_state.set_download_state(DownloadState::Error {
+                    item_name,
+                    message: error.to_string(),
+                });
+            }
+            Err(error) => {
+                log::error!("Download task failed: item_name={item_name}, error={error}");
+                worker_state.set_download_state(DownloadState::Error {
+                    item_name,
+                    message: format!("Download task failed: {error}"),
+                });
+            }
         }
     });
     render_download_status(&state.download_state())
@@ -4871,7 +4918,7 @@ async fn import_google_client(
 
     match google::client::import(&state.runtime, &data) {
         Ok(config) => {
-            println!("Google Client ID imported: {}", config.client_id);
+            log::info!("Google Client ID credentials imported successfully");
 
             state.set_google_client_state(GoogleClientState::Ready(config));
 

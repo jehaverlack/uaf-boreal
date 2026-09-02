@@ -37,7 +37,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     logging::initialize(&runtime)?;
 
-    println!("BOREAL initialized.");
+    let metadata: serde_json::Value = serde_json::from_str(include_str!("../metadata.json"))?;
+    let maturity = metadata
+        .pointer("/METADATA/maturity")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("Unknown");
+
+    std::println!("BOREAL v{} ({maturity})", env!("CARGO_PKG_VERSION"));
+    std::println!("GitHub: https://github.com/jehaverlack/uaf-boreal");
+    std::println!("Startup status: Starting BOREAL services...");
+
+    log::info!(
+        "BOREAL v{} ({maturity}) starting",
+        env!("CARGO_PKG_VERSION")
+    );
 
     println!("BOREAL home: {}", runtime.boreal_home.display());
 

@@ -39,7 +39,9 @@ pub async fn run(state: Arc<AppState>) -> Result<(), Box<dyn Error>> {
 
     let url = format!("http://{}:{}", browser_host, webapp.port,);
 
-    println!("BOREAL WebUI: {url}");
+    std::println!("WebUI: {url}");
+    std::println!("Startup status: WebUI ready; background initialization is continuing.");
+    log::info!("BOREAL WebUI listening at {url}");
 
     if webapp.open_browser {
         if let Err(error) = webbrowser::open(&url) {
