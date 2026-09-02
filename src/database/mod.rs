@@ -585,6 +585,7 @@ mod tests {
             "",
             "",
             "",
+            "",
         )
         .expect("Shared Drives should filter by name and tag");
         assert_eq!(tagged_drives.len(), 1);
@@ -592,6 +593,7 @@ mod tests {
         assert_eq!(tagged_drives[0].tags[0].slug, "to-delete");
         let manager_filtered = inventory::list_shared_drives_filtered(
             &database,
+            "",
             "",
             "",
             "",
@@ -614,9 +616,19 @@ mod tests {
         inventory::change_shared_drive_tags(&database, &["drive-a".to_string()], "to-delete", true)
             .expect("Shared Drive tag should be removable");
         assert!(
-            inventory::list_shared_drives_filtered(&database, "", "to-delete", "", "", "", "", "",)
-                .expect("Shared Drive tag filter should load")
-                .is_empty()
+            inventory::list_shared_drives_filtered(
+                &database,
+                "",
+                "to-delete",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            )
+            .expect("Shared Drive tag filter should load")
+            .is_empty()
         );
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }

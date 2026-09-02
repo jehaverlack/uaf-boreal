@@ -429,6 +429,7 @@ pub struct SharedDriveView {
     pub managers: Vec<SharedDriveIdentityView>,
     pub permission_identities: Vec<SharedDriveIdentityView>,
     pub size_label: String,
+    pub modified_at: String,
     pub tags: Vec<TagPill>,
 }
 
@@ -457,6 +458,7 @@ struct SharedDrivesTemplate {
     files_filter: String,
     folders_filter: String,
     size_filter: String,
+    modified_filter: String,
     manager_filter: String,
     permissions_filter: String,
     sort: String,
@@ -733,6 +735,8 @@ struct SharedDriveTagForm {
     folders_filter: String,
     #[serde(default)]
     size_filter: String,
+    #[serde(default)]
+    modified_filter: String,
     #[serde(default)]
     manager_filter: String,
     #[serde(default)]
@@ -2465,6 +2469,7 @@ async fn export_shared_drives(
         &query.files_filter,
         &query.folders_filter,
         &query.size_filter,
+        &query.modified_filter,
         &query.shared_drive_manager_filter,
         &query.shared_drive_permission_filter,
     )
@@ -2485,6 +2490,7 @@ async fn export_shared_drives(
         ("Files".into(), filter_value(&query.files_filter)),
         ("Folders".into(), filter_value(&query.folders_filter)),
         ("Total size".into(), filter_value(&query.size_filter)),
+        ("Modified".into(), filter_value(&query.modified_filter)),
         (
             "Manager".into(),
             filter_value(&query.shared_drive_manager_filter),
@@ -2524,6 +2530,7 @@ async fn export_shared_drives(
                 xlsx::Cell::Number(drive.folders_scanned),
                 xlsx::Cell::Number(drive.bytes_discovered),
                 format_bytes(drive.bytes_discovered).into(),
+                drive.modified_at.clone().into(),
                 xlsx::Cell::Number(drive.permissions_scanned),
                 managers.into(),
                 drive
@@ -2557,6 +2564,7 @@ async fn export_shared_drives(
             "Folders",
             "Total size (bytes)",
             "Total size",
+            "Modified",
             "Permission references",
             "Managers",
             "Permissions",
@@ -2574,7 +2582,9 @@ async fn export_shared_drives(
 
 fn shared_drive_sort(query: &DrivePathQuery) -> &str {
     match query.sort.as_str() {
-        "tags" | "files" | "folders" | "size" | "managers" | "permissions" => &query.sort,
+        "tags" | "files" | "folders" | "size" | "modified" | "managers" | "permissions" => {
+            &query.sort
+        }
         _ => "name",
     }
 }
@@ -2591,6 +2601,7 @@ fn sort_shared_drives(drives: &mut [database::inventory::SharedDriveRow], query:
             "files" => left.files_scanned.cmp(&right.files_scanned),
             "folders" => left.folders_scanned.cmp(&right.folders_scanned),
             "size" => left.bytes_discovered.cmp(&right.bytes_discovered),
+            "modified" => left.modified_at.cmp(&right.modified_at),
             "managers" => {
                 shared_drive_manager_sort_key(left).cmp(&shared_drive_manager_sort_key(right))
             }
@@ -2633,6 +2644,7 @@ async fn shared_drives_page(
             &query.files_filter,
             &query.folders_filter,
             &query.size_filter,
+            &query.modified_filter,
             &query.shared_drive_manager_filter,
             &query.shared_drive_permission_filter,
         ) {
@@ -2700,6 +2712,11 @@ async fn shared_drives_page(
                     managers,
                     permission_identities,
                     size_label: format_bytes(drive.bytes_discovered),
+                    modified_at: if drive.modified_at.is_empty() {
+                        "—".to_string()
+                    } else {
+                        drive.modified_at
+                    },
                     tags: drive
                         .tags
                         .into_iter()
@@ -2763,6 +2780,7 @@ async fn shared_drives_page(
             files_filter: query.files_filter,
             folders_filter: query.folders_filter,
             size_filter: query.size_filter,
+            modified_filter: query.modified_filter,
             manager_filter: query.shared_drive_manager_filter,
             permissions_filter: query.shared_drive_permission_filter,
             sort,
@@ -3324,13 +3342,14 @@ fn change_shared_drive_list_tag(
         drive_ids.len(),
     );
     let url = format!(
-        "/shared-drives?q={}&tag={}&show_inaccessible={}&files_filter={}&folders_filter={}&size_filter={}&shared_drive_manager_filter={}&shared_drive_permission_filter={}&sort={}&direction={}&{}={changed}",
+        "/shared-drives?q={}&tag={}&show_inaccessible={}&files_filter={}&folders_filter={}&size_filter={}&modified_filter={}&shared_drive_manager_filter={}&shared_drive_permission_filter={}&sort={}&direction={}&{}={changed}",
         encode_query_value(&form.q),
         encode_query_value(&form.tag_filter),
         form.show_inaccessible,
         encode_query_value(&form.files_filter),
         encode_query_value(&form.folders_filter),
         encode_query_value(&form.size_filter),
+        encode_query_value(&form.modified_filter),
         encode_query_value(&form.manager_filter),
         encode_query_value(&form.permissions_filter),
         encode_query_value(&form.sort),

@@ -50,6 +50,7 @@ pub struct SharedDriveRow {
     pub folders_scanned: u64,
     pub permissions_scanned: u64,
     pub bytes_discovered: u64,
+    pub modified_at: String,
     pub tags: Vec<Tag>,
     pub permission_identities: Vec<SharedDrivePermissionIdentity>,
 }
@@ -86,7 +87,7 @@ pub fn reconcile_shared_drives(
 }
 
 pub fn list_shared_drives(database: &Database) -> Result<Vec<SharedDriveRow>, DatabaseError> {
-    list_shared_drives_filtered(database, "", "", "", "", "", "", "")
+    list_shared_drives_filtered(database, "", "", "", "", "", "", "", "")
 }
 
 pub fn list_shared_drives_filtered(
@@ -96,17 +97,21 @@ pub fn list_shared_drives_filtered(
     files_filter: &str,
     folders_filter: &str,
     size_filter: &str,
+    modified_filter: &str,
     manager_filter: &str,
     permission_filter: &str,
 ) -> Result<Vec<SharedDriveRow>, DatabaseError> {
     let (files_comparison, files_value) = parse_count_filter(files_filter)?;
     let (folders_comparison, folders_value) = parse_count_filter(folders_filter)?;
     let (size_comparison, size_value) = parse_size_filter(size_filter)?;
+    let (modified_comparison, modified_value) = parse_modified_filter(modified_filter)?;
     let connection = database.connect()?;
     let mut statement = connection.prepare(
         "SELECT sd.drive_id, sd.name, sd.inventory_scope, sd.is_accessible,
                 COALESCE(last_error, ''),
                 files_scanned, folders_scanned, permissions_scanned, bytes_discovered,
+                COALESCE((SELECT MAX(di.modified_at) FROM drive_items di
+                          WHERE di.remote_name = sd.inventory_scope AND di.is_deleted = 0), ''),
                 (SELECT group_concat(t.slug || char(30) || t.name || char(30) || t.color || char(30) || t.description, char(31))
                  FROM shared_drive_tags sdt JOIN tags t ON t.id = sdt.tag_id
                  WHERE sdt.drive_id = sd.drive_id),
@@ -138,15 +143,21 @@ pub fn list_shared_drives_filtered(
                 OR (?5 = 3 AND folders_scanned < ?6) OR (?5 = 4 AND folders_scanned <= ?6) OR (?5 = 5 AND folders_scanned = ?6))
            AND (?7 = 0 OR (?7 = 1 AND bytes_discovered > ?8) OR (?7 = 2 AND bytes_discovered >= ?8)
                 OR (?7 = 3 AND bytes_discovered < ?8) OR (?7 = 4 AND bytes_discovered <= ?8) OR (?7 = 5 AND bytes_discovered = ?8))
-           AND (?9 = '' OR EXISTS (
+           AND (?9 = 0 OR
+                (?9 = 1 AND substr(COALESCE((SELECT MAX(di.modified_at) FROM drive_items di WHERE di.remote_name = sd.inventory_scope AND di.is_deleted = 0), ''), 1, 10) > ?10) OR
+                (?9 = 2 AND substr(COALESCE((SELECT MAX(di.modified_at) FROM drive_items di WHERE di.remote_name = sd.inventory_scope AND di.is_deleted = 0), ''), 1, 10) >= ?10) OR
+                (?9 = 3 AND substr(COALESCE((SELECT MAX(di.modified_at) FROM drive_items di WHERE di.remote_name = sd.inventory_scope AND di.is_deleted = 0), ''), 1, 10) < ?10) OR
+                (?9 = 4 AND substr(COALESCE((SELECT MAX(di.modified_at) FROM drive_items di WHERE di.remote_name = sd.inventory_scope AND di.is_deleted = 0), ''), 1, 10) <= ?10) OR
+                (?9 = 5 AND substr(COALESCE((SELECT MAX(di.modified_at) FROM drive_items di WHERE di.remote_name = sd.inventory_scope AND di.is_deleted = 0), ''), 1, length(?10)) = ?10))
+           AND (?11 = '' OR EXISTS (
                 SELECT 1 FROM shared_drive_permissions manager_permission
                 WHERE manager_permission.drive_id = sd.drive_id
                   AND lower(COALESCE(manager_permission.role, '')) IN ('organizer', 'owner')
                   AND instr(lower(COALESCE(NULLIF(manager_permission.email_address, ''),
                       NULLIF(manager_permission.domain, ''), NULLIF(manager_permission.display_name, ''),
-                      NULLIF(manager_permission.permission_type, ''), 'Unknown')), lower(?9)) > 0
+                      NULLIF(manager_permission.permission_type, ''), 'Unknown')), lower(?11)) > 0
            ))
-           AND (?10 = '' OR EXISTS (
+           AND (?12 = '' OR EXISTS (
                 SELECT 1 FROM (
                     SELECT email_address, domain, display_name, permission_type
                     FROM drive_permissions WHERE remote_name = sd.inventory_scope
@@ -157,7 +168,7 @@ pub fn list_shared_drives_filtered(
                 WHERE 1 = 1
                   AND instr(lower(COALESCE(NULLIF(identity_permission.email_address, ''),
                       NULLIF(identity_permission.domain, ''), NULLIF(identity_permission.display_name, ''),
-                      NULLIF(identity_permission.permission_type, ''), 'Unknown')), lower(?10)) > 0
+                      NULLIF(identity_permission.permission_type, ''), 'Unknown')), lower(?12)) > 0
            ))
          ORDER BY is_accessible DESC, name COLLATE NOCASE, drive_id",
     )?;
@@ -172,6 +183,8 @@ pub fn list_shared_drives_filtered(
                 folders_value,
                 size_comparison,
                 size_value,
+                modified_comparison,
+                modified_value,
                 manager_filter.trim(),
                 permission_filter.trim(),
             ],
@@ -186,8 +199,9 @@ pub fn list_shared_drives_filtered(
                     folders_scanned: row.get::<_, i64>(6)? as u64,
                     permissions_scanned: row.get::<_, i64>(7)? as u64,
                     bytes_discovered: row.get::<_, i64>(8)? as u64,
+                    modified_at: row.get(9)?,
                     tags: row
-                        .get::<_, Option<String>>(9)?
+                        .get::<_, Option<String>>(10)?
                         .map(|tags| {
                             tags.split('\u{1f}')
                                 .filter_map(|tag| {
@@ -207,7 +221,7 @@ pub fn list_shared_drives_filtered(
                         })
                         .unwrap_or_default(),
                     permission_identities: row
-                        .get::<_, Option<String>>(10)?
+                        .get::<_, Option<String>>(11)?
                         .map(|identities| {
                             let mut grouped: HashMap<String, Vec<String>> = HashMap::new();
                             for identity in identities.split('\u{1f}') {
