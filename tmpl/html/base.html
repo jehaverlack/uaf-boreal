@@ -918,32 +918,39 @@
             if (quitButton) {
                 quitButton.addEventListener(
                     "click",
-                    async () => {
+                    () => {
                         quitButton.disabled = true;
 
+                        // Keep the request alive if the close succeeds, but
+                        // do not await it: the close attempt must remain in
+                        // this user-generated click event.
+                        fetch(
+                            "/app/quit",
+                            {
+                                method: "POST",
+                                cache: "no-store",
+                                keepalive: true,
+                            },
+                        ).catch(() => {
+                            // Shutdown may end the request before a response.
+                        });
+
                         try {
-                            await fetch(
-                                "/app/quit",
-                                {
-                                    method: "POST",
-                                    cache: "no-store",
-                                },
-                            );
+                            const currentTab = window.open("", "_self");
+                            currentTab?.close();
                         } catch (_error) {
-                            /*
-                             * The server may disappear while the shutdown
-                             * response is still being processed. That is
-                             * acceptable for a Quit request.
-                             */
+                            // Continue to the standards-based close attempt.
                         }
+                        window.close();
 
                         /*
-                         * Do not wait for two heartbeat failures when the
-                         * user explicitly requested shutdown.
+                         * If the browser refuses to close an externally
+                         * opened tab, show the stopped modal after BOREAL's
+                         * delayed shutdown has had time to begin.
                          */
                         window.setTimeout(
                             showStopped,
-                            500,
+                            1000,
                         );
                     },
                 );

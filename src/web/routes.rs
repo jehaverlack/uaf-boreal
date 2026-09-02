@@ -4601,7 +4601,12 @@ async fn open_rclone_gui(State(state): State<Arc<AppState>>) -> Result<Redirect,
 async fn quit(State(state): State<Arc<AppState>>) -> StatusCode {
     println!("Quit requested from WebUI.");
 
-    state.request_shutdown();
+    tokio::spawn(async move {
+        // Give the initiating browser tab time to process its close attempt
+        // before the local WebUI disappears.
+        tokio::time::sleep(std::time::Duration::from_millis(750)).await;
+        state.request_shutdown();
+    });
 
     StatusCode::ACCEPTED
 }
