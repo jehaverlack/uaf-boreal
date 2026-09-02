@@ -12,6 +12,7 @@ pub struct SharedDriveDestination {
     pub drive_name: String,
     pub folder_id: String,
     pub folder_name: String,
+    pub folders: Vec<identity::GoogleDriveFolder>,
 }
 
 /// Validate that a folder ID is accessible through the read-only remote and
@@ -29,11 +30,16 @@ pub fn validate_destination(
         if require_shared_drive {
             return Err("My Drive migrations require a Shared Drive destination folder".into());
         }
+        let folders = destination_folder_chain(runtime, folder, "")?;
+        let destination = folders
+            .last()
+            .ok_or("Google Drive returned no destination folder")?;
         return Ok(SharedDriveDestination {
             drive_id: String::new(),
             drive_name: "My Drive".to_string(),
-            folder_id: folder.id,
-            folder_name: folder.name,
+            folder_id: destination.id.clone(),
+            folder_name: destination.name.clone(),
+            folders,
         });
     }
     let drives = inventory::discover_shared_drives(runtime, executable)?;
@@ -44,17 +50,49 @@ pub fn validate_destination(
         .into_iter()
         .find(|drive| drive.id == folder.drive_id)
         .ok_or("The destination belongs to a Shared Drive that is not available to the authenticated read-only account")?;
+    let destination_folder_id = folder.id.clone();
     let folder_name = if folder.id == drive.id {
         drive.name.clone()
     } else {
-        folder.name
+        folder.name.clone()
     };
+    let folders = destination_folder_chain(runtime, folder, &drive.id)?;
     Ok(SharedDriveDestination {
         drive_id: drive.id,
         drive_name: drive.name,
-        folder_id: folder.id,
+        folder_id: destination_folder_id,
         folder_name,
+        folders,
     })
+}
+
+fn destination_folder_chain(
+    runtime: &Runtime,
+    destination: identity::GoogleDriveFolder,
+    shared_drive_id: &str,
+) -> Result<Vec<identity::GoogleDriveFolder>, RcloneError> {
+    let mut folders = vec![destination];
+    for _ in 0..100 {
+        let Some(parent_id) = folders.last().and_then(|folder| folder.parents.first()) else {
+            break;
+        };
+        if !shared_drive_id.is_empty() && parent_id == shared_drive_id {
+            break;
+        }
+        let parent = identity::fetch_google_drive_folder(runtime, parent_id)?;
+        if parent.drive_id != folders[0].drive_id {
+            return Err("Destination folder ancestry crosses Google Drive boundaries".into());
+        }
+        let is_my_drive_root = shared_drive_id.is_empty() && parent.parents.is_empty();
+        if !is_my_drive_root {
+            folders.push(parent);
+        }
+        if is_my_drive_root {
+            break;
+        }
+    }
+    folders.reverse();
+    Ok(folders)
 }
 
 #[derive(Debug, Deserialize)]

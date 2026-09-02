@@ -61,6 +61,72 @@ pub struct SharedDrivePermissionIdentity {
     pub roles: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct DiscoveredDriveFolder {
+    pub item_id: String,
+    pub name: String,
+    pub modified_at: String,
+}
+
+pub fn record_migration_destination(
+    database: &Database,
+    drive_id: &str,
+    drive_name: &str,
+    folders: &[DiscoveredDriveFolder],
+) -> Result<(), DatabaseError> {
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    transaction.execute(
+        "INSERT INTO scan_runs (scan_type, status, completed_at)
+         VALUES ('migration-destination-discovery', 'completed', CURRENT_TIMESTAMP)",
+        [],
+    )?;
+    let scan_id = transaction.last_insert_rowid();
+    let inventory_scope = if drive_id.is_empty() {
+        MY_DRIVE_SCOPE.to_string()
+    } else {
+        let scope = shared_drive_scope(drive_id);
+        transaction.execute(
+            "INSERT INTO shared_drives (drive_id, name, inventory_scope)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(drive_id) DO UPDATE SET name = excluded.name,
+                 inventory_scope = excluded.inventory_scope, is_accessible = 1,
+                 last_seen_at = CURRENT_TIMESTAMP",
+            params![drive_id, drive_name, scope],
+        )?;
+        scope
+    };
+    let mut path_parts = Vec::new();
+    for folder in folders {
+        let parent_path = (!path_parts.is_empty()).then(|| path_parts.join("/"));
+        path_parts.push(folder.name.clone());
+        let relative_path = path_parts.join("/");
+        transaction.execute(
+            "INSERT INTO drive_items
+             (remote_name, item_id, name, relative_path, parent_path, is_directory,
+              mime_type, modified_at, metadata_json, last_seen_scan_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, 1, 'application/vnd.google-apps.folder',
+                     NULLIF(?6, ''), '{\"discovery\":\"migration-destination\"}', ?7)
+             ON CONFLICT(remote_name, item_id) DO UPDATE SET
+                name = excluded.name, relative_path = excluded.relative_path,
+                parent_path = excluded.parent_path,
+                modified_at = COALESCE(excluded.modified_at, drive_items.modified_at),
+                last_seen_at = CURRENT_TIMESTAMP, is_deleted = 0, deleted_at = NULL",
+            params![
+                inventory_scope,
+                folder.item_id,
+                folder.name,
+                relative_path,
+                parent_path,
+                folder.modified_at,
+                scan_id,
+            ],
+        )?;
+    }
+    transaction.commit()?;
+    Ok(())
+}
+
 pub fn shared_drive_scope(drive_id: &str) -> String {
     format!("{SHARED_DRIVE_SCOPE_PREFIX}{drive_id}")
 }

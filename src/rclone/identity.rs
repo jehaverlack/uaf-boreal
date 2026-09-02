@@ -26,6 +26,8 @@ pub struct GoogleDriveFolder {
     pub name: String,
     pub drive_id: String,
     pub can_add_children: bool,
+    pub parents: Vec<String>,
+    pub modified_at: String,
 }
 
 pub fn fetch_google_drive_folder(
@@ -50,7 +52,7 @@ pub fn fetch_google_drive_folder_for_remote(
         .append_pair("supportsAllDrives", "true")
         .append_pair(
             "fields",
-            "id,name,mimeType,driveId,capabilities(canAddChildren)",
+            "id,name,mimeType,driveId,parents,modifiedTime,capabilities(canAddChildren)",
         );
     let response = google_client()?
         .get(url)
@@ -89,6 +91,18 @@ pub fn fetch_google_drive_folder_for_remote(
             .and_then(|capabilities| capabilities.get("canAddChildren"))
             .and_then(Value::as_bool)
             .unwrap_or(false),
+        parents: value
+            .get("parents")
+            .and_then(Value::as_array)
+            .map(|parents| {
+                parents
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        modified_at: value_string("modifiedTime").unwrap_or_default(),
     })
 }
 

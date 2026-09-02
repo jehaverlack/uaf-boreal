@@ -1974,8 +1974,34 @@ async fn save_migration_destination(
             {
                 (drive_name, folder_name)
             }
-            _ => (destination.drive_name, destination.folder_name),
+            _ => (
+                destination.drive_name.clone(),
+                destination.folder_name.clone(),
+            ),
         };
+        let discovered_folders = destination
+            .folders
+            .iter()
+            .filter(|folder| {
+                if destination.drive_id.is_empty() {
+                    !folder.parents.is_empty()
+                } else {
+                    folder.id != destination.drive_id
+                }
+            })
+            .map(|folder| database::inventory::DiscoveredDriveFolder {
+                item_id: folder.id.clone(),
+                name: folder.name.clone(),
+                modified_at: folder.modified_at.clone(),
+            })
+            .collect::<Vec<_>>();
+        database::inventory::record_migration_destination(
+            &database,
+            &destination.drive_id,
+            &drive_name,
+            &discovered_folders,
+        )
+        .map_err(|error| error.to_string())?;
         database::migration::set_destination(
             &database,
             migration_id,
