@@ -884,6 +884,12 @@ struct MetadataUpdateForm {
     directory_info: Option<String>,
 }
 
+#[derive(Default, serde::Deserialize)]
+struct QuitQuery {
+    #[serde(default)]
+    force: bool,
+}
+
 #[derive(serde::Deserialize)]
 struct SelectedMetadataUpdateForm {
     #[serde(default)]
@@ -4634,7 +4640,21 @@ async fn open_rclone_gui(State(state): State<Arc<AppState>>) -> Result<Redirect,
     Ok(Redirect::to(&url))
 }
 
-async fn quit(State(state): State<Arc<AppState>>) -> StatusCode {
+async fn quit(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<QuitQuery>,
+) -> axum::response::Response {
+    let active_jobs = state.active_job_descriptions();
+    if !query.force && !active_jobs.is_empty() {
+        return (
+            StatusCode::CONFLICT,
+            format!(
+                "BOREAL is currently running {}. Quitting now will interrupt active work. Quit anyway?",
+                active_jobs.join(" and ")
+            ),
+        )
+            .into_response();
+    }
     println!("Quit requested from WebUI.");
 
     tokio::spawn(async move {
@@ -4644,7 +4664,7 @@ async fn quit(State(state): State<Arc<AppState>>) -> StatusCode {
         state.request_shutdown();
     });
 
-    StatusCode::ACCEPTED
+    StatusCode::ACCEPTED.into_response()
 }
 
 async fn ui_alerts(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {

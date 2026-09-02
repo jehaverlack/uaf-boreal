@@ -754,6 +754,10 @@ mod tests {
             )
             .expect("running migration should insert");
         let migration_id = connection.last_insert_rowid();
+        assert_eq!(
+            migration::active_count(&database).expect("active migrations should be countable"),
+            1,
+        );
         connection
             .execute(
                 "INSERT INTO migration_sources
@@ -765,6 +769,10 @@ mod tests {
         drop(connection);
         migration::complete_copy(&database, migration_id)
             .expect("completed copy should tag its source");
+        assert_eq!(
+            migration::active_count(&database).expect("completed migrations should be excluded"),
+            0,
+        );
         let migrated_items: i64 = database
             .connect()
             .expect("database should connect")

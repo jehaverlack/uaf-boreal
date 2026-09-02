@@ -361,13 +361,17 @@
                             <li>
 
                                 <a
-                                    class="dropdown-item{% if active_page == "google-client" %} active{% endif %}"
-                                    href="/google-client"
+                                    class="dropdown-item{% if active_page == "about" %} active{% endif %}"
+                                    href="/about"
                                 >
-                                    <i class="bi bi-key me-2"></i>
-                                    Create Google Client ID
+                                    <i class="bi bi-info-circle me-2"></i>
+                                    About
                                 </a>
 
+                            </li>
+
+                            <li>
+                                <hr class="dropdown-divider">
                             </li>
 
                             <li>
@@ -409,6 +413,22 @@
                             <li>
 
                                 <a
+                                    class="dropdown-item{% if active_page == "google-client" %} active{% endif %}"
+                                    href="/google-client"
+                                >
+                                    <i class="bi bi-key me-2"></i>
+                                    Create Google Client ID
+                                </a>
+
+                            </li>
+
+                            <li>
+                                <hr class="dropdown-divider">
+                            </li>
+
+                            <li>
+
+                                <a
                                     class="dropdown-item{% if active_page == "docs" %} active{% endif %}"
                                     href="/docs"
                                 >
@@ -440,22 +460,6 @@
                                 >
                                     <i class="bi bi-bug me-2"></i>
                                     Report an Issue
-                                </a>
-
-                            </li>
-
-                            <li>
-                                <hr class="dropdown-divider">
-                            </li>
-
-                            <li>
-
-                                <a
-                                    class="dropdown-item{% if active_page == "about" %} active{% endif %}"
-                                    href="/about"
-                                >
-                                    <i class="bi bi-info-circle me-2"></i>
-                                    About
                                 </a>
 
                             </li>
@@ -930,22 +934,35 @@
             if (quitButton) {
                 quitButton.addEventListener(
                     "click",
-                    () => {
+                    async () => {
                         quitButton.disabled = true;
 
-                        // Keep the request alive if the close succeeds, but
-                        // do not await it: the close attempt must remain in
-                        // this user-generated click event.
-                        fetch(
-                            "/app/quit",
-                            {
+                        let response;
+                        try {
+                            response = await fetch("/app/quit", {
                                 method: "POST",
                                 cache: "no-store",
-                                keepalive: true,
-                            },
-                        ).catch(() => {
-                            // Shutdown may end the request before a response.
-                        });
+                            });
+                            if (response.status === 409) {
+                                const warning = await response.text();
+                                if (!window.confirm(warning)) {
+                                    quitButton.disabled = false;
+                                    return;
+                                }
+                                response = await fetch("/app/quit?force=true", {
+                                    method: "POST",
+                                    cache: "no-store",
+                                    keepalive: true,
+                                });
+                            }
+                            if (!response.ok) {
+                                quitButton.disabled = false;
+                                return;
+                            }
+                        } catch (_error) {
+                            // Shutdown can close the local server before the
+                            // accepted response reaches the browser.
+                        }
 
                         try {
                             const currentTab = window.open("", "_self");

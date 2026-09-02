@@ -56,11 +56,28 @@ fn open_boreal() {
 }
 
 fn request_quit() {
-    QUIT_REQUESTED.store(true, Ordering::Release);
     let state = APP_STATE
         .get()
         .and_then(|value| value.lock().ok())
         .and_then(|value| value.upgrade());
+    if let Some(state) = &state {
+        let active_jobs = state.active_job_descriptions();
+        if !active_jobs.is_empty()
+            && rfd::MessageDialog::new()
+                .set_title("Quit BOREAL?")
+                .set_description(format!(
+                    "BOREAL is currently running {}. Quitting now will interrupt active work.",
+                    active_jobs.join(" and ")
+                ))
+                .set_level(rfd::MessageLevel::Warning)
+                .set_buttons(rfd::MessageButtons::YesNo)
+                .show()
+                != rfd::MessageDialogResult::Yes
+        {
+            return;
+        }
+    }
+    QUIT_REQUESTED.store(true, Ordering::Release);
     if let Some(state) = state {
         log::info!("Quit requested from the BOREAL desktop menu");
         state.request_shutdown();

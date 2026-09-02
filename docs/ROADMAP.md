@@ -2,7 +2,7 @@
 
 ## Feature Requests
 
-- [ ] On quit, if jobs are running prompt the users before stopping.
+- [x] On quit, if jobs are running prompt the users before stopping.
 - [ ] Add an Data Retention Date to flag data for removal.
 - [x] Add Use cases to About
 - [x] Link to local host url if Browser TAB CLOSED

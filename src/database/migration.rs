@@ -45,6 +45,15 @@ pub struct MigrationSource {
     pub error_message: String,
 }
 
+pub fn active_count(database: &Database) -> Result<usize, DatabaseError> {
+    let count = database.connect()?.query_row(
+        "SELECT COUNT(*) FROM migration_jobs WHERE status IN ('preflight', 'running')",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    Ok(count as usize)
+}
+
 pub fn create(
     database: &Database,
     source_scope: &str,

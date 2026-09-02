@@ -402,6 +402,26 @@ impl AppState {
         }
     }
 
+    pub fn active_job_descriptions(&self) -> Vec<String> {
+        let mut jobs = Vec::new();
+        if matches!(self.metadata_state(), MetadataState::Updating(_))
+            || self.metadata_job_active.lock().is_ok_and(|active| *active)
+        {
+            jobs.push("a metadata update".to_string());
+        }
+        let migration_count = self
+            .database()
+            .ok()
+            .and_then(|database| database::migration::active_count(&database).ok())
+            .unwrap_or(0);
+        if migration_count == 1 {
+            jobs.push("a migration or download".to_string());
+        } else if migration_count > 1 {
+            jobs.push(format!("{migration_count} migrations or downloads"));
+        }
+        jobs
+    }
+
     pub fn google_client_state(&self) -> GoogleClientState {
         match self.google_client.read() {
             Ok(state) => state.clone(),
