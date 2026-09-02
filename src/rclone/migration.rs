@@ -107,6 +107,7 @@ pub fn preflight_copy(
     destination_drive_id: &str,
     destination_folder_id: &str,
     sources: &[MigrationSource],
+    allow_existing: bool,
 ) -> Result<(), RcloneError> {
     let config_path = config::path(runtime)?;
     let refresh = command::run(
@@ -173,7 +174,7 @@ pub fn preflight_copy(
             )
             .into());
         }
-        if existing.contains(&source.name) {
+        if !allow_existing && existing.contains(&source.name) {
             return Err(format!(
                 "The destination already contains an item named '{}'. BOREAL will not merge or overwrite it.",
                 source.name
@@ -191,6 +192,7 @@ pub fn copy_source(
     source: &MigrationSource,
     destination_drive_id: &str,
     destination_folder_id: &str,
+    immutable: bool,
 ) -> Result<(), RcloneError> {
     let config_path = config::path(runtime)?;
     let source_remote = if source_kind == "shared-with-me" {
@@ -218,10 +220,12 @@ pub fn copy_source(
         source_remote,
         destination,
         "--drive-server-side-across-configs".to_string(),
-        "--immutable".to_string(),
         "--config".to_string(),
         config_path.to_string_lossy().into_owned(),
     ];
+    if immutable {
+        arguments.push("--immutable".to_string());
+    }
     if source.is_directory {
         arguments.push("--create-empty-src-dirs".to_string());
     }

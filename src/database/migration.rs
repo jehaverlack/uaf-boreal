@@ -6,9 +6,12 @@ use super::{Database, DatabaseError};
 pub struct MigrationJob {
     pub id: i64,
     pub source_kind: String,
+    pub operation_kind: String,
     pub status: String,
     pub phase: String,
     pub destination_url: String,
+    pub destination_kind: String,
+    pub destination_path: String,
     pub destination_drive_name: String,
     pub destination_folder_name: String,
     pub destination_drive_id: String,
@@ -24,6 +27,7 @@ pub struct MigrationJob {
     pub completed_at: String,
     pub copy_completed_at: String,
     pub archived_at: String,
+    pub resume_count: u64,
     pub error_message: String,
     pub sources: Vec<MigrationSource>,
 }
@@ -46,15 +50,20 @@ pub fn create(
     source_scope: &str,
     source_kind: &str,
     item_ids: &[String],
+    operation_kind: &str,
 ) -> Result<i64, DatabaseError> {
-    if !matches!(source_kind, "my-drive" | "shared-with-me") || item_ids.is_empty() {
+    if !matches!(source_kind, "my-drive" | "shared-with-me")
+        || !matches!(operation_kind, "drive-copy" | "local-download")
+        || item_ids.is_empty()
+    {
         return Err("Select at least one My Drive or Shared with Me item".into());
     }
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
     transaction.execute(
-        "INSERT INTO migration_jobs (source_scope, source_kind) VALUES (?1, ?2)",
-        params![source_scope, source_kind],
+        "INSERT INTO migration_jobs (source_scope, source_kind, operation_kind)
+         VALUES (?1, ?2, ?3)",
+        params![source_scope, source_kind, operation_kind],
     )?;
     let migration_id = transaction.last_insert_rowid();
     for item_id in item_ids {
@@ -106,6 +115,47 @@ pub fn create(
     Ok(migration_id)
 }
 
+pub fn create_shared_drive_download(
+    database: &Database,
+    drive_id: &str,
+) -> Result<i64, DatabaseError> {
+    let drive = crate::database::inventory::get_shared_drive(database, drive_id)?
+        .ok_or_else(|| format!("Unknown Shared Drive: {drive_id}"))?;
+    if !drive.is_accessible {
+        return Err("The Shared Drive is not accessible".into());
+    }
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    transaction.execute(
+        "INSERT INTO migration_jobs
+         (source_scope, source_kind, operation_kind, files_total, folders_total, bytes_total)
+         VALUES (?1, 'shared-drive', 'local-download', ?2, ?3, ?4)",
+        params![
+            drive.inventory_scope,
+            drive.files_scanned as i64,
+            drive.folders_scanned as i64,
+            drive.bytes_discovered as i64
+        ],
+    )?;
+    let id = transaction.last_insert_rowid();
+    transaction.execute(
+        "INSERT INTO migration_sources
+         (migration_id, item_id, name, relative_path, is_directory,
+          files_total, folders_total, bytes_total)
+         VALUES (?1, ?2, ?3, '', 1, ?4, ?5, ?6)",
+        params![
+            id,
+            drive.drive_id,
+            drive.name,
+            drive.files_scanned as i64,
+            drive.folders_scanned as i64,
+            drive.bytes_discovered as i64
+        ],
+    )?;
+    transaction.commit()?;
+    Ok(id)
+}
+
 pub fn list(
     database: &Database,
     search: &str,
@@ -118,7 +168,9 @@ pub fn list(
         "id" => "mj.id",
         "source" => "mj.source_kind",
         "status" => "mj.status",
-        "destination" => "mj.destination_drive_name COLLATE NOCASE",
+        "destination" => {
+            "CASE WHEN mj.destination_kind = 'local' THEN mj.destination_path ELSE mj.destination_drive_name END COLLATE NOCASE"
+        }
         "files" => "mj.files_total",
         "folders" => "mj.folders_total",
         "capacity" => "mj.bytes_total",
@@ -127,17 +179,19 @@ pub fn list(
     };
     let direction = if descending { "DESC" } else { "ASC" };
     let sql = format!(
-        "SELECT mj.id, mj.source_kind, mj.status, mj.phase, mj.destination_url, mj.destination_drive_name,
+        "SELECT mj.id, mj.source_kind, mj.operation_kind, mj.status, mj.phase,
+                mj.destination_url, mj.destination_kind, mj.destination_path, mj.destination_drive_name,
                 destination_folder_name, files_total, folders_total, bytes_total,
                 files_copied, bytes_copied, exceptions_count, created_at,
                 COALESCE(started_at, ''), COALESCE(completed_at, ''), error_message,
                 COALESCE(archived_at, ''), destination_drive_id, destination_folder_id,
-                COALESCE(copy_completed_at, '')
+                COALESCE(copy_completed_at, ''), resume_count
          FROM migration_jobs mj
          WHERE (?1 OR mj.archived_at IS NULL)
            AND (?2 = '' OR CAST(mj.id AS TEXT) LIKE ?3 OR mj.source_kind LIKE ?3
-                OR mj.status LIKE ?3 OR mj.phase LIKE ?3
+                OR mj.operation_kind LIKE ?3 OR mj.status LIKE ?3 OR mj.phase LIKE ?3
                 OR mj.destination_drive_name LIKE ?3 OR mj.destination_folder_name LIKE ?3
+                OR mj.destination_path LIKE ?3
                 OR mj.created_at LIKE ?3 OR COALESCE(mj.completed_at, '') LIKE ?3
                 OR EXISTS (SELECT 1 FROM migration_sources ms
                            WHERE ms.migration_id = mj.id
@@ -163,12 +217,13 @@ pub fn get(database: &Database, id: i64) -> Result<Option<MigrationJob>, Databas
     let connection = database.connect()?;
     let mut job = connection
         .query_row(
-            "SELECT id, source_kind, status, phase, destination_url, destination_drive_name,
+            "SELECT id, source_kind, operation_kind, status, phase,
+                    destination_url, destination_kind, destination_path, destination_drive_name,
                     destination_folder_name, files_total, folders_total, bytes_total,
                     files_copied, bytes_copied, exceptions_count, created_at,
                     COALESCE(started_at, ''), COALESCE(completed_at, ''), error_message
                     , COALESCE(archived_at, ''), destination_drive_id, destination_folder_id,
-                    COALESCE(copy_completed_at, '')
+                    COALESCE(copy_completed_at, ''), resume_count
              FROM migration_jobs WHERE id = ?1",
             [id],
             job_from_row,
@@ -221,25 +276,35 @@ pub fn cancel(database: &Database, id: i64) -> Result<(), DatabaseError> {
 }
 
 pub fn begin_copy(database: &Database, id: i64) -> Result<(), DatabaseError> {
-    let connection = database.connect()?;
-    let changed = connection.execute(
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    let changed = transaction.execute(
         "UPDATE migration_jobs
          SET status = 'preflight', phase = 'Validating destination write access',
-             updated_at = CURRENT_TIMESTAMP, error_message = ''
-         WHERE id = ?1 AND status = 'ready' AND started_at IS NULL AND archived_at IS NULL",
+             updated_at = CURRENT_TIMESTAMP, error_message = '', completed_at = NULL,
+             copy_completed_at = NULL, files_copied = 0, bytes_copied = 0,
+             resume_count = resume_count + CASE WHEN started_at IS NULL THEN 0 ELSE 1 END
+         WHERE id = ?1 AND status IN ('ready', 'interrupted', 'error', 'copied')
+           AND archived_at IS NULL",
         [id],
     )?;
     if changed == 0 {
-        return Err("Only a ready migration that has not started can be started".into());
+        return Err("This migration cannot be started or resumed".into());
     }
+    transaction.execute(
+        "UPDATE migration_sources SET status = 'pending', started_at = NULL,
+             completed_at = NULL, error_message = '' WHERE migration_id = ?1",
+        [id],
+    )?;
+    transaction.commit()?;
     Ok(())
 }
 
 pub fn confirm_copy_started(database: &Database, id: i64) -> Result<(), DatabaseError> {
     let changed = database.connect()?.execute(
         "UPDATE migration_jobs SET status = 'running', phase = 'Copying selected items',
-             started_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?1 AND status = 'preflight' AND started_at IS NULL",
+             started_at = COALESCE(started_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?1 AND status = 'preflight'",
         [id],
     )?;
     if changed == 0 {
@@ -250,9 +315,10 @@ pub fn confirm_copy_started(database: &Database, id: i64) -> Result<(), Database
 
 pub fn fail_preflight(database: &Database, id: i64, error: &str) -> Result<(), DatabaseError> {
     database.connect()?.execute(
-        "UPDATE migration_jobs SET status = 'ready', phase = 'Preflight requires attention',
+        "UPDATE migration_jobs SET status = CASE WHEN started_at IS NULL THEN 'ready' ELSE 'error' END,
+             phase = 'Preflight requires attention',
              error_message = ?2, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?1 AND status = 'preflight' AND started_at IS NULL",
+         WHERE id = ?1 AND status = 'preflight'",
         params![id, error],
     )?;
     Ok(())
@@ -313,9 +379,12 @@ pub fn complete_copy(database: &Database, id: i64) -> Result<(), DatabaseError> 
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
     let changed = transaction.execute(
-        "UPDATE migration_jobs SET status = 'copied', phase = 'Copy complete; verification pending',
+        "UPDATE migration_jobs SET status = 'copied',
+             phase = CASE WHEN operation_kind = 'local-download'
+                          THEN 'Download complete' ELSE 'Copy complete; verification pending' END,
              files_copied = files_total, bytes_copied = bytes_total,
-             copy_completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+             copy_completed_at = CURRENT_TIMESTAMP, completed_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
          WHERE id = ?1 AND status = 'running'",
         [id],
     )?;
@@ -346,7 +415,8 @@ pub fn complete_copy(database: &Database, id: i64) -> Result<(), DatabaseError> 
               WHEN 'my-drive' THEN 'my-drive'
               WHEN 'shared-with-me' THEN 'shared-with-me'
           END
-         WHERE job.id = ?1 AND source.status = 'completed'",
+         WHERE job.id = ?1 AND job.operation_kind = 'drive-copy'
+           AND source.status = 'completed'",
         [id],
     )?;
     transaction.commit()?;
@@ -377,7 +447,8 @@ pub fn set_destination(
 ) -> Result<(), DatabaseError> {
     let connection = database.connect()?;
     let changed = connection.execute(
-        "UPDATE migration_jobs SET destination_url = ?2, destination_drive_id = ?3,
+        "UPDATE migration_jobs SET destination_kind = 'google-drive', destination_path = '',
+            operation_kind = 'drive-copy', destination_url = ?2, destination_drive_id = ?3,
             destination_drive_name = ?4, destination_folder_id = ?5,
             destination_folder_name = ?6, status = 'ready', phase = 'Ready for copy authorization',
             updated_at = CURRENT_TIMESTAMP, error_message = ''
@@ -388,6 +459,45 @@ pub fn set_destination(
         return Err(format!("Unknown migration: {id}").into());
     }
     Ok(())
+}
+
+pub fn set_local_destination(
+    database: &Database,
+    id: i64,
+    destination_path: &str,
+) -> Result<(), DatabaseError> {
+    let changed = database.connect()?.execute(
+        "UPDATE migration_jobs SET destination_kind = 'local', operation_kind = 'local-download',
+             destination_path = ?2, destination_url = '', destination_drive_id = '',
+             destination_drive_name = 'Local folder', destination_folder_id = '',
+             destination_folder_name = ?2, status = 'ready', phase = 'Ready to download',
+             updated_at = CURRENT_TIMESTAMP, error_message = ''
+         WHERE id = ?1 AND started_at IS NULL AND status IN ('draft', 'ready')",
+        params![id, destination_path],
+    )?;
+    if changed == 0 {
+        return Err(format!("Unknown or already-started migration: {id}").into());
+    }
+    Ok(())
+}
+
+pub fn recover_interrupted(database: &Database) -> Result<usize, DatabaseError> {
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    let changed = transaction.execute(
+        "UPDATE migration_jobs SET status = 'interrupted',
+             phase = 'Interrupted; safe to resume', updated_at = CURRENT_TIMESTAMP,
+             error_message = 'BOREAL stopped before this transfer completed'
+         WHERE status IN ('preflight', 'running')",
+        [],
+    )?;
+    transaction.execute(
+        "UPDATE migration_sources SET status = 'pending', started_at = NULL,
+             completed_at = NULL WHERE status = 'running'",
+        [],
+    )?;
+    transaction.commit()?;
+    Ok(changed)
 }
 
 pub fn resolve_destination(
@@ -413,25 +523,29 @@ fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MigrationJob> {
     Ok(MigrationJob {
         id: row.get(0)?,
         source_kind: row.get(1)?,
-        status: row.get(2)?,
-        phase: row.get(3)?,
-        destination_url: row.get(4)?,
-        destination_drive_name: row.get(5)?,
-        destination_folder_name: row.get(6)?,
-        files_total: row.get::<_, i64>(7)? as u64,
-        folders_total: row.get::<_, i64>(8)? as u64,
-        bytes_total: row.get::<_, i64>(9)? as u64,
-        files_copied: row.get::<_, i64>(10)? as u64,
-        bytes_copied: row.get::<_, i64>(11)? as u64,
-        exceptions_count: row.get::<_, i64>(12)? as u64,
-        created_at: row.get(13)?,
-        started_at: row.get(14)?,
-        completed_at: row.get(15)?,
-        error_message: row.get(16)?,
-        archived_at: row.get(17)?,
-        destination_drive_id: row.get(18)?,
-        destination_folder_id: row.get(19)?,
-        copy_completed_at: row.get(20)?,
+        operation_kind: row.get(2)?,
+        status: row.get(3)?,
+        phase: row.get(4)?,
+        destination_url: row.get(5)?,
+        destination_kind: row.get(6)?,
+        destination_path: row.get(7)?,
+        destination_drive_name: row.get(8)?,
+        destination_folder_name: row.get(9)?,
+        files_total: row.get::<_, i64>(10)? as u64,
+        folders_total: row.get::<_, i64>(11)? as u64,
+        bytes_total: row.get::<_, i64>(12)? as u64,
+        files_copied: row.get::<_, i64>(13)? as u64,
+        bytes_copied: row.get::<_, i64>(14)? as u64,
+        exceptions_count: row.get::<_, i64>(15)? as u64,
+        created_at: row.get(16)?,
+        started_at: row.get(17)?,
+        completed_at: row.get(18)?,
+        error_message: row.get(19)?,
+        archived_at: row.get(20)?,
+        destination_drive_id: row.get(21)?,
+        destination_folder_id: row.get(22)?,
+        copy_completed_at: row.get(23)?,
+        resume_count: row.get::<_, i64>(24)? as u64,
         sources: Vec::new(),
     })
 }

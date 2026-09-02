@@ -1,5 +1,6 @@
 use std::{
     collections::HashSet,
+    path::PathBuf,
     sync::{Arc, Mutex, RwLock},
 };
 
@@ -542,7 +543,12 @@ impl AppState {
         let job = database::migration::get(&database, migration_id)
             .map_err(|error| error.to_string())?
             .ok_or_else(|| format!("Unknown migration: {migration_id}"))?;
-        if job.destination_drive_name.is_empty() || job.destination_folder_name.is_empty() {
+        if job.destination_kind == "local" && job.destination_path.is_empty() {
+            return Err("Select a local destination before starting the download".to_string());
+        }
+        if job.destination_kind == "google-drive"
+            && (job.destination_drive_name.is_empty() || job.destination_folder_name.is_empty())
+        {
             return Err("Validate a migration destination before starting the copy".to_string());
         }
         let executable = match state.rclone_state() {
@@ -553,9 +559,11 @@ impl AppState {
         if !matches!(remotes.ro, RemoteState::Ready) {
             return Err("My Drive RO is not ready".to_string());
         }
-        if !matches!(remotes.rw, RemoteState::Ready) {
+        if job.destination_kind == "google-drive" && !matches!(remotes.rw, RemoteState::Ready) {
             return Err("Add and authorize My Drive RW before starting a migration".to_string());
         }
+        let allow_existing = !job.started_at.is_empty()
+            || matches!(job.status.as_str(), "interrupted" | "error" | "copied");
         database::migration::begin_copy(&database, migration_id)
             .map_err(|error| error.to_string())?;
         log::info!(
@@ -565,20 +573,56 @@ impl AppState {
             job.destination_drive_id,
             job.destination_folder_id,
         );
+        let is_local_transfer = job.destination_kind == "local";
+        let transfer_name = if job.sources.len() == 1 {
+            job.sources[0].name.clone()
+        } else {
+            format!("{} items", job.sources.len())
+        };
+        let transfer_destination = job.destination_path.clone();
+        if is_local_transfer {
+            state.set_download_state(DownloadState::Running {
+                item_name: transfer_name.clone(),
+                destination: transfer_destination.clone(),
+            });
+        }
+        let download_status_state = Arc::clone(&state);
 
         tokio::spawn(async move {
             let failure_database = database.clone();
             let result = tokio::task::spawn_blocking(move || -> Result<(), String> {
-                if let Err(error) = rclone::migration::preflight_copy(
-                    &state.runtime,
-                    &executable,
-                    &job.destination_drive_id,
-                    &job.destination_folder_id,
-                    &job.sources,
-                ) {
-                    let message = error.to_string();
-                    let _ = database::migration::fail_preflight(&database, migration_id, &message);
-                    return Err(message);
+                if job.destination_kind == "google-drive" {
+                    if let Err(error) = rclone::migration::preflight_copy(
+                        &state.runtime,
+                        &executable,
+                        &job.destination_drive_id,
+                        &job.destination_folder_id,
+                        &job.sources,
+                        allow_existing,
+                    ) {
+                        let message = error.to_string();
+                        let _ =
+                            database::migration::fail_preflight(&database, migration_id, &message);
+                        return Err(message);
+                    }
+                } else if !allow_existing {
+                    for source in &job.sources {
+                        if PathBuf::from(&job.destination_path)
+                            .join(rclone::download::safe_local_name(&source.name))
+                            .exists()
+                        {
+                            let message = format!(
+                                "The local destination already contains '{}'. Select another folder or resume an interrupted transfer.",
+                                source.name
+                            );
+                            let _ = database::migration::fail_preflight(
+                                &database,
+                                migration_id,
+                                &message,
+                            );
+                            return Err(message);
+                        }
+                    }
                 }
                 database::migration::confirm_copy_started(&database, migration_id)
                     .map_err(|error| error.to_string())?;
@@ -591,14 +635,35 @@ impl AppState {
                     );
                     database::migration::start_source(&database, migration_id, &source.item_id)
                         .map_err(|error| error.to_string())?;
-                    if let Err(error) = rclone::migration::copy_source(
-                        &state.runtime,
-                        &executable,
-                        &job.source_kind,
-                        source,
-                        &job.destination_drive_id,
-                        &job.destination_folder_id,
-                    ) {
+                    let copy_result = if job.destination_kind == "local" {
+                        let destination = PathBuf::from(&job.destination_path)
+                            .join(rclone::download::safe_local_name(&source.name));
+                        let config_path = rclone::config::path(&state.runtime)
+                            .map_err(|error| error.to_string())?;
+                        let shared_drive_id = (job.source_kind == "shared-drive")
+                            .then_some(source.item_id.as_str());
+                        rclone::download::copy_item(rclone::download::DownloadRequest {
+                            executable: &executable,
+                            config_path: &config_path,
+                            relative_path: &source.relative_path,
+                            destination: &destination,
+                            is_directory: source.is_directory,
+                            shared_with_me: job.source_kind == "shared-with-me",
+                            shared_drive_id,
+                            immutable: !allow_existing,
+                        })
+                    } else {
+                        rclone::migration::copy_source(
+                            &state.runtime,
+                            &executable,
+                            &job.source_kind,
+                            source,
+                            &job.destination_drive_id,
+                            &job.destination_folder_id,
+                            !allow_existing,
+                        )
+                    };
+                    if let Err(error) = copy_result {
                         let message = error.to_string();
                         let _ = database::migration::fail_copy(
                             &database,
@@ -626,6 +691,19 @@ impl AppState {
                 Ok(Err(error)) => Some(error),
                 Err(error) => Some(format!("Migration copy task failed: {error}")),
             };
+            if is_local_transfer {
+                if let Some(message) = task_error.as_ref() {
+                    download_status_state.set_download_state(DownloadState::Error {
+                        item_name: transfer_name,
+                        message: message.clone(),
+                    });
+                } else {
+                    download_status_state.set_download_state(DownloadState::Complete {
+                        item_name: transfer_name,
+                        destination: transfer_destination,
+                    });
+                }
+            }
             if let Some(message) = task_error {
                 log::error!("Migration copy failed: migration_id={migration_id}, error={message}");
                 let preflight_failed = database::migration::get(&failure_database, migration_id)
