@@ -196,6 +196,52 @@ struct HelpTemplate {
 }
 
 #[allow(dead_code)]
+pub struct MigrationView {
+    pub id: i64,
+    pub source_label: String,
+    pub status: String,
+    pub phase: String,
+    pub destination_url: String,
+    pub destination_label: String,
+    pub files_total: u64,
+    pub folders_total: u64,
+    pub size_label: String,
+    pub files_copied: u64,
+    pub copied_size_label: String,
+    pub exceptions_count: u64,
+    pub created_at: String,
+    pub started_at: String,
+    pub completed_at: String,
+    pub error_message: String,
+    pub sources: Vec<database::migration::MigrationSource>,
+}
+
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(path = "migrations.html", config = "askama.toml")]
+struct MigrationsTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+    migrations: Vec<MigrationView>,
+}
+
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(path = "migration-wizard.html", config = "askama.toml")]
+struct MigrationWizardTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+    migration: MigrationView,
+    error: String,
+}
+
+#[allow(dead_code)]
 pub struct RemoteView {
     pub name: String,
     pub backend: String,
@@ -751,6 +797,19 @@ struct MetadataUpdateForm {
     directory_info: Option<String>,
 }
 
+#[derive(serde::Deserialize)]
+struct NewMigrationForm {
+    #[serde(default)]
+    selected_item_ids: String,
+    #[serde(default)]
+    inventory_scope: String,
+}
+
+#[derive(serde::Deserialize)]
+struct MigrationDestinationForm {
+    destination_url: String,
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(index))
@@ -798,6 +857,13 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/shared-with-me/tags/remove",
             post(remove_shared_with_me_tag),
+        )
+        .route("/migrations", get(migrations_page))
+        .route("/migrations/new", post(create_migration))
+        .route("/migrations/{migration_id}", get(migration_wizard))
+        .route(
+            "/migrations/{migration_id}/destination",
+            post(save_migration_destination),
         )
         .route("/downloads/start", post(start_download))
         .route("/ui/download-status", get(ui_download_status))
@@ -1632,6 +1698,230 @@ async fn help_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, S
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
     })
+}
+
+async fn migrations_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let migrations = database::migration::list(&database)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .into_iter()
+        .map(migration_view)
+        .collect();
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    render_template(&MigrationsTemplate {
+        title: "Migrations - BOREAL",
+        active_page: "migrations",
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
+        status_items: build_status_items(
+            &state.download_state(),
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(&state),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+        migrations,
+    })
+}
+
+async fn create_migration(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<NewMigrationForm>,
+) -> Result<Redirect, StatusCode> {
+    let source_kind = match form.inventory_scope.as_str() {
+        database::inventory::MY_DRIVE_SCOPE => "my-drive",
+        database::inventory::SHARED_WITH_ME_SCOPE => "shared-with-me",
+        _ => return Err(StatusCode::BAD_REQUEST),
+    };
+    let item_ids = form
+        .selected_item_ids
+        .split(',')
+        .map(str::trim)
+        .filter(|item_id| !item_id.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let id = database::migration::create(&database, &form.inventory_scope, source_kind, &item_ids)
+        .map_err(|error| {
+            eprintln!("Unable to create migration plan: {error}");
+            StatusCode::BAD_REQUEST
+        })?;
+    Ok(Redirect::to(&format!("/migrations/{id}")))
+}
+
+async fn migration_wizard(
+    State(state): State<Arc<AppState>>,
+    Path(migration_id): Path<i64>,
+) -> Result<Html<String>, StatusCode> {
+    render_migration_wizard(&state, migration_id, String::new())
+}
+
+async fn save_migration_destination(
+    State(state): State<Arc<AppState>>,
+    Path(migration_id): Path<i64>,
+    Form(form): Form<MigrationDestinationForm>,
+) -> Result<axum::response::Response, StatusCode> {
+    let result = async {
+        let folder_id = google_drive_folder_id(&form.destination_url)?;
+        let executable = match state.rclone_state() {
+            RcloneState::Ready(status) => status.path,
+            RcloneState::Initializing => {
+                return Err("Rclone is still initializing. Try again when it is ready.".to_string());
+            }
+            RcloneState::Error(error) => {
+                return Err(format!("Rclone is not ready: {error}"));
+            }
+        };
+        let probe_state = Arc::clone(&state);
+        let probe_folder_id = folder_id.clone();
+        let destination = tokio::task::spawn_blocking(move || {
+            rclone::migration::validate_shared_drive_destination(
+                &probe_state.runtime,
+                &executable,
+                &probe_folder_id,
+            )
+        })
+        .await
+        .map_err(|error| format!("Destination validation task failed: {error}"))?
+        .map_err(|error| error.to_string())?;
+
+        let database = state.database().map_err(|error| error.to_string())?;
+        let local_destination = database::migration::resolve_destination(&database, &folder_id)
+            .map_err(|error| error.to_string())?;
+        let (drive_name, folder_name) = match local_destination {
+            Some((local_drive_id, drive_name, folder_name))
+                if local_drive_id == destination.drive_id =>
+            {
+                (drive_name, folder_name)
+            }
+            _ => (destination.drive_name, destination.folder_name),
+        };
+        database::migration::set_destination(
+            &database,
+            migration_id,
+            form.destination_url.trim(),
+            &destination.drive_id,
+            &drive_name,
+            &folder_id,
+            &folder_name,
+        )
+        .map_err(|error| error.to_string())
+    }
+    .await;
+    match result {
+        Ok(()) => Ok(Redirect::to(&format!("/migrations/{migration_id}")).into_response()),
+        Err(error) => {
+            render_migration_wizard(&state, migration_id, error).map(IntoResponse::into_response)
+        }
+    }
+}
+
+fn render_migration_wizard(
+    state: &AppState,
+    migration_id: i64,
+    error: String,
+) -> Result<Html<String>, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let migration = database::migration::get(&database, migration_id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    render_template(&MigrationWizardTemplate {
+        title: "Migration Assistant - BOREAL",
+        active_page: "migrations",
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(state),
+        ),
+        status_items: build_status_items(
+            &state.download_state(),
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(state),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+        migration: migration_view(migration),
+        error,
+    })
+}
+
+fn migration_view(job: database::migration::MigrationJob) -> MigrationView {
+    MigrationView {
+        id: job.id,
+        source_label: if job.source_kind == "my-drive" {
+            "My Drive".into()
+        } else {
+            "Shared with Me".into()
+        },
+        status: job.status,
+        phase: job.phase,
+        destination_url: job.destination_url,
+        destination_label: if job.destination_drive_name.is_empty() {
+            "Not selected".into()
+        } else if job.destination_folder_name == job.destination_drive_name {
+            job.destination_drive_name
+        } else {
+            format!(
+                "{} / {}",
+                job.destination_drive_name, job.destination_folder_name
+            )
+        },
+        files_total: job.files_total,
+        folders_total: job.folders_total,
+        size_label: format_bytes(job.bytes_total),
+        files_copied: job.files_copied,
+        copied_size_label: format_bytes(job.bytes_copied),
+        exceptions_count: job.exceptions_count,
+        created_at: job.created_at,
+        started_at: job.started_at,
+        completed_at: job.completed_at,
+        error_message: job.error_message,
+        sources: job.sources,
+    }
+}
+
+fn google_drive_folder_id(url: &str) -> Result<String, String> {
+    let url = url.trim();
+    if !url.starts_with("https://drive.google.com/") {
+        return Err("Enter a Google Drive folder or Shared Drive URL.".to_string());
+    }
+    let id = url
+        .split("/folders/")
+        .nth(1)
+        .and_then(|value| value.split(['?', '/', '#']).next())
+        .unwrap_or("");
+    if id.len() < 10
+        || !id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return Err(
+            "The Google Drive URL does not contain a valid destination folder ID.".to_string(),
+        );
+    }
+    Ok(id.to_string())
 }
 
 async fn status() -> StatusCode {

@@ -20,6 +20,63 @@ pub struct GoogleSheetLocation {
     pub gid: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GoogleDriveFolder {
+    pub id: String,
+    pub name: String,
+    pub drive_id: String,
+}
+
+pub fn fetch_google_drive_folder(
+    runtime: &Runtime,
+    folder_id: &str,
+) -> Result<GoogleDriveFolder, RcloneError> {
+    let config_path = config::path(runtime)?;
+    let access_token = read_access_token(&config_path)?;
+    let mut url = reqwest::Url::parse(&format!(
+        "https://www.googleapis.com/drive/v3/files/{folder_id}"
+    ))
+    .map_err(|error| format!("Unable to build Google Drive folder URL: {error}"))?;
+    url.query_pairs_mut()
+        .append_pair("supportsAllDrives", "true")
+        .append_pair("fields", "id,name,mimeType,driveId");
+    let response = google_client()?
+        .get(url)
+        .bearer_auth(access_token)
+        .send()
+        .map_err(|error| format!("Google Drive destination lookup failed: {error}"))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .map_err(|error| format!("Unable to read Google Drive destination response: {error}"))?;
+    if !status.is_success() {
+        return Err(format!(
+            "Google Drive destination lookup returned {status}. Confirm that the authenticated read-only account can open this folder."
+        )
+        .into());
+    }
+    let value: Value = serde_json::from_str(&body)
+        .map_err(|error| format!("Invalid Google Drive destination response: {error}"))?;
+    if value.get("mimeType").and_then(Value::as_str) != Some("application/vnd.google-apps.folder") {
+        return Err("The Google Drive link must identify a folder".into());
+    }
+    let value_string = |field: &str| {
+        value
+            .get(field)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    Ok(GoogleDriveFolder {
+        id: value_string("id").ok_or("Google Drive did not return the destination folder ID")?,
+        name: value_string("name").ok_or("Google Drive did not return the destination name")?,
+        drive_id: value_string("driveId").ok_or(
+            "The destination is not in a Shared Drive. Select a Shared Drive or one of its folders.",
+        )?,
+    })
+}
+
 pub fn parse_google_sheet_url(url: &str) -> Result<GoogleSheetLocation, RcloneError> {
     let marker = "docs.google.com/spreadsheets/d/";
     let start = url

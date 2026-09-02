@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3"><div><h1 class="h3 mb-1">Migration Assistant #{{ migration.id }}</h1><p class="text-body-secondary mb-0">{{ migration.source_label }} → Shared Drive</p></div><a class="btn btn-sm btn-outline-secondary" href="/migrations"><i class="bi bi-list me-1"></i>All migrations</a></div>
+{% if error.len() > 0 %}<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>{% endif %}
+<div class="progress mb-4" role="progressbar" aria-label="Migration setup progress" aria-valuenow="{% if migration.status == "ready" %}50{% else %}25{% endif %}" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width:{% if migration.status == "ready" %}50{% else %}25{% endif %}%">{% if migration.status == "ready" %}Destination ready{% else %}Source selected{% endif %}</div></div>
+
+<div class="card mb-3"><div class="card-header fw-semibold">1. Review selected source</div><div class="card-body">
+    <div class="d-flex flex-wrap gap-4 mb-3"><span><strong>{{ migration.files_total }}</strong> files</span><span><strong>{{ migration.folders_total }}</strong> folders</span><span><strong>{{ migration.size_label }}</strong></span></div>
+    <ul class="mb-0">{% for source in migration.sources %}<li title="Google Drive item ID: {{ source.item_id }}"><i class="bi {% if source.is_directory %}bi-folder{% else %}bi-file-earmark{% endif %} me-1"></i><strong>{{ source.name }}</strong> <span class="text-body-secondary">{{ source.relative_path }} · {{ source.files_total }} files, {{ source.folders_total }} folders, {{ source.bytes_total }} bytes</span></li>{% endfor %}</ul>
+</div></div>
+
+<div class="card mb-3"><div class="card-header fw-semibold">2. Create or select a destination Shared Drive</div><div class="card-body">
+    <p>BOREAL does not create Shared Drives. In Google Drive, create the Shared Drive, configure its managers and members, then create or select the destination folder.</p>
+    <a class="btn btn-sm btn-outline-primary mb-3" href="https://drive.google.com/drive/shared-drives" target="_blank" rel="noopener noreferrer"><i class="bi bi-box-arrow-up-right me-1"></i>Open Shared Drives in Google Drive</a>
+    <ol><li>Create the Shared Drive if it does not already exist.</li><li>Configure managers, members, and organizational restrictions.</li><li>Open the destination Shared Drive or folder and copy its browser URL.</li></ol>
+    <form method="post" action="/migrations/{{ migration.id }}/destination">
+        <label class="form-label" for="destinationUrl">Destination Shared Drive or folder URL</label>
+        <div class="input-group"><input class="form-control" id="destinationUrl" type="url" name="destination_url" value="{{ migration.destination_url }}" placeholder="https://drive.google.com/drive/folders/..." required><button class="btn btn-primary" type="submit">Validate destination</button></div>
+    </form>
+    {% if migration.destination_url.len() > 0 %}<div class="alert alert-success mt-3 mb-0"><i class="bi bi-check-circle me-1"></i>Destination validated using the Rclone account: <a href="{{ migration.destination_url }}" target="_blank" rel="noopener noreferrer">{{ migration.destination_label }}</a></div>{% endif %}
+</div></div>
+
+<div class="card mb-3"><div class="card-header fw-semibold">3. Preflight and copy authorization</div><div class="card-body">
+    {% if migration.status == "ready" %}<p class="mb-2">The source plan and destination are ready for the next implementation phase.</p>{% else %}<p class="text-body-secondary mb-2">Validate a destination before preflight can continue.</p>{% endif %}
+    <div class="alert alert-warning mb-0"><strong>Copy execution is not implemented in this BOREAL version.</strong> This message is not a permissions error. BOREAL has validated read access only; it does not yet test the read-write account or start a server-side copy. This plan is saved for the remaining copy, verification, and permission-comparison stages.</div>
+</div></div>
+
+<div class="card"><div class="card-header fw-semibold">4. Verification and source disposition</div><div class="card-body"><ul class="mb-2"><li>Copy source content without modifying it.</li><li>Inventory and compare the destination.</li><li>Review inherited, missing, additional, and policy-blocked permissions.</li></ul><p class="mb-0"><strong>My Drive:</strong> deletion is only performed manually in Google Drive after verification. <strong>Shared with Me:</strong> the owner’s original is never a deletion candidate.</p></div></div>
+{% endblock %}

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div><h1 class="h3 mb-1"><i class="bi bi-arrow-left-right me-2"></i>Migrations</h1><p class="text-body-secondary mb-0">Plan migrations and review their progress, capacity, dates, and history.</p></div>
+</div>
+<div class="alert alert-info py-2"><i class="bi bi-shield-check me-2"></i>BOREAL migration plans never delete source content. My Drive removal is performed manually in Google Drive after verification.</div>
+<div class="card"><div class="table-responsive"><table class="table table-hover align-middle mb-0">
+    <thead class="table-light"><tr><th>ID</th><th>Source</th><th>Status / Phase</th><th>Destination</th><th>Files</th><th>Folders</th><th>Capacity</th><th>Created</th><th>Completed</th></tr></thead>
+    <tbody>
+    {% for migration in migrations %}
+    <tr><td><a href="/migrations/{{ migration.id }}" class="fw-semibold">#{{ migration.id }}</a></td><td>{{ migration.source_label }}</td><td><span class="badge text-bg-{% if migration.status == "ready" %}success{% else if migration.status == "error" %}danger{% else %}secondary{% endif %}">{{ migration.status }}</span><div class="small text-body-secondary">{{ migration.phase }}</div></td><td>{% if migration.destination_url.len() > 0 %}<a href="{{ migration.destination_url }}" target="_blank" rel="noopener noreferrer">{{ migration.destination_label }}</a>{% else %}&mdash;{% endif %}</td><td>{{ migration.files_copied }} / {{ migration.files_total }}</td><td>{{ migration.folders_total }}</td><td>{{ migration.copied_size_label }} / {{ migration.size_label }}</td><td class="text-nowrap">{{ migration.created_at }} UTC</td><td class="text-nowrap">{% if migration.completed_at.len() > 0 %}{{ migration.completed_at }} UTC{% else %}&mdash;{% endif %}</td></tr>
+    {% endfor %}
+    {% if migrations.is_empty() %}<tr><td colspan="9" class="text-center text-body-secondary py-5">No migration plans yet. Select content in My Drive or Shared with Me and click <strong>Migrate</strong>.</td></tr>{% endif %}
+    </tbody>
+</table></div></div>
+{% endblock %}

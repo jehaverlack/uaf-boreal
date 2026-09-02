@@ -232,6 +232,12 @@
                     </li>
 
                     <li class="nav-item">
+                        <a class="nav-link{% if active_page == "migrations" %} active{% endif %}"
+                           {% if active_page == "migrations" %}aria-current="page"{% endif %}
+                           href="/migrations" title="Migration plans and history">Migrations</a>
+                    </li>
+
+                    <li class="nav-item">
                         <a
                             class="nav-link boreal-drive-nav{% if active_page == "my-drive" %} active{% endif %}"
                             {% if active_page == "my-drive" %}aria-current="page"{% endif %}

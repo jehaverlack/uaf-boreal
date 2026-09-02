@@ -4,8 +4,8 @@
       "version": "0.1.4",
       "date": "2026-09-01",
       "maturity": "RC1",
-      "summary": "",
-      "notes": ""
+      "summary": "Pre-Release Beta Candidate",
+      "notes": "Added Migration Assitant and Polished Interfaces"
     },
     {
       "version": "0.1.3",
