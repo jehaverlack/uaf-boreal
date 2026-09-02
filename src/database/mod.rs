@@ -1,5 +1,6 @@
 pub mod directory;
 pub mod inventory;
+pub mod migration;
 mod migrations;
 pub mod settings;
 
@@ -186,7 +187,7 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 16,);
+        assert_eq!(migration_count, 25,);
 
         let safe_to_delete_scope_count: i64 = connection
             .query_row(
@@ -201,8 +202,15 @@ mod tests {
 
         for (slug, expected_scope_count) in [
             ("data-loss-risk", 1_i64),
+            ("access-review", 1_i64),
+            ("needs-review", 3_i64),
+            ("permission-review", 3_i64),
+            ("needs-handoff", 3_i64),
+            ("retain", 3_i64),
             ("to-delete", 3_i64),
             ("to-migrate", 2_i64),
+            ("migrated", 2_i64),
+            ("remove-my-permissions", 3_i64),
         ] {
             let scope_count: i64 = connection
                 .query_row(
@@ -216,15 +224,42 @@ mod tests {
             assert_eq!(scope_count, expected_scope_count, "scope count for {slug}");
         }
 
-        let safe_to_delete_tag: (String, String) = connection
+        let safe_to_delete_tag: (String, String, String) = connection
             .query_row(
-                "SELECT name, color FROM tags WHERE slug = 'safe-to-delete'",
+                "SELECT name, description, color FROM tags WHERE slug = 'safe-to-delete'",
                 [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .expect("safe-to-delete tag should exist");
         assert_eq!(safe_to_delete_tag.0, "Safe to Delete");
-        assert_eq!(safe_to_delete_tag.1, "#198754");
+        assert_eq!(
+            safe_to_delete_tag.1,
+            "Content the user has reviewed and marked as ready for manual deletion from Google Drive."
+        );
+        assert_eq!(safe_to_delete_tag.2, "#198754");
+
+        for slug in [
+            "data-loss-risk",
+            "access-review",
+            "needs-review",
+            "permission-review",
+            "needs-handoff",
+            "retain",
+            "to-migrate",
+            "migrated",
+            "remove-my-permissions",
+            "to-delete",
+            "safe-to-delete",
+        ] {
+            let description: String = connection
+                .query_row(
+                    "SELECT description FROM tags WHERE slug = ?1",
+                    [slug],
+                    |row| row.get(0),
+                )
+                .expect("built-in tag description should be readable");
+            assert!(!description.is_empty(), "description for {slug}");
+        }
 
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
@@ -313,6 +348,40 @@ mod tests {
         assert!(
             settings::metadata_setup_skipped(&database)
                 .expect("metadata setup state should reload")
+        );
+        assert!(
+            !settings::bookmark_reminder_dismissed(&database)
+                .expect("bookmark reminder state should default to visible")
+        );
+        settings::set_bookmark_reminder_dismissed(&database, true)
+            .expect("bookmark reminder state should save");
+        assert!(
+            settings::bookmark_reminder_dismissed(&database)
+                .expect("bookmark reminder state should reload")
+        );
+
+        fs::remove_dir_all(root).expect("temporary database directory should be removable");
+    }
+
+    #[test]
+    fn deletes_tags_and_their_scopes() {
+        let root = temporary_directory();
+        let database = Database::initialize(&runtime(&root)).expect("database should initialize");
+        inventory::create_tag_with_scopes(
+            &database,
+            "Temporary Tag",
+            "#369",
+            &[inventory::TagScope::Directory],
+        )
+        .expect("tag should be created");
+
+        inventory::delete_tag(&database, "temporary-tag").expect("tag should be deleted");
+
+        assert!(
+            inventory::list_tags(&database)
+                .expect("tags should be readable")
+                .iter()
+                .all(|tag| tag.slug != "temporary-tag")
         );
 
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
@@ -516,6 +585,7 @@ mod tests {
             "",
             "",
             "",
+            "",
         )
         .expect("Shared Drives should filter by name and tag");
         assert_eq!(tagged_drives.len(), 1);
@@ -523,6 +593,7 @@ mod tests {
         assert_eq!(tagged_drives[0].tags[0].slug, "to-delete");
         let manager_filtered = inventory::list_shared_drives_filtered(
             &database,
+            "",
             "",
             "",
             "",
@@ -545,9 +616,19 @@ mod tests {
         inventory::change_shared_drive_tags(&database, &["drive-a".to_string()], "to-delete", true)
             .expect("Shared Drive tag should be removable");
         assert!(
-            inventory::list_shared_drives_filtered(&database, "", "to-delete", "", "", "", "", "",)
-                .expect("Shared Drive tag filter should load")
-                .is_empty()
+            inventory::list_shared_drives_filtered(
+                &database,
+                "",
+                "to-delete",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            )
+            .expect("Shared Drive tag filter should load")
+            .is_empty()
         );
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
@@ -644,6 +725,61 @@ mod tests {
         .expect("explorer root should be readable");
         assert_eq!(root_items.len(), 1);
         assert_eq!(root_items[0].size_bytes, Some(42));
+        let partial_scan = database
+            .start_scan_run("partial:my-drive")
+            .expect("partial scan should start");
+        inventory::refresh_drive_items(
+            &database,
+            inventory::MY_DRIVE_SCOPE,
+            partial_scan,
+            std::slice::from_ref(&item),
+        )
+        .expect("selected item should refresh");
+        assert_eq!(
+            inventory::list_my_drive_directory(
+                &database, None, "", "", "", "", "", "", false, "", "", "", false, "name", false,
+            )
+            .expect("partial refresh must preserve unselected items")
+            .len(),
+            1,
+            "partial refresh must not mark an unselected folder deleted",
+        );
+        let connection = database.connect().expect("database should connect");
+        connection
+            .execute(
+                "INSERT INTO migration_jobs
+                 (source_scope, source_kind, status, phase)
+                 VALUES ('my-drive-ro', 'my-drive', 'running', 'Copying selected items')",
+                [],
+            )
+            .expect("running migration should insert");
+        let migration_id = connection.last_insert_rowid();
+        connection
+            .execute(
+                "INSERT INTO migration_sources
+                 (migration_id, item_id, name, relative_path, is_directory, status)
+                 VALUES (?1, 'folder-id-1', 'Reports', 'Reports', 1, 'completed')",
+                [migration_id],
+            )
+            .expect("completed migration source should insert");
+        drop(connection);
+        migration::complete_copy(&database, migration_id)
+            .expect("completed copy should tag its source");
+        let migrated_items: i64 = database
+            .connect()
+            .expect("database should connect")
+            .query_row(
+                "SELECT COUNT(*) FROM drive_item_tags assignments
+                 JOIN tags tag ON tag.id = assignments.tag_id
+                 WHERE assignments.remote_name = 'my-drive-ro' AND tag.slug = 'migrated'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("migrated assignments should be readable");
+        assert_eq!(
+            migrated_items, 2,
+            "a migrated folder and its indexed descendants should be tagged",
+        );
         let shared_scan = database
             .start_scan_run("shared-with-me")
             .expect("scan should start");
@@ -844,41 +980,47 @@ mod tests {
         );
         inventory::apply_tag_recursively(&database, &["folder-id-1".to_string()], "to-migrate")
             .expect("recursive tag should reapply");
-        inventory::create_tag_with_scopes(
+        inventory::create_tag_with_description_and_scopes(
             &database,
-            "Needs Review",
+            "Custom Review",
+            "Content that needs an initial review",
             "#abcdef",
             &[inventory::TagScope::Directory],
         )
         .expect("custom tag should be created");
-        inventory::update_tag_with_scopes(
+        inventory::update_tag_with_description_and_scopes(
             &database,
-            "needs-review",
+            "custom-review",
             "Review Soon",
-            "#123456",
+            "Review this content before migration",
+            "#159",
             &[inventory::TagScope::Directory],
         )
         .expect("custom tag should be editable");
         let custom_tag = inventory::list_tags(&database)
             .expect("tags should be readable")
             .into_iter()
-            .find(|tag| tag.slug == "needs-review")
+            .find(|tag| tag.slug == "custom-review")
             .expect("custom tag should remain available");
         assert_eq!(custom_tag.name, "Review Soon");
-        assert_eq!(custom_tag.color, "#123456");
+        assert_eq!(
+            custom_tag.description,
+            "Review this content before migration"
+        );
+        assert_eq!(custom_tag.color, "#115599");
         assert!(custom_tag.directory);
         assert!(!custom_tag.my_drive);
         assert!(
             inventory::list_tags_for_scope(&database, inventory::TagScope::MyDrive)
                 .expect("My Drive tags should be readable")
                 .iter()
-                .all(|tag| tag.slug != "needs-review")
+                .all(|tag| tag.slug != "custom-review")
         );
         assert!(
             inventory::apply_tag_recursively(
                 &database,
                 &["folder-id-1".to_string()],
-                "needs-review",
+                "custom-review",
             )
             .is_err(),
             "a Directory-only tag should not be applicable to My Drive",
@@ -915,14 +1057,14 @@ mod tests {
             .expect("known owner state should be readable")[0]
                 .owner_known
         );
-        directory::apply_principal_tag(&database, &[owner.id], "needs-review")
+        directory::apply_principal_tag(&database, &[owner.id], "custom-review")
             .expect("identity tag should apply");
         assert_eq!(
-            directory::remove_principal_tag(&database, &[owner.id], "needs-review")
+            directory::remove_principal_tag(&database, &[owner.id], "custom-review")
                 .expect("identity tag should be removable"),
             1,
         );
-        directory::apply_principal_tag(&database, &[owner.id], "needs-review")
+        directory::apply_principal_tag(&database, &[owner.id], "custom-review")
             .expect("identity tag should reapply");
         assert_eq!(
             inventory::list_my_drive_directory(
@@ -936,7 +1078,7 @@ mod tests {
                 "",
                 false,
                 "",
-                "needs-review",
+                "custom-review",
                 "",
                 false,
                 "name",
@@ -1067,9 +1209,55 @@ mod tests {
         let retained_tags: i64 = connection
             .query_row("SELECT COUNT(*) FROM drive_item_tags", [], |row| row.get(0))
             .expect("tags should remain queryable");
-        assert_eq!(retained_tags, 2);
+        assert_eq!(retained_tags, 4);
 
         drop(connection);
+        fs::remove_dir_all(root).expect("temporary database directory should be removable");
+    }
+
+    #[test]
+    fn enforces_migration_cancel_and_archive_lifecycle() {
+        let root = temporary_directory();
+        let database = Database::initialize(&runtime(&root)).expect("database should initialize");
+        let connection = database.connect().expect("database should connect");
+        connection
+            .execute(
+                "INSERT INTO migration_jobs (source_scope, source_kind) VALUES ('my-drive', 'my-drive')",
+                [],
+            )
+            .expect("draft migration should insert");
+        let draft_id = connection.last_insert_rowid();
+        connection
+            .execute(
+                "INSERT INTO migration_jobs
+                 (source_scope, source_kind, status, phase, started_at, completed_at)
+                 VALUES ('my-drive', 'my-drive', 'completed', 'Complete', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                [],
+            )
+            .expect("completed migration should insert");
+        let completed_id = connection.last_insert_rowid();
+        drop(connection);
+
+        migration::cancel(&database, draft_id).expect("unstarted migration should cancel");
+        assert!(migration::cancel(&database, completed_id).is_err());
+        assert!(
+            migration::get(&database, draft_id)
+                .expect("canceled migration lookup should succeed")
+                .is_none(),
+            "canceling should remove the migration and its history"
+        );
+        migration::archive(&database, completed_id).expect("completed migration should archive");
+        assert!(migration::archive(&database, draft_id).is_err());
+
+        let active = migration::list(&database, "", false, "created", true)
+            .expect("active migrations should list");
+        assert!(active.is_empty());
+        let archived = migration::list(&database, "complete", true, "status", false)
+            .expect("archived migrations should be searchable");
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].id, completed_id);
+        assert!(!archived[0].archived_at.is_empty());
+
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
 }

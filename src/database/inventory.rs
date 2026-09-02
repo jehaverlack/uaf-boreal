@@ -50,6 +50,7 @@ pub struct SharedDriveRow {
     pub folders_scanned: u64,
     pub permissions_scanned: u64,
     pub bytes_discovered: u64,
+    pub modified_at: String,
     pub tags: Vec<Tag>,
     pub permission_identities: Vec<SharedDrivePermissionIdentity>,
 }
@@ -58,6 +59,72 @@ pub struct SharedDriveRow {
 pub struct SharedDrivePermissionIdentity {
     pub label: String,
     pub roles: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DiscoveredDriveFolder {
+    pub item_id: String,
+    pub name: String,
+    pub modified_at: String,
+}
+
+pub fn record_migration_destination(
+    database: &Database,
+    drive_id: &str,
+    drive_name: &str,
+    folders: &[DiscoveredDriveFolder],
+) -> Result<(), DatabaseError> {
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    transaction.execute(
+        "INSERT INTO scan_runs (scan_type, status, completed_at)
+         VALUES ('migration-destination-discovery', 'completed', CURRENT_TIMESTAMP)",
+        [],
+    )?;
+    let scan_id = transaction.last_insert_rowid();
+    let inventory_scope = if drive_id.is_empty() {
+        MY_DRIVE_SCOPE.to_string()
+    } else {
+        let scope = shared_drive_scope(drive_id);
+        transaction.execute(
+            "INSERT INTO shared_drives (drive_id, name, inventory_scope)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(drive_id) DO UPDATE SET name = excluded.name,
+                 inventory_scope = excluded.inventory_scope, is_accessible = 1,
+                 last_seen_at = CURRENT_TIMESTAMP",
+            params![drive_id, drive_name, scope],
+        )?;
+        scope
+    };
+    let mut path_parts = Vec::new();
+    for folder in folders {
+        let parent_path = (!path_parts.is_empty()).then(|| path_parts.join("/"));
+        path_parts.push(folder.name.clone());
+        let relative_path = path_parts.join("/");
+        transaction.execute(
+            "INSERT INTO drive_items
+             (remote_name, item_id, name, relative_path, parent_path, is_directory,
+              mime_type, modified_at, metadata_json, last_seen_scan_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, 1, 'application/vnd.google-apps.folder',
+                     NULLIF(?6, ''), '{\"discovery\":\"migration-destination\"}', ?7)
+             ON CONFLICT(remote_name, item_id) DO UPDATE SET
+                name = excluded.name, relative_path = excluded.relative_path,
+                parent_path = excluded.parent_path,
+                modified_at = COALESCE(excluded.modified_at, drive_items.modified_at),
+                last_seen_at = CURRENT_TIMESTAMP, is_deleted = 0, deleted_at = NULL",
+            params![
+                inventory_scope,
+                folder.item_id,
+                folder.name,
+                relative_path,
+                parent_path,
+                folder.modified_at,
+                scan_id,
+            ],
+        )?;
+    }
+    transaction.commit()?;
+    Ok(())
 }
 
 pub fn shared_drive_scope(drive_id: &str) -> String {
@@ -86,7 +153,7 @@ pub fn reconcile_shared_drives(
 }
 
 pub fn list_shared_drives(database: &Database) -> Result<Vec<SharedDriveRow>, DatabaseError> {
-    list_shared_drives_filtered(database, "", "", "", "", "", "", "")
+    list_shared_drives_filtered(database, "", "", "", "", "", "", "", "")
 }
 
 pub fn list_shared_drives_filtered(
@@ -96,18 +163,22 @@ pub fn list_shared_drives_filtered(
     files_filter: &str,
     folders_filter: &str,
     size_filter: &str,
+    modified_filter: &str,
     manager_filter: &str,
     permission_filter: &str,
 ) -> Result<Vec<SharedDriveRow>, DatabaseError> {
     let (files_comparison, files_value) = parse_count_filter(files_filter)?;
     let (folders_comparison, folders_value) = parse_count_filter(folders_filter)?;
     let (size_comparison, size_value) = parse_size_filter(size_filter)?;
+    let (modified_comparison, modified_value) = parse_modified_filter(modified_filter)?;
     let connection = database.connect()?;
     let mut statement = connection.prepare(
         "SELECT sd.drive_id, sd.name, sd.inventory_scope, sd.is_accessible,
                 COALESCE(last_error, ''),
                 files_scanned, folders_scanned, permissions_scanned, bytes_discovered,
-                (SELECT group_concat(t.slug || char(30) || t.name || char(30) || t.color, char(31))
+                COALESCE((SELECT MAX(di.modified_at) FROM drive_items di
+                          WHERE di.remote_name = sd.inventory_scope AND di.is_deleted = 0), ''),
+                (SELECT group_concat(t.slug || char(30) || t.name || char(30) || t.color || char(30) || t.description, char(31))
                  FROM shared_drive_tags sdt JOIN tags t ON t.id = sdt.tag_id
                  WHERE sdt.drive_id = sd.drive_id),
                 (SELECT group_concat(label || char(30) || role, char(31)) FROM (
@@ -138,15 +209,21 @@ pub fn list_shared_drives_filtered(
                 OR (?5 = 3 AND folders_scanned < ?6) OR (?5 = 4 AND folders_scanned <= ?6) OR (?5 = 5 AND folders_scanned = ?6))
            AND (?7 = 0 OR (?7 = 1 AND bytes_discovered > ?8) OR (?7 = 2 AND bytes_discovered >= ?8)
                 OR (?7 = 3 AND bytes_discovered < ?8) OR (?7 = 4 AND bytes_discovered <= ?8) OR (?7 = 5 AND bytes_discovered = ?8))
-           AND (?9 = '' OR EXISTS (
+           AND (?9 = 0 OR
+                (?9 = 1 AND substr(COALESCE((SELECT MAX(di.modified_at) FROM drive_items di WHERE di.remote_name = sd.inventory_scope AND di.is_deleted = 0), ''), 1, 10) > ?10) OR
+                (?9 = 2 AND substr(COALESCE((SELECT MAX(di.modified_at) FROM drive_items di WHERE di.remote_name = sd.inventory_scope AND di.is_deleted = 0), ''), 1, 10) >= ?10) OR
+                (?9 = 3 AND substr(COALESCE((SELECT MAX(di.modified_at) FROM drive_items di WHERE di.remote_name = sd.inventory_scope AND di.is_deleted = 0), ''), 1, 10) < ?10) OR
+                (?9 = 4 AND substr(COALESCE((SELECT MAX(di.modified_at) FROM drive_items di WHERE di.remote_name = sd.inventory_scope AND di.is_deleted = 0), ''), 1, 10) <= ?10) OR
+                (?9 = 5 AND substr(COALESCE((SELECT MAX(di.modified_at) FROM drive_items di WHERE di.remote_name = sd.inventory_scope AND di.is_deleted = 0), ''), 1, length(?10)) = ?10))
+           AND (?11 = '' OR EXISTS (
                 SELECT 1 FROM shared_drive_permissions manager_permission
                 WHERE manager_permission.drive_id = sd.drive_id
                   AND lower(COALESCE(manager_permission.role, '')) IN ('organizer', 'owner')
                   AND instr(lower(COALESCE(NULLIF(manager_permission.email_address, ''),
                       NULLIF(manager_permission.domain, ''), NULLIF(manager_permission.display_name, ''),
-                      NULLIF(manager_permission.permission_type, ''), 'Unknown')), lower(?9)) > 0
+                      NULLIF(manager_permission.permission_type, ''), 'Unknown')), lower(?11)) > 0
            ))
-           AND (?10 = '' OR EXISTS (
+           AND (?12 = '' OR EXISTS (
                 SELECT 1 FROM (
                     SELECT email_address, domain, display_name, permission_type
                     FROM drive_permissions WHERE remote_name = sd.inventory_scope
@@ -157,7 +234,7 @@ pub fn list_shared_drives_filtered(
                 WHERE 1 = 1
                   AND instr(lower(COALESCE(NULLIF(identity_permission.email_address, ''),
                       NULLIF(identity_permission.domain, ''), NULLIF(identity_permission.display_name, ''),
-                      NULLIF(identity_permission.permission_type, ''), 'Unknown')), lower(?10)) > 0
+                      NULLIF(identity_permission.permission_type, ''), 'Unknown')), lower(?12)) > 0
            ))
          ORDER BY is_accessible DESC, name COLLATE NOCASE, drive_id",
     )?;
@@ -172,6 +249,8 @@ pub fn list_shared_drives_filtered(
                 folders_value,
                 size_comparison,
                 size_value,
+                modified_comparison,
+                modified_value,
                 manager_filter.trim(),
                 permission_filter.trim(),
             ],
@@ -186,8 +265,9 @@ pub fn list_shared_drives_filtered(
                     folders_scanned: row.get::<_, i64>(6)? as u64,
                     permissions_scanned: row.get::<_, i64>(7)? as u64,
                     bytes_discovered: row.get::<_, i64>(8)? as u64,
+                    modified_at: row.get(9)?,
                     tags: row
-                        .get::<_, Option<String>>(9)?
+                        .get::<_, Option<String>>(10)?
                         .map(|tags| {
                             tags.split('\u{1f}')
                                 .filter_map(|tag| {
@@ -196,6 +276,7 @@ pub fn list_shared_drives_filtered(
                                         slug: fields.next()?.to_string(),
                                         name: fields.next()?.to_string(),
                                         color: fields.next()?.to_string(),
+                                        description: fields.next()?.to_string(),
                                         directory: false,
                                         my_drive: false,
                                         shared_drives: false,
@@ -206,7 +287,7 @@ pub fn list_shared_drives_filtered(
                         })
                         .unwrap_or_default(),
                     permission_identities: row
-                        .get::<_, Option<String>>(10)?
+                        .get::<_, Option<String>>(11)?
                         .map(|identities| {
                             let mut grouped: HashMap<String, Vec<String>> = HashMap::new();
                             for identity in identities.split('\u{1f}') {
@@ -455,6 +536,7 @@ pub struct PermissionIdentity {
 pub struct Tag {
     pub slug: String,
     pub name: String,
+    pub description: String,
     pub color: String,
     pub directory: bool,
     pub my_drive: bool,
@@ -543,7 +625,7 @@ pub fn list_drive_directory(
         "SELECT item_id, name, relative_path, is_directory, mime_type,
                 CASE WHEN is_directory THEN cumulative_size_bytes ELSE size_bytes END,
                 modified_at, owner_email,
-                (SELECT group_concat(t.name || char(30) || t.color, char(31))
+                (SELECT group_concat(t.name || char(30) || t.color || char(30) || t.description, char(31))
                  FROM drive_item_tags dit JOIN tags t ON t.id = dit.tag_id
                  WHERE dit.remote_name = drive_items.remote_name
                    AND dit.item_id = drive_items.item_id),
@@ -660,11 +742,12 @@ pub fn list_drive_directory(
                     .map(|tags| {
                         tags.split('\u{1f}')
                             .filter_map(|tag| {
-                                let (name, color) = tag.split_once('\u{1e}')?;
+                                let mut fields = tag.split('\u{1e}');
                                 Some(Tag {
                                     slug: String::new(),
-                                    name: name.to_string(),
-                                    color: color.to_string(),
+                                    name: fields.next()?.to_string(),
+                                    color: fields.next()?.to_string(),
+                                    description: fields.next()?.to_string(),
                                     directory: false,
                                     my_drive: false,
                                     shared_drives: false,
@@ -703,7 +786,7 @@ pub fn list_drive_directory(
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<Result<HashSet<_>, _>>()?;
     let mut tag_statement = connection.prepare(
-        "SELECT lower(pe.email), t.slug, t.name, t.color
+        "SELECT lower(pe.email), t.slug, t.name, t.color, t.description
          FROM principal_emails pe
          JOIN principal_tags pt ON pt.principal_id = pe.principal_id
          JOIN tags t ON t.id = pt.tag_id
@@ -716,6 +799,7 @@ pub fn list_drive_directory(
                 slug: row.get(1)?,
                 name: row.get(2)?,
                 color: row.get(3)?,
+                description: row.get(4)?,
                 directory: false,
                 my_drive: false,
                 shared_drives: false,
@@ -841,7 +925,7 @@ fn list_tags_query(
 ) -> Result<Vec<Tag>, DatabaseError> {
     let connection = database.connect()?;
     let mut statement = connection.prepare(
-        "SELECT t.slug, t.name, t.color,
+        "SELECT t.slug, t.name, t.description, t.color,
                 EXISTS(SELECT 1 FROM tag_scopes s WHERE s.tag_id = t.id AND s.scope = 'directory'),
                 EXISTS(SELECT 1 FROM tag_scopes s WHERE s.tag_id = t.id AND s.scope = 'my-drive'),
                 EXISTS(SELECT 1 FROM tag_scopes s WHERE s.tag_id = t.id AND s.scope = 'shared-drives'),
@@ -857,11 +941,12 @@ fn list_tags_query(
         Ok(Tag {
             slug: row.get(0)?,
             name: row.get(1)?,
-            color: row.get(2)?,
-            directory: row.get(3)?,
-            my_drive: row.get(4)?,
-            shared_drives: row.get(5)?,
-            shared_with_me: row.get(6)?,
+            description: row.get(2)?,
+            color: row.get(3)?,
+            directory: row.get(4)?,
+            my_drive: row.get(5)?,
+            shared_drives: row.get(6)?,
+            shared_with_me: row.get(7)?,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -888,7 +973,18 @@ pub fn create_tag_with_scopes(
     color: &str,
     scopes: &[TagScope],
 ) -> Result<(), DatabaseError> {
-    validate_tag(name, color)?;
+    create_tag_with_description_and_scopes(database, name, "", color, scopes)
+}
+
+pub fn create_tag_with_description_and_scopes(
+    database: &Database,
+    name: &str,
+    description: &str,
+    color: &str,
+    scopes: &[TagScope],
+) -> Result<(), DatabaseError> {
+    let color = validate_tag(name, color)?;
+    let description = validate_tag_description(description)?;
     validate_tag_scopes(scopes)?;
     let slug = tag_slug(name);
     if slug.is_empty() {
@@ -897,8 +993,8 @@ pub fn create_tag_with_scopes(
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
     transaction.execute(
-        "INSERT INTO tags (slug, name, color) VALUES (?1, ?2, ?3)",
-        params![slug, name.trim(), color],
+        "INSERT INTO tags (slug, name, description, color) VALUES (?1, ?2, ?3, ?4)",
+        params![slug, name.trim(), description, color],
     )?;
     let tag_id = transaction.last_insert_rowid();
     save_tag_scopes(&transaction, tag_id, scopes)?;
@@ -923,13 +1019,25 @@ pub fn update_tag_with_scopes(
     color: &str,
     scopes: &[TagScope],
 ) -> Result<(), DatabaseError> {
-    validate_tag(name, color)?;
+    update_tag_with_description_and_scopes(database, slug, name, "", color, scopes)
+}
+
+pub fn update_tag_with_description_and_scopes(
+    database: &Database,
+    slug: &str,
+    name: &str,
+    description: &str,
+    color: &str,
+    scopes: &[TagScope],
+) -> Result<(), DatabaseError> {
+    let color = validate_tag(name, color)?;
+    let description = validate_tag_description(description)?;
     validate_tag_scopes(scopes)?;
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
     let updated = transaction.execute(
-        "UPDATE tags SET name = ?2, color = ?3 WHERE slug = ?1",
-        params![slug, name.trim(), color],
+        "UPDATE tags SET name = ?2, description = ?3, color = ?4 WHERE slug = ?1",
+        params![slug, name.trim(), description, color],
     )?;
     if updated == 0 {
         return Err(format!("Unknown tag: {slug}").into());
@@ -939,6 +1047,17 @@ pub fn update_tag_with_scopes(
     })?;
     transaction.execute("DELETE FROM tag_scopes WHERE tag_id = ?1", [tag_id])?;
     save_tag_scopes(&transaction, tag_id, scopes)?;
+    transaction.commit()?;
+    Ok(())
+}
+
+pub fn delete_tag(database: &Database, slug: &str) -> Result<(), DatabaseError> {
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    let deleted = transaction.execute("DELETE FROM tags WHERE slug = ?1", [slug])?;
+    if deleted == 0 {
+        return Err(format!("Unknown tag: {slug}").into());
+    }
     transaction.commit()?;
     Ok(())
 }
@@ -964,17 +1083,37 @@ fn save_tag_scopes(
     Ok(())
 }
 
-fn validate_tag(name: &str, color: &str) -> Result<(), DatabaseError> {
+fn validate_tag(name: &str, color: &str) -> Result<String, DatabaseError> {
     if name.trim().is_empty() || name.trim().len() > 40 {
         return Err("Tag name must be between 1 and 40 characters".into());
     }
-    if color.len() != 7
-        || !color.starts_with('#')
-        || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
-    {
-        return Err("Tag color must use #RRGGBB format".into());
+
+    let color = color.trim();
+    if !color.starts_with('#') || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("Tag color must use #RGB or #RRGGBB format".into());
     }
-    Ok(())
+
+    match color.len() {
+        4 => {
+            let mut normalized = String::with_capacity(7);
+            normalized.push('#');
+            for digit in color[1..].chars() {
+                normalized.push(digit);
+                normalized.push(digit);
+            }
+            Ok(normalized.to_ascii_lowercase())
+        }
+        7 => Ok(color.to_ascii_lowercase()),
+        _ => Err("Tag color must use #RGB or #RRGGBB format".into()),
+    }
+}
+
+fn validate_tag_description(description: &str) -> Result<&str, DatabaseError> {
+    let description = description.trim();
+    if description.len() > 500 {
+        return Err("Tag description must not exceed 500 characters".into());
+    }
+    Ok(description)
 }
 
 fn tag_slug(name: &str) -> String {
@@ -1112,6 +1251,33 @@ pub fn synchronize_drive(
     items: &[DriveItem],
     include_permissions: bool,
 ) -> Result<InventorySummary, DatabaseError> {
+    synchronize_drive_inner(
+        database,
+        inventory_scope,
+        scan_id,
+        items,
+        include_permissions,
+        true,
+    )
+}
+
+pub fn refresh_drive_items(
+    database: &Database,
+    inventory_scope: &str,
+    scan_id: i64,
+    items: &[DriveItem],
+) -> Result<InventorySummary, DatabaseError> {
+    synchronize_drive_inner(database, inventory_scope, scan_id, items, true, false)
+}
+
+fn synchronize_drive_inner(
+    database: &Database,
+    inventory_scope: &str,
+    scan_id: i64,
+    items: &[DriveItem],
+    include_permissions: bool,
+    authoritative: bool,
+) -> Result<InventorySummary, DatabaseError> {
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
     let remote = inventory_scope;
@@ -1234,15 +1400,17 @@ pub fn synchronize_drive(
             params![remote, folder_path, size as i64],
         )?;
     }
-    summary.deleted_items = transaction.execute(
-        "UPDATE drive_items
-         SET is_deleted = 1,
-             deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP)
-         WHERE remote_name = ?1
-           AND last_seen_scan_id <> ?2
-           AND is_deleted = 0",
-        params![remote, scan_id],
-    )? as u64;
+    if authoritative {
+        summary.deleted_items = transaction.execute(
+            "UPDATE drive_items
+             SET is_deleted = 1,
+                 deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP)
+             WHERE remote_name = ?1
+               AND last_seen_scan_id <> ?2
+               AND is_deleted = 0",
+            params![remote, scan_id],
+        )? as u64;
+    }
 
     transaction.execute(
         "UPDATE scan_runs SET

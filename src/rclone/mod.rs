@@ -5,6 +5,7 @@ pub mod gui;
 pub mod identity;
 pub mod install;
 pub mod inventory;
+pub mod migration;
 pub mod remotes;
 
 use std::{error::Error, path::PathBuf};

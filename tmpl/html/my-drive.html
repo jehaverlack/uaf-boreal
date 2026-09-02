@@ -7,7 +7,6 @@
 <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
     <div>
         <h1 class="h3 mb-1"><i class="bi bi-folder2-open text-primary me-2"></i>{{ heading }}</h1>
-        <p class="text-body-secondary mb-0">{{ description }}</p>
     </div>
     <div class="d-flex gap-2">
         {% if drive_id.len() > 0 %}<a class="btn btn-sm btn-outline-secondary" href="/shared-drives"><i class="bi bi-arrow-left me-1"></i>All Shared Drives</a>{% endif %}
@@ -19,8 +18,8 @@
 <div class="alert alert-danger" role="alert"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>
 {% endif %}
 
+{% if has_parent %}
 <div class="d-flex align-items-center gap-2 mb-3">
-    {% if has_parent %}
     <form method="get" action="{{ explorer_path }}">
         <input type="hidden" name="drive" value="{{ drive_id }}">
         <input type="hidden" name="path" value="{{ parent_path }}">
@@ -37,50 +36,71 @@
         <input type="hidden" name="include_deleted" value="{{ include_deleted }}">
         <button class="btn btn-sm btn-outline-secondary" type="submit" title="Browse parent folder"><i class="bi bi-arrow-up"></i></button>
     </form>
-    {% endif %}
     <span class="small text-body-secondary">Location:</span>
     <span class="fw-semibold">{{ current_path }}</span>
 </div>
+{% endif %}
 
 <form id="my-drive-filter-form" method="get" action="{{ explorer_path }}" class="row g-2 mb-3" role="search">
     <input type="hidden" name="drive" value="{{ drive_id }}">
     <input type="hidden" name="path" value="{% if has_parent %}{{ current_path }}{% endif %}">
     <input type="hidden" name="sort" value="{{ sort }}">
     <input type="hidden" name="direction" value="{{ direction }}">
-    <div class="col-sm-4 col-lg-3">
-        <label class="visually-hidden" for="my-drive-tag-filter">Filter by tag</label>
-        <select id="my-drive-tag-filter" class="form-select form-select-sm" name="tag">
-            <option value="">All tags</option>
-            {% for tag in tags %}
-            <option value="{{ tag.slug }}" {% if tag_filter == tag.slug %}selected{% endif %}>{{ tag.name }}</option>
-            {% endfor %}
-        </select>
+    <div class="col-12 d-flex flex-wrap align-items-center gap-2" role="group" aria-label="Filter by tag">
+        <span class="small fw-semibold text-body-secondary me-1">Tags:</span>
+        <input id="my-drive-tag-filter" type="hidden" name="tag" value="{{ tag_filter }}">
+        <button class="btn btn-sm rounded-pill boreal-tag-filter-pill {% if tag_filter.len() == 0 %}btn-secondary{% else %}btn-outline-secondary{% endif %}"
+                type="button" data-filter-input="my-drive-tag-filter" data-tag-value="" aria-pressed="{% if tag_filter.len() == 0 %}true{% else %}false{% endif %}">
+            {% if tag_filter.len() == 0 %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% endif %}All tags
+        </button>
+        {% for tag in filter_tags %}
+        <button class="btn btn-sm rounded-pill boreal-tag-filter-pill"
+                type="button" data-filter-input="my-drive-tag-filter" data-tag-value="{{ tag.slug }}" aria-pressed="{% if tag.selected %}true{% else %}false{% endif %}"
+                title="{{ tag.description }}"
+                style="border-color: {{ tag.color }}; background-color: {% if tag.selected %}{{ tag.color }}{% else %}transparent{% endif %}; color: {% if tag.selected %}{{ tag.text_color }}{% else %}{{ tag.color }}{% endif %};">
+            {% if tag.selected %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% endif %}{{ tag.name }}
+        </button>
+        {% endfor %}
     </div>
-    <div class="col-sm-4 col-lg-3">
-        <label class="visually-hidden" for="my-drive-owner-identity-tag-filter">Filter by owner identity tag</label>
-        <select id="my-drive-owner-identity-tag-filter" class="form-select form-select-sm" name="owner_identity_tag">
-            <option value="">Any owner identity tag</option>
-            {% for tag in directory_tags %}
-            <option value="{{ tag.slug }}" {% if owner_identity_tag_filter == tag.slug %}selected{% endif %}>Owner: {{ tag.name }}</option>
-            {% endfor %}
-        </select>
+    <div class="col-12 d-flex flex-wrap align-items-center gap-2" role="group" aria-label="Filter by owner identity tag">
+        <span class="small fw-semibold text-body-secondary me-1">Owner tags:</span>
+        <input id="my-drive-owner-identity-tag-filter" type="hidden" name="owner_identity_tag" value="{{ owner_identity_tag_filter }}">
+        <button class="btn btn-sm rounded-pill boreal-tag-filter-pill {% if owner_identity_tag_filter.len() == 0 %}btn-secondary{% else %}btn-outline-secondary{% endif %}"
+                type="button" data-filter-input="my-drive-owner-identity-tag-filter" data-tag-value="" aria-pressed="{% if owner_identity_tag_filter.len() == 0 %}true{% else %}false{% endif %}">
+            {% if owner_identity_tag_filter.len() == 0 %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% endif %}Any owner
+        </button>
+        {% for tag in identity_filter_tags %}
+        <button class="btn btn-sm rounded-pill boreal-tag-filter-pill" type="button"
+                data-filter-input="my-drive-owner-identity-tag-filter" data-tag-value="{{ tag.slug }}"
+                aria-pressed="{% if tag.owner_selected %}true{% else %}false{% endif %}" title="{{ tag.description }}"
+                style="border-color: {{ tag.color }}; background-color: {% if tag.owner_selected %}{{ tag.color }}{% else %}transparent{% endif %}; color: {% if tag.owner_selected %}{{ tag.text_color }}{% else %}{{ tag.color }}{% endif %};">
+            {% if tag.owner_selected %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% endif %}{{ tag.name }}
+        </button>
+        {% endfor %}
     </div>
-    <div class="col-sm-4 col-lg-3">
-        <label class="visually-hidden" for="my-drive-permission-identity-tag-filter">Filter by permission identity tag</label>
-        <select id="my-drive-permission-identity-tag-filter" class="form-select form-select-sm" name="permission_identity_tag">
-            <option value="">Any permission identity tag</option>
-            {% for tag in directory_tags %}
-            <option value="{{ tag.slug }}" {% if permission_identity_tag_filter == tag.slug %}selected{% endif %}>Shared with: {{ tag.name }}</option>
-            {% endfor %}
-        </select>
+    <div class="col-12 d-flex flex-wrap align-items-center gap-2" role="group" aria-label="Filter by permission identity tag">
+        <span class="small fw-semibold text-body-secondary me-1">Permission tags:</span>
+        <input id="my-drive-permission-identity-tag-filter" type="hidden" name="permission_identity_tag" value="{{ permission_identity_tag_filter }}">
+        <button class="btn btn-sm rounded-pill boreal-tag-filter-pill {% if permission_identity_tag_filter.len() == 0 %}btn-secondary{% else %}btn-outline-secondary{% endif %}"
+                type="button" data-filter-input="my-drive-permission-identity-tag-filter" data-tag-value="" aria-pressed="{% if permission_identity_tag_filter.len() == 0 %}true{% else %}false{% endif %}">
+            {% if permission_identity_tag_filter.len() == 0 %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% endif %}Any permission
+        </button>
+        {% for tag in identity_filter_tags %}
+        <button class="btn btn-sm rounded-pill boreal-tag-filter-pill" type="button"
+                data-filter-input="my-drive-permission-identity-tag-filter" data-tag-value="{{ tag.slug }}"
+                aria-pressed="{% if tag.permission_selected %}true{% else %}false{% endif %}" title="{{ tag.description }}"
+                style="border-color: {{ tag.color }}; background-color: {% if tag.permission_selected %}{{ tag.color }}{% else %}transparent{% endif %}; color: {% if tag.permission_selected %}{{ tag.text_color }}{% else %}{{ tag.color }}{% endif %};">
+            {% if tag.permission_selected %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% endif %}{{ tag.name }}
+        </button>
+        {% endfor %}
     </div>
     <div class="col-auto"><button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-funnel me-1"></i>Apply filters</button></div>
     <div class="col-auto"><a class="btn btn-sm btn-outline-secondary" href="{{ clear_search_url }}">Clear filters</a></div>
+    <div class="col-auto"><button class="btn btn-sm btn-outline-success" type="submit" formaction="{{ export_path }}"><i class="bi bi-file-earmark-excel me-1"></i>Export Excel</button></div>
     <div class="col-auto form-check align-self-center ms-1">
         <input class="form-check-input" type="checkbox" id="my-drive-include-deleted" name="include_deleted" value="true" {% if include_deleted %}checked{% endif %}>
         <label class="form-check-label small" for="my-drive-include-deleted">Include deleted items</label>
     </div>
-    <div class="col-auto small text-body-secondary align-self-center">Prefix Owner with <code>!</code> to exclude a value.</div>
 </form>
 
 <section class="card mb-3" aria-labelledby="explorer-summary-heading">
@@ -122,11 +142,12 @@
     <input type="hidden" name="owner_identity_tag_filter" value="{{ owner_identity_tag_filter }}">
     <input type="hidden" name="permission_identity_tag_filter" value="{{ permission_identity_tag_filter }}">
     <input type="hidden" name="include_deleted" value="{{ include_deleted }}">
+    <input type="hidden" name="inventory_scope" value="{{ inventory_scope }}">
     <input type="hidden" id="my-drive-selected-item-ids" name="selected_item_ids" value="">
     <div class="d-flex align-items-center gap-2 mb-2">
         <label class="small fw-semibold" for="my-drive-apply-tag">Apply tag to selected:</label>
         <select id="my-drive-apply-tag" class="form-select form-select-sm w-auto" name="tag" required>
-            {% for tag in tags %}<option value="{{ tag.slug }}">{{ tag.name }}</option>{% endfor %}
+            {% for tag in tags %}<option value="{{ tag.slug }}" title="{{ tag.description }}">{{ tag.name }}</option>{% endfor %}
         </select>
         <button id="my-drive-apply-tag-button" class="btn btn-sm btn-outline-primary" type="submit" disabled>
             <i class="bi bi-tag me-1"></i>Apply
@@ -134,6 +155,14 @@
         <button id="my-drive-remove-tag-button" class="btn btn-sm btn-outline-danger" type="submit" formaction="{{ tag_remove_action }}" disabled>
             <i class="bi bi-tag-fill me-1"></i>Remove
         </button>
+        <button id="my-drive-update-metadata-button" class="btn btn-sm btn-outline-primary" type="submit" formaction="/metadata/update-selected" disabled>
+            <i class="bi bi-arrow-clockwise me-1"></i>Update metadata
+        </button>
+        {% if active_page == "my-drive" || active_page == "shared-with-me" %}
+        <button id="my-drive-migrate-button" class="btn btn-sm btn-outline-success" type="submit" formaction="/migrations/new" disabled>
+            <i class="bi bi-arrow-right-circle me-1"></i>Migrate
+        </button>
+        {% endif %}
         <span id="my-drive-selection-count" class="small text-body-secondary">0 selected</span>
         <a class="btn btn-sm btn-link ms-auto" href="/tags"><i class="bi bi-gear me-1"></i>Manage tags</a>
     </div>
@@ -194,7 +223,7 @@
                         <a href="{{ row.name_url }}" {% if row.name_new_tab %}target="_blank" rel="noopener noreferrer"{% endif %} class="text-decoration-none boreal-name-link" title="{% if row.is_directory %}Browse folder in BOREAL{% else %}Open in Google Drive{% endif %}">
                             {{ row.name }}
                         </a>
-                        <span class="boreal-item-tags">{% for tag in row.tags %}<span class="badge rounded-pill ms-1" style="background-color: {{ tag.color }}; color: {{ tag.text_color }};">{{ tag.name }}</span>{% endfor %}</span>
+                        <span class="boreal-item-tags">{% for tag in row.tags %}<span class="badge rounded-pill ms-1" style="background-color: {{ tag.color }}; color: {{ tag.text_color }};" title="{{ tag.description }}">{{ tag.name }}</span>{% endfor %}</span>
                         {% if row.is_deleted %}<span class="badge rounded-pill text-bg-secondary ms-1">Deleted</span>{% endif %}
                     </th>
                     <td class="text-nowrap">{{ row.size }}</td>
@@ -259,6 +288,16 @@
 
 <script>
     (() => {
+        const tagFilterForm = document.getElementById("my-drive-filter-form");
+        document.querySelectorAll(".boreal-tag-filter-pill").forEach((button) => {
+            button.addEventListener("click", () => {
+                const tagFilterInput = document.getElementById(button.dataset.filterInput);
+                const requestedTag = button.dataset.tagValue;
+                tagFilterInput.value = requestedTag === tagFilterInput.value ? "" : requestedTag;
+                tagFilterForm.requestSubmit();
+            });
+        });
+
         document.querySelectorAll(".boreal-download-item").forEach((button) => {
             button.addEventListener("click", () => {
                 document.getElementById("download-item-id").value = button.dataset.itemId;
@@ -273,6 +312,8 @@
         const visibleRows = Array.from(document.querySelectorAll("tbody tr[data-size-bytes]"));
         const applyButton = document.getElementById("my-drive-apply-tag-button");
         const removeButton = document.getElementById("my-drive-remove-tag-button");
+        const updateMetadataButton = document.getElementById("my-drive-update-metadata-button");
+        const migrateButton = document.getElementById("my-drive-migrate-button");
         const selectionCount = document.getElementById("my-drive-selection-count");
         const selectedItemIds = document.getElementById("my-drive-selected-item-ids");
 
@@ -287,6 +328,8 @@
             selectAll.indeterminate = selected > 0 && selected < itemCheckboxes.length;
             applyButton.disabled = selected === 0;
             removeButton.disabled = selected === 0;
+            updateMetadataButton.disabled = selected === 0;
+            if (migrateButton) migrateButton.disabled = selected === 0;
             selectionCount.textContent = `${selected} selected`;
             selectedItemIds.value = itemCheckboxes
                 .filter((checkbox) => checkbox.checked)

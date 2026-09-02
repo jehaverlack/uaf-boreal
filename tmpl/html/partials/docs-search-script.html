@@ -1,0 +1,27 @@
+<script>
+    (() => {
+        const search = document.getElementById("docs-search");
+        const entries = Array.from(document.querySelectorAll("[data-doc-entry]"));
+        const noResults = document.getElementById("docs-no-results");
+        const normalize = (value) => value.toLocaleLowerCase().trim();
+
+        function filterDocumentation() {
+            const terms = normalize(search.value).split(/\s+/).filter(Boolean);
+            let visible = 0;
+            for (const entry of entries) {
+                const text = normalize(entry.textContent);
+                const matches = terms.every((term) => text.includes(term));
+                entry.classList.toggle("d-none", !matches);
+                if (matches) visible += 1;
+            }
+            noResults.classList.toggle("d-none", visible > 0);
+        }
+
+        search.addEventListener("input", filterDocumentation);
+        const initialQuery = new URLSearchParams(window.location.search).get("q");
+        if (initialQuery) {
+            search.value = initialQuery;
+            filterDocumentation();
+        }
+    })();
+</script>

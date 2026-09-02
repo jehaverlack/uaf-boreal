@@ -5,12 +5,49 @@
 | **Name** | boreal |
 | **Author** | John Haverlack |
 | **License** | MIT |
-| **Version** | 0.1.3 |
-| **Maturity** | BETA |
+| **Version** | 0.1.4 |
+| **Maturity** | RC1 |
 | **Date** | 2026-09-01 |
+
+## v0.1.4 - 2026-09-01 (RC1)
+
+**Summary**
+Release Candidate
+
+**Notes**
+Added Migration Assitant and Polished Interfaces
+
+- v0.1.4
+- Migrated tag
+- Partial Metadata Updates
+- Indexing on Migration
+- Migration Source links
+- Migration Source links
+- Shared with me to My Drives
+- Menu Cleanup
+- Migraion view updates
+- Migration View Changes
+- Migration Assstant
+- Migration Assistant
+- Adding rw Remote
+- Adding Migration edits and search
+- WIP: Migration Assistant
+- Default Tag Updates
+- Adding Docs and Help
+- Bookmarks Alert
+- Tag Filter Clean up for Explorers
+- Clean up of MyDrive Explorer
+- Added XLS Exporter
+- Tag Editor Updates
+- Simplifying Tag Editor
+- fixed Close Button again
+- Start v0.1.4
 
 ## v0.1.3 - 2026-09-01 (BETA)
 
+- v0.1.3
+- v0.1.3
+- v0.1.3
 - v0.1.3
 - Start v0.1.3
 
@@ -174,6 +211,29 @@
 **Summary**
 Project Initialization
 
-- v0.1.3
-- Start v0.1.3
+- v0.1.4
+- Migrated tag
+- Partial Metadata Updates
+- Indexing on Migration
+- Migration Source links
+- Migration Source links
+- Shared with me to My Drives
+- Menu Cleanup
+- Migraion view updates
+- Migration View Changes
+- Migration Assstant
+- Migration Assistant
+- Adding rw Remote
+- Adding Migration edits and search
+- WIP: Migration Assistant
+- Default Tag Updates
+- Adding Docs and Help
+- Bookmarks Alert
+- Tag Filter Clean up for Explorers
+- Clean up of MyDrive Explorer
+- Added XLS Exporter
+- Tag Editor Updates
+- Simplifying Tag Editor
+- fixed Close Button again
+- Start v0.1.4
 

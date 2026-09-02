@@ -4,8 +4,9 @@ use askama::Template;
 
 use axum::{
     Router,
+    body::Body,
     extract::{Form, Multipart, Path, Query, State},
-    http::{StatusCode, header},
+    http::{Response, StatusCode, header},
     response::{Html, IntoResponse, Redirect},
     routing::{get, post},
 };
@@ -14,6 +15,7 @@ use crate::{
     app::{
         AppState, DownloadState, GoogleClientState, GoogleRemotesState, MetadataState, RcloneState,
     },
+    config,
     database::{
         self,
         settings::{self, InventorySettings},
@@ -24,6 +26,8 @@ use crate::{
         remotes::{RemoteKind, RemoteState},
     },
 };
+
+use super::xlsx;
 
 fn remote_state_label(state: &RemoteState) -> &'static str {
     match state {
@@ -62,6 +66,7 @@ pub struct AlertItem {
     pub icon: &'static str,
     pub message: String,
     pub modal_target: &'static str,
+    pub dismiss_action: &'static str,
 }
 
 #[allow(dead_code)]
@@ -153,6 +158,8 @@ struct SettingsTemplate {
     error: String,
     notice: String,
     directory_source: database::directory::LinkedSheetStatus,
+    boreal_url: String,
+    bookmark_reminder_dismissed: bool,
 }
 
 #[allow(dead_code)]
@@ -164,6 +171,106 @@ struct AboutTemplate {
     alerts: Vec<AlertItem>,
     status_items: Vec<StatusItem>,
     poll_rclone: bool,
+}
+
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(path = "docs.html", config = "askama.toml")]
+struct DocsTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+}
+
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(path = "help.html", config = "askama.toml")]
+struct HelpTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+}
+
+#[allow(dead_code)]
+pub struct MigrationView {
+    pub id: i64,
+    pub source_label: String,
+    pub status: String,
+    pub phase: String,
+    pub destination_url: String,
+    pub destination_label: String,
+    pub files_total: u64,
+    pub folders_total: u64,
+    pub size_label: String,
+    pub files_copied: u64,
+    pub copied_size_label: String,
+    pub exceptions_count: u64,
+    pub created_at: String,
+    pub started_at: String,
+    pub completed_at: String,
+    pub copy_completed_at: String,
+    pub error_message: String,
+    pub archived_at: String,
+    pub can_cancel: bool,
+    pub can_archive: bool,
+    pub can_start: bool,
+    pub running: bool,
+    pub allows_my_drive_destination: bool,
+    pub sources: Vec<MigrationSourceView>,
+}
+
+#[allow(dead_code)]
+pub struct MigrationSourceView {
+    pub item_id: String,
+    pub name: String,
+    pub relative_path: String,
+    pub is_directory: bool,
+    pub files_total: u64,
+    pub folders_total: u64,
+    pub bytes_total: u64,
+    pub status: String,
+    pub error_message: String,
+    pub drive_url: String,
+}
+
+#[allow(dead_code)]
+pub struct MigrationSortHeader {
+    pub label: &'static str,
+    pub url: String,
+    pub active: bool,
+    pub descending: bool,
+}
+
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(path = "migrations.html", config = "askama.toml")]
+struct MigrationsTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+    migrations: Vec<MigrationView>,
+    search: String,
+    include_archived: bool,
+    sort_headers: Vec<MigrationSortHeader>,
+}
+
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(path = "migration-wizard.html", config = "askama.toml")]
+struct MigrationWizardTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+    migration: MigrationView,
+    error: String,
 }
 
 #[allow(dead_code)]
@@ -187,6 +294,11 @@ struct RemotesTemplate {
     poll_rclone: bool,
     remotes: Vec<RemoteView>,
     error: String,
+    my_drive_ro_configured: bool,
+    my_drive_rw_configured: bool,
+    remote_setup_busy: bool,
+    google_client_ready: bool,
+    rclone_ready: bool,
 }
 
 #[allow(dead_code)]
@@ -233,8 +345,30 @@ pub struct ExplorerSummary {
 #[allow(dead_code)]
 pub struct TagPill {
     pub name: String,
+    pub description: String,
     pub color: String,
     pub text_color: &'static str,
+}
+
+#[allow(dead_code)]
+pub struct TagFilterPill {
+    pub slug: String,
+    pub name: String,
+    pub description: String,
+    pub color: String,
+    pub text_color: &'static str,
+    pub selected: bool,
+}
+
+#[allow(dead_code)]
+pub struct IdentityTagFilterPill {
+    pub slug: String,
+    pub name: String,
+    pub description: String,
+    pub color: String,
+    pub text_color: &'static str,
+    pub owner_selected: bool,
+    pub permission_selected: bool,
 }
 
 #[allow(dead_code)]
@@ -261,7 +395,8 @@ struct MyDriveTemplate {
     owner_sort_url: String,
     clear_search_url: String,
     tags: Vec<database::inventory::Tag>,
-    directory_tags: Vec<database::inventory::Tag>,
+    filter_tags: Vec<TagFilterPill>,
+    identity_filter_tags: Vec<IdentityTagFilterPill>,
     tag_filter: String,
     tagged_count: usize,
     untagged_count: usize,
@@ -274,9 +409,9 @@ struct MyDriveTemplate {
     permission_identity_tag_filter: String,
     include_deleted: bool,
     heading: String,
-    description: String,
     root_label: String,
     explorer_path: String,
+    export_path: &'static str,
     drive_id: String,
     inventory_scope: String,
     tag_action: &'static str,
@@ -309,6 +444,7 @@ pub struct SharedDriveView {
     pub managers: Vec<SharedDriveIdentityView>,
     pub permission_identities: Vec<SharedDriveIdentityView>,
     pub size_label: String,
+    pub modified_at: String,
     pub tags: Vec<TagPill>,
 }
 
@@ -329,6 +465,7 @@ struct SharedDrivesTemplate {
     show_inaccessible: bool,
     inaccessible_count: usize,
     tags: Vec<database::inventory::Tag>,
+    filter_tags: Vec<TagFilterPill>,
     search: String,
     tag_filter: String,
     tagged_count: usize,
@@ -336,6 +473,7 @@ struct SharedDrivesTemplate {
     files_filter: String,
     folders_filter: String,
     size_filter: String,
+    modified_filter: String,
     manager_filter: String,
     permissions_filter: String,
     sort: String,
@@ -613,6 +751,8 @@ struct SharedDriveTagForm {
     #[serde(default)]
     size_filter: String,
     #[serde(default)]
+    modified_filter: String,
+    #[serde(default)]
     manager_filter: String,
     #[serde(default)]
     permissions_filter: String,
@@ -654,6 +794,8 @@ struct TagForm {
     #[serde(default)]
     slug: String,
     name: String,
+    #[serde(default)]
+    description: String,
     color: String,
     #[serde(default)]
     directory: Option<String>,
@@ -663,6 +805,11 @@ struct TagForm {
     shared_drives: Option<String>,
     #[serde(default)]
     shared_with_me: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct DeleteTagForm {
+    slug: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -691,10 +838,54 @@ struct MetadataUpdateForm {
     directory_info: Option<String>,
 }
 
+#[derive(serde::Deserialize)]
+struct SelectedMetadataUpdateForm {
+    #[serde(default)]
+    inventory_scope: String,
+    #[serde(default)]
+    selected_item_ids: String,
+    #[serde(default)]
+    selected_drive_ids: String,
+    #[serde(default)]
+    drive: String,
+}
+
+#[derive(serde::Deserialize)]
+struct NewMigrationForm {
+    #[serde(default)]
+    selected_item_ids: String,
+    #[serde(default)]
+    inventory_scope: String,
+}
+
+#[derive(serde::Deserialize)]
+struct MigrationDestinationForm {
+    destination_url: String,
+}
+
+#[derive(serde::Deserialize)]
+struct AddRemoteForm {
+    remote_kind: String,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct MigrationListQuery {
+    #[serde(default)]
+    q: String,
+    #[serde(default)]
+    archived: Option<String>,
+    #[serde(default)]
+    sort: String,
+    #[serde(default)]
+    dir: String,
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(index))
         .route("/about", get(about))
+        .route("/docs", get(docs_page))
+        .route("/help", get(help_page))
         .route("/assets/uaf-logo.png", get(uaf_logo))
         .route("/assets/acep-logo.png", get(acep_logo))
         .route(
@@ -714,10 +905,13 @@ pub fn router() -> Router<Arc<AppState>> {
             get(google_cloud_oauth_json),
         )
         .route("/remotes", get(remotes_page))
+        .route("/remotes/add", post(add_remote))
         .route("/my-drive", get(my_drive_page))
+        .route("/my-drive/export.xlsx", get(export_my_drive))
         .route("/my-drive/tags", post(apply_my_drive_tag))
         .route("/my-drive/tags/remove", post(remove_my_drive_tag))
         .route("/shared-drives", get(shared_drives_page))
+        .route("/shared-drives/export.xlsx", get(export_shared_drives))
         .route(
             "/shared-drives/manage-tags",
             post(apply_shared_drive_list_tag),
@@ -729,10 +923,27 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/shared-drives/tags", post(apply_shared_drive_tag))
         .route("/shared-drives/tags/remove", post(remove_shared_drive_tag))
         .route("/shared-with-me", get(shared_with_me_page))
+        .route("/shared-with-me/export.xlsx", get(export_shared_with_me))
         .route("/shared-with-me/tags", post(apply_shared_with_me_tag))
         .route(
             "/shared-with-me/tags/remove",
             post(remove_shared_with_me_tag),
+        )
+        .route("/migrations", get(migrations_page))
+        .route("/migrations/new", post(create_migration))
+        .route("/migrations/{migration_id}", get(migration_wizard))
+        .route("/migrations/{migration_id}/cancel", post(cancel_migration))
+        .route(
+            "/migrations/{migration_id}/archive",
+            post(archive_migration),
+        )
+        .route(
+            "/migrations/{migration_id}/destination",
+            post(save_migration_destination),
+        )
+        .route(
+            "/migrations/{migration_id}/start",
+            post(start_migration_copy),
         )
         .route("/downloads/start", post(start_download))
         .route("/ui/download-status", get(ui_download_status))
@@ -770,7 +981,16 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/directory/import/csv", post(import_directory_csv))
         .route("/tags/create", post(create_tag))
         .route("/tags/update", post(update_tag))
+        .route("/tags/delete", post(delete_tag))
         .route("/settings", get(settings_page).post(save_settings))
+        .route(
+            "/settings/bookmark-reminder/dismiss",
+            post(dismiss_bookmark_reminder),
+        )
+        .route(
+            "/settings/bookmark-reminder/show",
+            post(show_bookmark_reminder),
+        )
         .route("/settings/directory/test", post(test_directory_sheet))
         .route("/status", get(status))
         .route("/rclone-gui", get(open_rclone_gui))
@@ -785,6 +1005,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/setup/directory", post(save_setup_directory))
         .route("/setup/metadata/skip", post(skip_setup_metadata))
         .route("/metadata/update", post(start_metadata_update))
+        .route(
+            "/metadata/update-selected",
+            post(start_selected_metadata_update),
+        )
         .route("/app/quit", post(quit))
 }
 
@@ -870,7 +1094,11 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
     let google_remotes_state = state.google_remotes_state();
     let metadata_state = state.metadata_state();
 
-    let alerts = build_alerts(&rclone_state, &google_client_state);
+    let alerts = build_alerts(
+        &rclone_state,
+        &google_client_state,
+        bookmark_reminder_visible(&state),
+    );
 
     let status_items = build_status_items(
         &state.download_state(),
@@ -1299,6 +1527,28 @@ async fn save_settings(
     }
 }
 
+async fn dismiss_bookmark_reminder(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    settings::set_bookmark_reminder_dismissed(&database, true)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    ui_alerts(State(state)).await
+}
+
+async fn show_bookmark_reminder(
+    State(state): State<Arc<AppState>>,
+) -> Result<Redirect, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    settings::set_bookmark_reminder_dismissed(&database, false)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Redirect::to("/settings?saved=true#bookmark-this-page"))
+}
+
 async fn test_directory_sheet(
     State(state): State<Arc<AppState>>,
     Form(form): Form<SettingsForm>,
@@ -1397,7 +1647,11 @@ fn render_settings(
     let template = SettingsTemplate {
         title: "Settings - BOREAL",
         active_page: "settings",
-        alerts: build_alerts(&rclone_state, &google_client_state),
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(state),
+        ),
         status_items: build_status_items(
             &state.download_state(),
             &rclone_state,
@@ -1413,9 +1667,33 @@ fn render_settings(
         error,
         notice,
         directory_source,
+        boreal_url: boreal_web_url(state),
+        bookmark_reminder_dismissed: !bookmark_reminder_visible(state),
     };
 
     render_template(&template)
+}
+
+fn bookmark_reminder_visible(state: &AppState) -> bool {
+    state
+        .database()
+        .ok()
+        .and_then(|database| settings::bookmark_reminder_dismissed(&database).ok())
+        .map(|dismissed| !dismissed)
+        .unwrap_or(true)
+}
+
+fn boreal_web_url(state: &AppState) -> String {
+    config::get_webapp_config(&state.runtime.boreal)
+        .map(|webapp| {
+            let host = if webapp.listen == "::1" {
+                "[::1]".to_string()
+            } else {
+                webapp.listen
+            };
+            format!("http://{host}:{}", webapp.port)
+        })
+        .unwrap_or_else(|_| "http://127.0.0.1:8765".to_string())
 }
 
 async fn about(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
@@ -1425,7 +1703,11 @@ async fn about(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
     let google_remotes_state = state.google_remotes_state();
     let metadata_state = state.metadata_state();
 
-    let alerts = build_alerts(&rclone_state, &google_client_state);
+    let alerts = build_alerts(
+        &rclone_state,
+        &google_client_state,
+        bookmark_reminder_visible(&state),
+    );
 
     let status_items = build_status_items(
         &state.download_state(),
@@ -1450,6 +1732,452 @@ async fn about(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
     render_template(&template)
 }
 
+async fn docs_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    render_template(&DocsTemplate {
+        title: "BOREAL Docs",
+        active_page: "docs",
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
+        status_items: build_status_items(
+            &state.download_state(),
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(&state),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+    })
+}
+
+async fn help_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    render_template(&HelpTemplate {
+        title: "BOREAL Help",
+        active_page: "help",
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
+        status_items: build_status_items(
+            &state.download_state(),
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(&state),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+    })
+}
+
+async fn migrations_page(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<MigrationListQuery>,
+) -> Result<Html<String>, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let sort = match query.sort.as_str() {
+        "id" | "source" | "status" | "destination" | "files" | "folders" | "capacity"
+        | "created" => query.sort.as_str(),
+        _ => "created",
+    };
+    let descending = if query.dir.is_empty() {
+        true
+    } else {
+        query.dir == "desc"
+    };
+    let include_archived = query.archived.is_some();
+    let migrations =
+        database::migration::list(&database, &query.q, include_archived, sort, descending)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .into_iter()
+            .map(migration_view)
+            .collect();
+    let sort_headers = [
+        ("ID", "id"),
+        ("Source", "source"),
+        ("Status / Phase", "status"),
+        ("Destination", "destination"),
+        ("Files", "files"),
+        ("Folders", "folders"),
+        ("Capacity", "capacity"),
+        ("Created", "created"),
+    ]
+    .into_iter()
+    .map(|(label, column)| {
+        let active = sort == column;
+        let next_descending = if active { !descending } else { false };
+        MigrationSortHeader {
+            label,
+            url: migration_list_url(&query.q, include_archived, column, next_descending),
+            active,
+            descending,
+        }
+    })
+    .collect();
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    render_template(&MigrationsTemplate {
+        title: "Migrations - BOREAL",
+        active_page: "migrations",
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
+        status_items: build_status_items(
+            &state.download_state(),
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(&state),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+        migrations,
+        search: query.q,
+        include_archived,
+        sort_headers,
+    })
+}
+
+async fn cancel_migration(
+    State(state): State<Arc<AppState>>,
+    Path(migration_id): Path<i64>,
+) -> Result<Redirect, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::migration::cancel(&database, migration_id).map_err(|error| {
+        log::warn!("Unable to cancel migration {migration_id}: {error}");
+        StatusCode::CONFLICT
+    })?;
+    Ok(Redirect::to("/migrations"))
+}
+
+async fn archive_migration(
+    State(state): State<Arc<AppState>>,
+    Path(migration_id): Path<i64>,
+) -> Result<Redirect, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::migration::archive(&database, migration_id).map_err(|error| {
+        log::warn!("Unable to archive migration {migration_id}: {error}");
+        StatusCode::CONFLICT
+    })?;
+    Ok(Redirect::to("/migrations"))
+}
+
+fn migration_list_url(
+    search: &str,
+    include_archived: bool,
+    sort: &str,
+    descending: bool,
+) -> String {
+    format!(
+        "/migrations?q={}&sort={sort}&dir={}{}",
+        url_encode_component(search),
+        if descending { "desc" } else { "asc" },
+        if include_archived { "&archived=1" } else { "" },
+    )
+}
+
+fn url_encode_component(value: &str) -> String {
+    value
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                (byte as char).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
+}
+
+async fn create_migration(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<NewMigrationForm>,
+) -> Result<Redirect, StatusCode> {
+    let source_kind = match form.inventory_scope.as_str() {
+        database::inventory::MY_DRIVE_SCOPE => "my-drive",
+        database::inventory::SHARED_WITH_ME_SCOPE => "shared-with-me",
+        _ => return Err(StatusCode::BAD_REQUEST),
+    };
+    let item_ids = form
+        .selected_item_ids
+        .split(',')
+        .map(str::trim)
+        .filter(|item_id| !item_id.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let id = database::migration::create(&database, &form.inventory_scope, source_kind, &item_ids)
+        .map_err(|error| {
+            eprintln!("Unable to create migration plan: {error}");
+            StatusCode::BAD_REQUEST
+        })?;
+    Ok(Redirect::to(&format!("/migrations/{id}")))
+}
+
+async fn migration_wizard(
+    State(state): State<Arc<AppState>>,
+    Path(migration_id): Path<i64>,
+) -> Result<Html<String>, StatusCode> {
+    render_migration_wizard(&state, migration_id, String::new())
+}
+
+async fn save_migration_destination(
+    State(state): State<Arc<AppState>>,
+    Path(migration_id): Path<i64>,
+    Form(form): Form<MigrationDestinationForm>,
+) -> Result<axum::response::Response, StatusCode> {
+    let result = async {
+        let folder_id = google_drive_folder_id(&form.destination_url)?;
+        let database = state.database().map_err(|error| error.to_string())?;
+        let job = database::migration::get(&database, migration_id)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| format!("Unknown migration: {migration_id}"))?;
+        let require_shared_drive = job.source_kind == "my-drive";
+        let executable = match state.rclone_state() {
+            RcloneState::Ready(status) => status.path,
+            RcloneState::Initializing => {
+                return Err("Rclone is still initializing. Try again when it is ready.".to_string());
+            }
+            RcloneState::Error(error) => {
+                return Err(format!("Rclone is not ready: {error}"));
+            }
+        };
+        let probe_state = Arc::clone(&state);
+        let probe_folder_id = folder_id.clone();
+        let destination = tokio::task::spawn_blocking(move || {
+            rclone::migration::validate_destination(
+                &probe_state.runtime,
+                &executable,
+                &probe_folder_id,
+                require_shared_drive,
+            )
+        })
+        .await
+        .map_err(|error| format!("Destination validation task failed: {error}"))?
+        .map_err(|error| error.to_string())?;
+
+        let local_destination = database::migration::resolve_destination(&database, &folder_id)
+            .map_err(|error| error.to_string())?;
+        let (drive_name, folder_name) = match local_destination {
+            Some((local_drive_id, drive_name, folder_name))
+                if local_drive_id == destination.drive_id =>
+            {
+                (drive_name, folder_name)
+            }
+            _ => (
+                destination.drive_name.clone(),
+                destination.folder_name.clone(),
+            ),
+        };
+        let discovered_folders = destination
+            .folders
+            .iter()
+            .filter(|folder| {
+                if destination.drive_id.is_empty() {
+                    !folder.parents.is_empty()
+                } else {
+                    folder.id != destination.drive_id
+                }
+            })
+            .map(|folder| database::inventory::DiscoveredDriveFolder {
+                item_id: folder.id.clone(),
+                name: folder.name.clone(),
+                modified_at: folder.modified_at.clone(),
+            })
+            .collect::<Vec<_>>();
+        database::inventory::record_migration_destination(
+            &database,
+            &destination.drive_id,
+            &drive_name,
+            &discovered_folders,
+        )
+        .map_err(|error| error.to_string())?;
+        database::migration::set_destination(
+            &database,
+            migration_id,
+            form.destination_url.trim(),
+            &destination.drive_id,
+            &drive_name,
+            &folder_id,
+            &folder_name,
+        )
+        .map_err(|error| error.to_string())
+    }
+    .await;
+    match result {
+        Ok(()) => Ok(Redirect::to(&format!("/migrations/{migration_id}")).into_response()),
+        Err(error) => {
+            render_migration_wizard(&state, migration_id, error).map(IntoResponse::into_response)
+        }
+    }
+}
+
+async fn start_migration_copy(
+    State(state): State<Arc<AppState>>,
+    Path(migration_id): Path<i64>,
+) -> Result<axum::response::Response, StatusCode> {
+    match AppState::start_migration_copy(Arc::clone(&state), migration_id) {
+        Ok(()) => Ok(Redirect::to(&format!("/migrations/{migration_id}")).into_response()),
+        Err(error) => {
+            render_migration_wizard(&state, migration_id, error).map(IntoResponse::into_response)
+        }
+    }
+}
+
+fn render_migration_wizard(
+    state: &AppState,
+    migration_id: i64,
+    error: String,
+) -> Result<Html<String>, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let migration = database::migration::get(&database, migration_id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    render_template(&MigrationWizardTemplate {
+        title: "Migration Assistant - BOREAL",
+        active_page: "migrations",
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(state),
+        ),
+        status_items: build_status_items(
+            &state.download_state(),
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(state),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+        migration: migration_view(migration),
+        error,
+    })
+}
+
+fn migration_view(job: database::migration::MigrationJob) -> MigrationView {
+    let can_cancel = job.started_at.is_empty() && matches!(job.status.as_str(), "draft" | "ready");
+    let can_archive =
+        !matches!(job.status.as_str(), "preflight" | "running") && job.archived_at.is_empty();
+    let can_start = job.status == "ready" && job.started_at.is_empty();
+    let running = matches!(job.status.as_str(), "preflight" | "running");
+    let allows_my_drive_destination = job.source_kind == "shared-with-me";
+    let sources = job
+        .sources
+        .into_iter()
+        .map(|source| MigrationSourceView {
+            drive_url: if source.is_directory {
+                format!("https://drive.google.com/drive/folders/{}", source.item_id)
+            } else {
+                format!("https://drive.google.com/open?id={}", source.item_id)
+            },
+            item_id: source.item_id,
+            name: source.name,
+            relative_path: source.relative_path,
+            is_directory: source.is_directory,
+            files_total: source.files_total,
+            folders_total: source.folders_total,
+            bytes_total: source.bytes_total,
+            status: source.status,
+            error_message: source.error_message,
+        })
+        .collect();
+    MigrationView {
+        id: job.id,
+        source_label: if job.source_kind == "my-drive" {
+            "My Drive".into()
+        } else {
+            "Shared with Me".into()
+        },
+        status: job.status,
+        phase: job.phase,
+        destination_url: job.destination_url,
+        destination_label: if job.destination_drive_name.is_empty() {
+            "Not selected".into()
+        } else if job.destination_folder_name == job.destination_drive_name {
+            job.destination_drive_name
+        } else {
+            format!(
+                "{} / {}",
+                job.destination_drive_name, job.destination_folder_name
+            )
+        },
+        files_total: job.files_total,
+        folders_total: job.folders_total,
+        size_label: format_bytes(job.bytes_total),
+        files_copied: job.files_copied,
+        copied_size_label: format_bytes(job.bytes_copied),
+        exceptions_count: job.exceptions_count,
+        created_at: job.created_at,
+        started_at: job.started_at,
+        completed_at: job.completed_at,
+        copy_completed_at: job.copy_completed_at,
+        error_message: job.error_message,
+        archived_at: job.archived_at,
+        can_cancel,
+        can_archive,
+        can_start,
+        running,
+        allows_my_drive_destination,
+        sources,
+    }
+}
+
+fn google_drive_folder_id(url: &str) -> Result<String, String> {
+    let url = url.trim();
+    if !url.starts_with("https://drive.google.com/") {
+        return Err("Enter a Google Drive folder or Shared Drive URL.".to_string());
+    }
+    let id = url
+        .split("/folders/")
+        .nth(1)
+        .and_then(|value| value.split(['?', '/', '#']).next())
+        .unwrap_or("");
+    if id.len() < 10
+        || !id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return Err(
+            "The Google Drive URL does not contain a valid destination folder ID.".to_string(),
+        );
+    }
+    Ok(id.to_string())
+}
+
 async fn status() -> StatusCode {
     StatusCode::NO_CONTENT
 }
@@ -1466,48 +2194,64 @@ async fn remotes_page(State(state): State<Arc<AppState>>) -> Result<Html<String>
         }
         _ => Err("Rclone is not ready".into()),
     };
-    let (remotes, error) = match listed {
-        Ok(remotes) => (
-            remotes
-                .into_iter()
-                .map(|remote| {
-                    let (access, purpose, status, status_class) = match remote.name.as_str() {
-                        "my-drive-ro" => (
-                            "Read only",
-                            "Metadata inventory",
-                            remote_state_label(&google_remotes_state.ro),
-                            remote_state_class(&google_remotes_state.ro),
-                        ),
-                        "my-drive-rw" => (
-                            "Read/write",
-                            "Migration operations",
-                            remote_state_label(&google_remotes_state.rw),
-                            remote_state_class(&google_remotes_state.rw),
-                        ),
-                        _ => ("Remote-defined", "General", "Configured", "text-bg-success"),
-                    };
-                    RemoteView {
-                        name: remote.name,
-                        backend: remote.backend,
-                        access,
-                        purpose,
-                        status,
-                        status_class,
-                    }
-                })
-                .collect(),
-            String::new(),
-        ),
+    let (remotes, error, my_drive_ro_configured, my_drive_rw_configured) = match listed {
+        Ok(configured_remotes) => {
+            let my_drive_ro_configured = configured_remotes
+                .iter()
+                .any(|remote| remote.name == RemoteKind::MyDriveRo.name());
+            let my_drive_rw_configured = configured_remotes
+                .iter()
+                .any(|remote| remote.name == RemoteKind::MyDriveRw.name());
+            (
+                configured_remotes
+                    .into_iter()
+                    .map(|remote| {
+                        let (access, purpose, status, status_class) = match remote.name.as_str() {
+                            "my-drive-ro" => (
+                                "Read only",
+                                "Metadata inventory",
+                                remote_state_label(&google_remotes_state.ro),
+                                remote_state_class(&google_remotes_state.ro),
+                            ),
+                            "my-drive-rw" => (
+                                "Read/write",
+                                "Migration operations",
+                                remote_state_label(&google_remotes_state.rw),
+                                remote_state_class(&google_remotes_state.rw),
+                            ),
+                            _ => ("Remote-defined", "General", "Configured", "text-bg-success"),
+                        };
+                        RemoteView {
+                            name: remote.name,
+                            backend: remote.backend,
+                            access,
+                            purpose,
+                            status,
+                            status_class,
+                        }
+                    })
+                    .collect(),
+                String::new(),
+                my_drive_ro_configured,
+                my_drive_rw_configured,
+            )
+        }
         Err(error) => {
             eprintln!("Unable to render remotes page: {error}");
-            (Vec::new(), error.to_string())
+            (Vec::new(), error.to_string(), false, false)
         }
     };
+    let remote_setup_busy = matches!(google_remotes_state.ro, RemoteState::Configuring)
+        || matches!(google_remotes_state.rw, RemoteState::Configuring);
 
     let template = RemotesTemplate {
         title: "Remotes - BOREAL",
         active_page: "remotes",
-        alerts: build_alerts(&rclone_state, &google_client_state),
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
         status_items: build_status_items(
             &state.download_state(),
             &rclone_state,
@@ -1520,8 +2264,29 @@ async fn remotes_page(State(state): State<Arc<AppState>>) -> Result<Html<String>
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
         remotes,
         error,
+        my_drive_ro_configured,
+        my_drive_rw_configured,
+        remote_setup_busy,
+        google_client_ready: matches!(google_client_state, GoogleClientState::Ready(_)),
+        rclone_ready: matches!(rclone_state, RcloneState::Ready(_)),
     };
     render_template(&template)
+}
+
+async fn add_remote(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<AddRemoteForm>,
+) -> Result<Redirect, StatusCode> {
+    let kind = match form.remote_kind.as_str() {
+        "my-drive-ro" => RemoteKind::MyDriveRo,
+        "my-drive-rw" => RemoteKind::MyDriveRw,
+        _ => return Err(StatusCode::BAD_REQUEST),
+    };
+    AppState::configure_google_remote(state, kind).map_err(|error| {
+        log::warn!("Unable to add {}: {error}", kind.label());
+        StatusCode::CONFLICT
+    })?;
+    Ok(Redirect::to("/remotes"))
 }
 
 async fn my_drive_page(
@@ -1534,7 +2299,6 @@ async fn my_drive_page(
         database::inventory::MY_DRIVE_SCOPE,
         "my-drive",
         "My Drive Explorer",
-        "Browse the latest local My Drive metadata inventory and open items in Google Drive.",
         "My Drive",
         "/my-drive",
         "/my-drive/tags",
@@ -1553,13 +2317,400 @@ async fn shared_with_me_page(
         database::inventory::SHARED_WITH_ME_SCOPE,
         "shared-with-me",
         "Shared with me Explorer",
-        "Browse content other people have shared with the authenticated Google account.",
         "Shared with me",
         "/shared-with-me",
         "/shared-with-me/tags",
         "/shared-with-me/tags/remove",
         String::new(),
     )
+}
+
+async fn export_my_drive(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<DrivePathQuery>,
+) -> Result<Response<Body>, StatusCode> {
+    export_drive_view(
+        &state,
+        &query,
+        database::inventory::MY_DRIVE_SCOPE,
+        "My Drive",
+        "boreal-my-drive-report.xlsx",
+    )
+}
+
+async fn export_shared_with_me(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<DrivePathQuery>,
+) -> Result<Response<Body>, StatusCode> {
+    export_drive_view(
+        &state,
+        &query,
+        database::inventory::SHARED_WITH_ME_SCOPE,
+        "Shared with me",
+        "boreal-shared-with-me-report.xlsx",
+    )
+}
+
+fn export_drive_view(
+    state: &AppState,
+    query: &DrivePathQuery,
+    inventory_scope: &str,
+    view_name: &str,
+    filename: &'static str,
+) -> Result<Response<Body>, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let sort = match query.sort.as_str() {
+        "type" | "size" | "modified" | "owner" => query.sort.as_str(),
+        _ => "name",
+    };
+    let (exclude_owner, owner_filter) = match query.owner_filter.strip_prefix('!') {
+        Some(owner) => (true, owner.trim()),
+        None => (false, query.owner_filter.trim()),
+    };
+    let items = database::inventory::list_drive_directory(
+        &database,
+        inventory_scope,
+        (!query.path.is_empty()).then_some(query.path.as_str()),
+        &query.q,
+        &query.tag,
+        &query.type_filter,
+        &query.size_filter,
+        &query.modified_filter,
+        owner_filter,
+        exclude_owner,
+        &query.permission_filter,
+        &query.owner_identity_tag,
+        &query.permission_identity_tag,
+        query.include_deleted,
+        sort,
+        query.direction == "desc",
+    )
+    .map_err(|error| {
+        eprintln!("Unable to export {view_name}: {error}");
+        StatusCode::BAD_REQUEST
+    })?;
+    let context = drive_export_context(view_name, query, sort, items.len());
+    let rows = items
+        .into_iter()
+        .map(|item| {
+            let size_bytes = item.size_bytes.unwrap_or(0);
+            let drive_url = if item.is_directory {
+                format!("https://drive.google.com/drive/folders/{}", item.item_id)
+            } else {
+                format!("https://drive.google.com/open?id={}", item.item_id)
+            };
+            vec![
+                item.name.into(),
+                if item.is_directory { "Folder" } else { "File" }.into(),
+                item.relative_path.into(),
+                item.mime_type.unwrap_or_default().into(),
+                xlsx::Cell::Number(size_bytes),
+                format_bytes(size_bytes).into(),
+                item.modified_at.unwrap_or_default().into(),
+                item.owner_email.unwrap_or_default().into(),
+                item.permissions
+                    .iter()
+                    .map(|permission| permission.label.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+                    .into(),
+                item.tags
+                    .iter()
+                    .map(|tag| tag.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+                    .into(),
+                (if item.is_deleted { "Yes" } else { "No" }).into(),
+                xlsx::Cell::Link {
+                    url: drive_url,
+                    label: "Open in Google Drive".to_string(),
+                },
+            ]
+        })
+        .collect::<Vec<_>>();
+    let bytes = xlsx::workbook(
+        &context,
+        &[
+            "Name",
+            "Type",
+            "Path",
+            "MIME type",
+            "Size (bytes)",
+            "Size",
+            "Modified",
+            "Owner",
+            "Permissions",
+            "Tags",
+            "Deleted",
+            "Google Drive",
+        ],
+        &rows,
+    )
+    .map_err(|error| {
+        eprintln!("Unable to build Excel report: {error}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    xlsx_download(bytes, filename)
+}
+
+fn drive_export_context(
+    view_name: &str,
+    query: &DrivePathQuery,
+    sort: &str,
+    result_count: usize,
+) -> Vec<(String, String)> {
+    vec![
+        ("View".into(), view_name.into()),
+        (
+            "Location".into(),
+            if query.path.is_empty() {
+                view_name.into()
+            } else {
+                query.path.clone()
+            },
+        ),
+        ("Results".into(), result_count.to_string()),
+        ("Search".into(), filter_value(&query.q)),
+        ("Tag".into(), filter_value(&query.tag)),
+        ("Type".into(), filter_value(&query.type_filter)),
+        ("Size".into(), filter_value(&query.size_filter)),
+        ("Modified".into(), filter_value(&query.modified_filter)),
+        ("Owner".into(), filter_value(&query.owner_filter)),
+        ("Permission".into(), filter_value(&query.permission_filter)),
+        (
+            "Owner person tag".into(),
+            filter_value(&query.owner_identity_tag),
+        ),
+        (
+            "Permission person tag".into(),
+            filter_value(&query.permission_identity_tag),
+        ),
+        ("Include deleted".into(), query.include_deleted.to_string()),
+        (
+            "Sort".into(),
+            format!(
+                "{sort} {}",
+                if query.direction == "desc" {
+                    "desc"
+                } else {
+                    "asc"
+                }
+            ),
+        ),
+    ]
+}
+
+fn filter_value(value: &str) -> String {
+    if value.trim().is_empty() {
+        "Any".to_string()
+    } else {
+        value.to_string()
+    }
+}
+
+fn xlsx_download(bytes: Vec<u8>, filename: &'static str) -> Result<Response<Body>, StatusCode> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(
+            header::CONTENT_TYPE,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{filename}\""),
+        )
+        .header(header::CACHE_CONTROL, "no-store")
+        .body(Body::from(bytes))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn export_shared_drives(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<DrivePathQuery>,
+) -> Result<Response<Body>, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if !query.drive.is_empty() {
+        let drive = database::inventory::get_shared_drive(&database, &query.drive)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
+        return export_drive_view(
+            &state,
+            &query,
+            &drive.inventory_scope,
+            &format!("Shared Drive: {}", drive.name),
+            "boreal-shared-drive-content-report.xlsx",
+        );
+    }
+
+    let mut drives = database::inventory::list_shared_drives_filtered(
+        &database,
+        &query.q,
+        &query.tag,
+        &query.files_filter,
+        &query.folders_filter,
+        &query.size_filter,
+        &query.modified_filter,
+        &query.shared_drive_manager_filter,
+        &query.shared_drive_permission_filter,
+    )
+    .map_err(|error| {
+        eprintln!("Unable to export Shared Drives: {error}");
+        StatusCode::BAD_REQUEST
+    })?
+    .into_iter()
+    .filter(|drive| query.show_inaccessible || drive.is_accessible)
+    .collect::<Vec<_>>();
+    sort_shared_drives(&mut drives, &query);
+
+    let context = vec![
+        ("View".into(), "Shared Drives".into()),
+        ("Results".into(), drives.len().to_string()),
+        ("Search".into(), filter_value(&query.q)),
+        ("Tag".into(), filter_value(&query.tag)),
+        ("Files".into(), filter_value(&query.files_filter)),
+        ("Folders".into(), filter_value(&query.folders_filter)),
+        ("Total size".into(), filter_value(&query.size_filter)),
+        ("Modified".into(), filter_value(&query.modified_filter)),
+        (
+            "Manager".into(),
+            filter_value(&query.shared_drive_manager_filter),
+        ),
+        (
+            "Permission".into(),
+            filter_value(&query.shared_drive_permission_filter),
+        ),
+        (
+            "Show inaccessible".into(),
+            query.show_inaccessible.to_string(),
+        ),
+        (
+            "Sort".into(),
+            format!("{} {}", shared_drive_sort(&query), query.direction),
+        ),
+    ];
+    let rows = drives
+        .into_iter()
+        .map(|drive| {
+            let managers = drive
+                .permission_identities
+                .iter()
+                .filter(|identity| {
+                    identity.roles.iter().any(|role| {
+                        role.eq_ignore_ascii_case("organizer") || role.eq_ignore_ascii_case("owner")
+                    })
+                })
+                .map(|identity| identity.label.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            vec![
+                drive.name.into(),
+                drive.drive_id.clone().into(),
+                (if drive.is_accessible { "Yes" } else { "No" }).into(),
+                xlsx::Cell::Number(drive.files_scanned),
+                xlsx::Cell::Number(drive.folders_scanned),
+                xlsx::Cell::Number(drive.bytes_discovered),
+                format_bytes(drive.bytes_discovered).into(),
+                drive.modified_at.clone().into(),
+                xlsx::Cell::Number(drive.permissions_scanned),
+                managers.into(),
+                drive
+                    .permission_identities
+                    .iter()
+                    .map(|identity| identity.label.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+                    .into(),
+                drive
+                    .tags
+                    .iter()
+                    .map(|tag| tag.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+                    .into(),
+                xlsx::Cell::Link {
+                    url: format!("https://drive.google.com/drive/folders/{}", drive.drive_id),
+                    label: "Open in Google Drive".into(),
+                },
+            ]
+        })
+        .collect::<Vec<_>>();
+    let bytes = xlsx::workbook(
+        &context,
+        &[
+            "Name",
+            "Drive ID",
+            "Accessible",
+            "Files",
+            "Folders",
+            "Total size (bytes)",
+            "Total size",
+            "Modified",
+            "Permission references",
+            "Managers",
+            "Permissions",
+            "Tags",
+            "Google Drive",
+        ],
+        &rows,
+    )
+    .map_err(|error| {
+        eprintln!("Unable to build Shared Drives Excel report: {error}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    xlsx_download(bytes, "boreal-shared-drives-report.xlsx")
+}
+
+fn shared_drive_sort(query: &DrivePathQuery) -> &str {
+    match query.sort.as_str() {
+        "tags" | "files" | "folders" | "size" | "modified" | "managers" | "permissions" => {
+            &query.sort
+        }
+        _ => "name",
+    }
+}
+
+fn sort_shared_drives(drives: &mut [database::inventory::SharedDriveRow], query: &DrivePathQuery) {
+    let sort = shared_drive_sort(query);
+    drives.sort_by(|left, right| {
+        let ordering = match sort {
+            "tags" => left
+                .tags
+                .first()
+                .map(|tag| tag.name.to_ascii_lowercase())
+                .cmp(&right.tags.first().map(|tag| tag.name.to_ascii_lowercase())),
+            "files" => left.files_scanned.cmp(&right.files_scanned),
+            "folders" => left.folders_scanned.cmp(&right.folders_scanned),
+            "size" => left.bytes_discovered.cmp(&right.bytes_discovered),
+            "modified" => left.modified_at.cmp(&right.modified_at),
+            "managers" => {
+                shared_drive_manager_sort_key(left).cmp(&shared_drive_manager_sort_key(right))
+            }
+            "permissions" => left
+                .permission_identities
+                .first()
+                .map(|identity| identity.label.to_ascii_lowercase())
+                .cmp(
+                    &right
+                        .permission_identities
+                        .first()
+                        .map(|identity| identity.label.to_ascii_lowercase()),
+                ),
+            _ => left
+                .name
+                .to_ascii_lowercase()
+                .cmp(&right.name.to_ascii_lowercase()),
+        };
+        if query.direction.eq_ignore_ascii_case("desc") {
+            ordering.reverse()
+        } else {
+            ordering
+        }
+        .then_with(|| left.drive_id.cmp(&right.drive_id))
+    });
 }
 
 async fn shared_drives_page(
@@ -1577,6 +2728,7 @@ async fn shared_drives_page(
             &query.files_filter,
             &query.folders_filter,
             &query.size_filter,
+            &query.modified_filter,
             &query.shared_drive_manager_filter,
             &query.shared_drive_permission_filter,
         ) {
@@ -1591,47 +2743,8 @@ async fn shared_drives_page(
             .into_iter()
             .filter(|drive| query.show_inaccessible || drive.is_accessible)
             .collect::<Vec<_>>();
-        let sort = match query.sort.as_str() {
-            "tags" | "files" | "folders" | "size" | "managers" | "permissions" => {
-                query.sort.clone()
-            }
-            _ => "name".to_string(),
-        };
-        filtered_drives.sort_by(|left, right| {
-            let ordering = match sort.as_str() {
-                "tags" => left
-                    .tags
-                    .first()
-                    .map(|tag| tag.name.to_ascii_lowercase())
-                    .cmp(&right.tags.first().map(|tag| tag.name.to_ascii_lowercase())),
-                "files" => left.files_scanned.cmp(&right.files_scanned),
-                "folders" => left.folders_scanned.cmp(&right.folders_scanned),
-                "size" => left.bytes_discovered.cmp(&right.bytes_discovered),
-                "managers" => {
-                    shared_drive_manager_sort_key(left).cmp(&shared_drive_manager_sort_key(right))
-                }
-                "permissions" => left
-                    .permission_identities
-                    .first()
-                    .map(|identity| identity.label.to_ascii_lowercase())
-                    .cmp(
-                        &right
-                            .permission_identities
-                            .first()
-                            .map(|identity| identity.label.to_ascii_lowercase()),
-                    ),
-                _ => left
-                    .name
-                    .to_ascii_lowercase()
-                    .cmp(&right.name.to_ascii_lowercase()),
-            };
-            if query.direction.eq_ignore_ascii_case("desc") {
-                ordering.reverse()
-            } else {
-                ordering
-            }
-            .then_with(|| left.drive_id.cmp(&right.drive_id))
-        });
+        let sort = shared_drive_sort(&query).to_string();
+        sort_shared_drives(&mut filtered_drives, &query);
         let summary_size = filtered_drives
             .iter()
             .map(|drive| drive.bytes_discovered)
@@ -1683,12 +2796,18 @@ async fn shared_drives_page(
                     managers,
                     permission_identities,
                     size_label: format_bytes(drive.bytes_discovered),
+                    modified_at: if drive.modified_at.is_empty() {
+                        "—".to_string()
+                    } else {
+                        drive.modified_at
+                    },
                     tags: drive
                         .tags
                         .into_iter()
                         .map(|tag| TagPill {
                             text_color: tag_text_color(&tag.color),
                             name: tag.name,
+                            description: tag.description,
                             color: tag.color,
                         })
                         .collect(),
@@ -1700,6 +2819,17 @@ async fn shared_drives_page(
             database::inventory::TagScope::SharedDrives,
         )
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let filter_tags = tags
+            .iter()
+            .map(|tag| TagFilterPill {
+                slug: tag.slug.clone(),
+                name: tag.name.clone(),
+                description: tag.description.clone(),
+                color: tag.color.clone(),
+                text_color: tag_text_color(&tag.color),
+                selected: query.tag == tag.slug,
+            })
+            .collect();
         let rclone_state = state.rclone_state();
         let google_client_state = state.google_client_state();
         let google_remotes_state = state.google_remotes_state();
@@ -1707,7 +2837,11 @@ async fn shared_drives_page(
         return render_template(&SharedDrivesTemplate {
             title: "Shared Drives - BOREAL",
             active_page: "shared-drives",
-            alerts: build_alerts(&rclone_state, &google_client_state),
+            alerts: build_alerts(
+                &rclone_state,
+                &google_client_state,
+                bookmark_reminder_visible(&state),
+            ),
             status_items: build_status_items(
                 &state.download_state(),
                 &rclone_state,
@@ -1722,6 +2856,7 @@ async fn shared_drives_page(
             show_inaccessible: query.show_inaccessible,
             inaccessible_count,
             tags,
+            filter_tags,
             search: query.q,
             tag_filter: query.tag,
             tagged_count: query.tagged,
@@ -1729,6 +2864,7 @@ async fn shared_drives_page(
             files_filter: query.files_filter,
             folders_filter: query.folders_filter,
             size_filter: query.size_filter,
+            modified_filter: query.modified_filter,
             manager_filter: query.shared_drive_manager_filter,
             permissions_filter: query.shared_drive_permission_filter,
             sort,
@@ -1754,7 +2890,6 @@ async fn shared_drives_page(
         &drive.inventory_scope,
         "shared-drives",
         &format!("{} — Shared Drive Explorer", drive.name),
-        "Browse the latest local metadata inventory for this Shared Drive.",
         &drive.name,
         &explorer_path,
         "/shared-drives/tags",
@@ -1805,7 +2940,6 @@ fn render_drive_explorer(
     inventory_scope: &str,
     active_page: &'static str,
     heading: &str,
-    description: &str,
     root_label: &str,
     explorer_path: &str,
     tag_action: &'static str,
@@ -1924,6 +3058,7 @@ fn render_drive_explorer(
                     .map(|tag| TagPill {
                         text_color: tag_text_color(&tag.color),
                         name: tag.name,
+                        description: tag.description,
                         color: tag.color,
                     })
                     .collect(),
@@ -1951,16 +3086,43 @@ fn render_drive_explorer(
         eprintln!("Unable to load My Drive tags: {error}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+    let filter_tags = tags
+        .iter()
+        .map(|tag| TagFilterPill {
+            slug: tag.slug.clone(),
+            name: tag.name.clone(),
+            description: tag.description.clone(),
+            color: tag.color.clone(),
+            text_color: tag_text_color(&tag.color),
+            selected: query.tag == tag.slug,
+        })
+        .collect();
     let directory_tags = database::inventory::list_tags_for_scope(
         &database,
         database::inventory::TagScope::Directory,
     )
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let identity_filter_tags = directory_tags
+        .iter()
+        .map(|tag| IdentityTagFilterPill {
+            slug: tag.slug.clone(),
+            name: tag.name.clone(),
+            description: tag.description.clone(),
+            color: tag.color.clone(),
+            text_color: tag_text_color(&tag.color),
+            owner_selected: query.owner_identity_tag == tag.slug,
+            permission_selected: query.permission_identity_tag == tag.slug,
+        })
+        .collect();
 
     let template = MyDriveTemplate {
         title: heading.to_string(),
         active_page,
-        alerts: build_alerts(&rclone_state, &google_client_state),
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(state),
+        ),
         status_items: build_status_items(
             &state.download_state(),
             &rclone_state,
@@ -2009,7 +3171,8 @@ fn render_drive_explorer(
             false,
         ),
         tags,
-        directory_tags,
+        filter_tags,
+        identity_filter_tags,
         tag_filter: query.tag,
         tagged_count: query.tagged,
         untagged_count: query.untagged,
@@ -2022,9 +3185,13 @@ fn render_drive_explorer(
         permission_identity_tag_filter: query.permission_identity_tag,
         include_deleted: query.include_deleted,
         heading: heading.to_string(),
-        description: description.to_string(),
         root_label: root_label.to_string(),
         explorer_path: explorer_path.to_string(),
+        export_path: match active_page {
+            "my-drive" => "/my-drive/export.xlsx",
+            "shared-with-me" => "/shared-with-me/export.xlsx",
+            _ => "/shared-drives/export.xlsx",
+        },
         drive_id,
         inventory_scope: inventory_scope.to_string(),
         tag_action,
@@ -2062,7 +3229,13 @@ fn identity_display(
             format!(
                 "Identity tags: {}",
                 tags.iter()
-                    .map(|tag| tag.name.as_str())
+                    .map(|tag| {
+                        if tag.description.is_empty() {
+                            tag.name.clone()
+                        } else {
+                            format!("{}: {}", tag.name, tag.description)
+                        }
+                    })
                     .collect::<Vec<_>>()
                     .join(", ")
             )
@@ -2253,13 +3426,14 @@ fn change_shared_drive_list_tag(
         drive_ids.len(),
     );
     let url = format!(
-        "/shared-drives?q={}&tag={}&show_inaccessible={}&files_filter={}&folders_filter={}&size_filter={}&shared_drive_manager_filter={}&shared_drive_permission_filter={}&sort={}&direction={}&{}={changed}",
+        "/shared-drives?q={}&tag={}&show_inaccessible={}&files_filter={}&folders_filter={}&size_filter={}&modified_filter={}&shared_drive_manager_filter={}&shared_drive_permission_filter={}&sort={}&direction={}&{}={changed}",
         encode_query_value(&form.q),
         encode_query_value(&form.tag_filter),
         form.show_inaccessible,
         encode_query_value(&form.files_filter),
         encode_query_value(&form.folders_filter),
         encode_query_value(&form.size_filter),
+        encode_query_value(&form.modified_filter),
         encode_query_value(&form.manager_filter),
         encode_query_value(&form.permissions_filter),
         encode_query_value(&form.sort),
@@ -2603,7 +3777,11 @@ async fn tags_page(
     render_template(&TagsTemplate {
         title: "Tags - BOREAL",
         active_page: "tags",
-        alerts: build_alerts(&rclone_state, &google_client_state),
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
         status_items: build_status_items(
             &state.download_state(),
             &rclone_state,
@@ -2664,7 +3842,11 @@ async fn directory_page(
     render_template(&DirectoryTemplate {
         title: "Persons - BOREAL",
         active_page: "directory",
-        alerts: build_alerts(&rclone_state, &google_client_state),
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
         status_items: build_status_items(
             &state.download_state(),
             &rclone_state,
@@ -2944,7 +4126,11 @@ fn render_principal_editor(
             "Edit Person - BOREAL".to_string()
         },
         active_page: "directory",
-        alerts: build_alerts(&rclone_state, &google_client_state),
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
         status_items: build_status_items(
             &state.download_state(),
             &rclone_state,
@@ -3054,7 +4240,11 @@ async fn principal_page(
     render_template(&PrincipalTemplate {
         title: format!("{} - Persons - BOREAL", principal.display_name),
         active_page: "directory",
-        alerts: build_alerts(&rclone_state, &google_client_state),
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
         status_items: build_status_items(
             &state.download_state(),
             &rclone_state,
@@ -3079,11 +4269,17 @@ async fn create_tag(
         .database()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let scopes = tag_form_scopes(&form);
-    database::inventory::create_tag_with_scopes(&database, &form.name, &form.color, &scopes)
-        .map_err(|error| {
-            eprintln!("Unable to create tag: {error}");
-            StatusCode::BAD_REQUEST
-        })?;
+    database::inventory::create_tag_with_description_and_scopes(
+        &database,
+        &form.name,
+        &form.description,
+        &form.color,
+        &scopes,
+    )
+    .map_err(|error| {
+        eprintln!("Unable to create tag: {error}");
+        StatusCode::BAD_REQUEST
+    })?;
     println!("Tag created: name={}", form.name.trim());
     Ok(Redirect::to("/tags?saved=true"))
 }
@@ -3096,10 +4292,11 @@ async fn update_tag(
         .database()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let scopes = tag_form_scopes(&form);
-    database::inventory::update_tag_with_scopes(
+    database::inventory::update_tag_with_description_and_scopes(
         &database,
         &form.slug,
         &form.name,
+        &form.description,
         &form.color,
         &scopes,
     )
@@ -3108,6 +4305,21 @@ async fn update_tag(
         StatusCode::BAD_REQUEST
     })?;
     println!("Tag updated: slug={}", form.slug);
+    Ok(Redirect::to("/tags?saved=true"))
+}
+
+async fn delete_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<DeleteTagForm>,
+) -> Result<Redirect, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::inventory::delete_tag(&database, &form.slug).map_err(|error| {
+        eprintln!("Unable to delete tag: {error}");
+        StatusCode::BAD_REQUEST
+    })?;
+    println!("Tag deleted: slug={}", form.slug);
     Ok(Redirect::to("/tags?saved=true"))
 }
 
@@ -3164,7 +4376,11 @@ async fn ui_alerts(State(state): State<Arc<AppState>>) -> Result<Html<String>, S
     let google_client_state = state.google_client_state();
 
     let template = AlertsTemplate {
-        alerts: build_alerts(&rclone_state, &google_client_state),
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
 
         poll_rclone: should_poll_rclone(&rclone_state),
     };
@@ -3638,6 +4854,43 @@ async fn start_metadata_update(
     Ok(Redirect::to("/"))
 }
 
+async fn start_selected_metadata_update(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<SelectedMetadataUpdateForm>,
+) -> Result<Redirect, StatusCode> {
+    let item_ids = comma_separated_values(&form.selected_item_ids);
+    let drive_ids = comma_separated_values(&form.selected_drive_ids);
+    let redirect = if !drive_ids.is_empty() {
+        "/shared-drives".to_string()
+    } else if form.inventory_scope == database::inventory::MY_DRIVE_SCOPE {
+        "/my-drive".to_string()
+    } else if form.inventory_scope == database::inventory::SHARED_WITH_ME_SCOPE {
+        "/shared-with-me".to_string()
+    } else if form
+        .inventory_scope
+        .starts_with(database::inventory::SHARED_DRIVE_SCOPE_PREFIX)
+    {
+        format!("/shared-drives?drive={}", encode_query_value(&form.drive))
+    } else {
+        return Err(StatusCode::BAD_REQUEST);
+    };
+    AppState::start_selected_metadata_update(state, form.inventory_scope, item_ids, drive_ids)
+        .map_err(|error| {
+            log::warn!("Unable to update selected metadata: {error}");
+            StatusCode::CONFLICT
+        })?;
+    Ok(Redirect::to(&redirect))
+}
+
+fn comma_separated_values(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 async fn skip_setup_metadata(State(state): State<Arc<AppState>>) -> Result<Redirect, StatusCode> {
     let database = state
         .database()
@@ -3676,8 +4929,19 @@ fn rclone_gui_url(rclone_state: &RcloneState) -> String {
 fn build_alerts(
     rclone_state: &RcloneState,
     google_client_state: &GoogleClientState,
+    show_bookmark_reminder: bool,
 ) -> Vec<AlertItem> {
     let mut alerts = Vec::new();
+
+    if show_bookmark_reminder {
+        alerts.push(AlertItem {
+            level: "primary",
+            icon: "bi-bookmark-star",
+            message: "Bookmark this page so you can reopen BOREAL while it is running".to_string(),
+            modal_target: "",
+            dismiss_action: "/settings/bookmark-reminder/dismiss",
+        });
+    }
 
     match rclone_state {
         RcloneState::Initializing => {
@@ -3686,6 +4950,7 @@ fn build_alerts(
                 icon: "bi-hourglass-split",
                 message: "BOREAL is initializing Rclone...".to_string(),
                 modal_target: "",
+                dismiss_action: "",
             });
         }
 
@@ -3697,6 +4962,7 @@ fn build_alerts(
                 icon: "bi-exclamation-triangle",
                 message: format!("Rclone initialization failed: {error}"),
                 modal_target: "",
+                dismiss_action: "",
             });
         }
     }
@@ -3708,6 +4974,7 @@ fn build_alerts(
                 icon: "bi-key",
                 message: "Google Client ID is not configured".to_string(),
                 modal_target: "googleClientSetupModal",
+                dismiss_action: "",
             });
         }
 
@@ -3719,6 +4986,7 @@ fn build_alerts(
                 icon: "bi-key",
                 message: format!("Google Client ID configuration is invalid: {error}"),
                 modal_target: "googleClientSetupModal",
+                dismiss_action: "",
             });
         }
     }

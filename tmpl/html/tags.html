@@ -2,58 +2,219 @@
 
 {% block content %}
 
-<div class="row">
-    <div class="col-xl-9 col-xxl-7">
-        <h1 class="h3 mb-1">Tags</h1>
-        <p class="text-body-secondary">Create and edit local BOREAL tags used to organize Drive inventory items.</p>
+<div class="d-flex flex-column h-100 overflow-hidden">
 
-        {% if saved %}<div class="alert alert-success py-2" role="status"><i class="bi bi-check-circle me-2"></i>Tag changes saved.</div>{% endif %}
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+        <div>
+            <h1 class="h3 mb-1">Tags</h1>
+            <p class="text-body-secondary mb-0">Create and edit local BOREAL tags used to organize Drive inventory items.</p>
+        </div>
+        <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#addTagModal">
+            <i class="bi bi-plus-circle me-1"></i>Add Tag
+        </button>
+    </div>
 
-        <div class="card mb-4">
-            <div class="card-header fw-semibold">Add custom tag</div>
-            <div class="card-body">
-                <form method="post" action="/tags/create" class="row g-3 align-items-end">
-                    <div class="col-sm-7"><label class="form-label" for="new-tag-name">Name</label><input class="form-control" id="new-tag-name" name="name" maxlength="40" required></div>
-                    <div class="col-sm-3"><label class="form-label" for="new-tag-color">Color</label><input class="form-control form-control-color" id="new-tag-color" type="color" name="color" value="#6f42c1" title="Choose tag color"></div>
-                    <div class="col-sm-2"><button class="btn btn-primary w-100" type="submit"><i class="bi bi-plus-circle me-1"></i>Add</button></div>
-                    <fieldset class="col-12">
+    {% if saved %}
+    <div class="alert alert-success py-2" role="status">
+        <i class="bi bi-check-circle me-2"></i>Tag changes saved.
+    </div>
+    {% endif %}
+
+    <div class="card flex-grow-1 overflow-hidden">
+        <div class="table-responsive boreal-explorer-table">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th scope="col">Tag</th>
+                        <th scope="col" class="text-center">Persons</th>
+                        <th scope="col" class="text-center">My Drive</th>
+                        <th scope="col" class="text-center">Shared Drives</th>
+                        <th scope="col" class="text-center">Shared with me</th>
+                        <th scope="col" class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for tag in tags %}
+                    <tr data-tag-scope-row>
+                        <td>
+                            <form id="tag-scope-form-{{ loop.index }}" method="post" action="/tags/update">
+                                <input type="hidden" name="slug" value="{{ tag.slug }}">
+                                <input type="hidden" name="name" value="{{ tag.name }}">
+                                <input type="hidden" name="description" value="{{ tag.description }}">
+                                <input type="hidden" name="color" value="{{ tag.color }}">
+                            </form>
+                            <span class="badge rounded-pill px-3 py-2" style="background-color: {{ tag.color }}; color: #fff;" title="{{ tag.description }}">{{ tag.name }}</span>
+                        </td>
+                        <td class="text-center"><input class="form-check-input tag-scope-checkbox" type="checkbox" name="directory" form="tag-scope-form-{{ loop.index }}" {% if tag.directory %}checked{% endif %} aria-label="Make {{ tag.name }} available for Persons"></td>
+                        <td class="text-center"><input class="form-check-input tag-scope-checkbox" type="checkbox" name="my_drive" form="tag-scope-form-{{ loop.index }}" {% if tag.my_drive %}checked{% endif %} aria-label="Make {{ tag.name }} available for My Drive"></td>
+                        <td class="text-center"><input class="form-check-input tag-scope-checkbox" type="checkbox" name="shared_drives" form="tag-scope-form-{{ loop.index }}" {% if tag.shared_drives %}checked{% endif %} aria-label="Make {{ tag.name }} available for Shared Drives"></td>
+                        <td class="text-center"><input class="form-check-input tag-scope-checkbox" type="checkbox" name="shared_with_me" form="tag-scope-form-{{ loop.index }}" {% if tag.shared_with_me %}checked{% endif %} aria-label="Make {{ tag.name }} available for Shared with me"></td>
+                        <td class="text-end">
+                            <button class="btn btn-sm btn-primary me-1 tag-scope-save" type="submit"
+                                    form="tag-scope-form-{{ loop.index }}" disabled>
+                                <i class="bi bi-save me-1"></i>Save
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary" type="button"
+                                    data-bs-toggle="modal" data-bs-target="#editTagModal{{ loop.index }}">
+                                <i class="bi bi-pencil me-1"></i>Edit
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% if tags.is_empty() %}
+                    <tr><td colspan="6" class="text-body-secondary text-center py-4">No tags have been created.</td></tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<div class="modal fade" id="addTagModal" tabindex="-1" aria-labelledby="addTagModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post" action="/tags/create">
+                <div class="modal-header">
+                    <h2 class="modal-title fs-5" id="addTagModalLabel"><i class="bi bi-plus-circle me-2"></i>Add Tag</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label" for="new-tag-name">Name</label>
+                        <input class="form-control" id="new-tag-name" name="name" maxlength="40" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="new-tag-description">Description</label>
+                        <textarea class="form-control" id="new-tag-description" name="description" rows="3" maxlength="500"></textarea>
+                        <div class="form-text">Shown when a user hovers over this tag.</div>
+                    </div>
+                    <div class="mb-3" data-tag-color-editor>
+                        <label class="form-label" for="new-tag-color-code">Color</label>
+                        <div class="input-group">
+                            <input class="form-control form-control-color tag-color-picker" type="color" value="#6f42c1" title="Choose tag color" aria-label="Choose tag color">
+                            <input class="form-control font-monospace tag-color-code" id="new-tag-color-code" name="color" value="#6f42c1"
+                                   maxlength="7" pattern="#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?" title="Enter #RGB or #RRGGBB" required>
+                        </div>
+                        <div class="form-text">Enter an HTML color such as <code>#159</code> or <code>#115599</code>.</div>
+                    </div>
+                    <fieldset>
                         <legend class="form-label mb-2">Available in</legend>
                         <div class="d-flex flex-wrap gap-3">
                             <div class="form-check"><input class="form-check-input" id="new-tag-directory" type="checkbox" name="directory" checked><label class="form-check-label" for="new-tag-directory">Persons</label></div>
                             <div class="form-check"><input class="form-check-input" id="new-tag-my-drive" type="checkbox" name="my_drive" checked><label class="form-check-label" for="new-tag-my-drive">My Drive</label></div>
-                            <div class="form-check"><input class="form-check-input" id="new-tag-shared-drives" type="checkbox" name="shared_drives" checked><label class="form-check-label" for="new-tag-shared-drives">Shared Drive</label></div>
+                            <div class="form-check"><input class="form-check-input" id="new-tag-shared-drives" type="checkbox" name="shared_drives" checked><label class="form-check-label" for="new-tag-shared-drives">Shared Drives</label></div>
                             <div class="form-check"><input class="form-check-input" id="new-tag-shared-with-me" type="checkbox" name="shared_with_me" checked><label class="form-check-label" for="new-tag-shared-with-me">Shared with me</label></div>
                         </div>
-                        <div class="form-text">Controls where this tag can be selected and filtered. Existing assignments remain visible.</div>
                     </fieldset>
-                </form>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-header fw-semibold">Edit tags</div>
-            <div class="list-group list-group-flush">
-                {% for tag in tags %}
-                <form method="post" action="/tags/update" class="list-group-item row g-3 align-items-center m-0">
-                    <input type="hidden" name="slug" value="{{ tag.slug }}">
-                    <div class="col-auto"><span class="badge rounded-pill" style="background-color: {{ tag.color }};">&nbsp;&nbsp;&nbsp;</span></div>
-                    <div class="col"><label class="visually-hidden" for="tag-name-{{ loop.index }}">Tag name</label><input class="form-control" id="tag-name-{{ loop.index }}" name="name" value="{{ tag.name }}" maxlength="40" required></div>
-                    <div class="col-auto"><label class="visually-hidden" for="tag-color-{{ loop.index }}">Tag color</label><input class="form-control form-control-color" id="tag-color-{{ loop.index }}" type="color" name="color" value="{{ tag.color }}"></div>
-                    <div class="col-auto"><button class="btn btn-sm btn-outline-primary" type="submit">Save</button></div>
-                    <fieldset class="col-12 ps-5">
-                        <legend class="visually-hidden">Available locations for {{ tag.name }}</legend>
-                        <div class="d-flex flex-wrap gap-3">
-                            <div class="form-check"><input class="form-check-input" id="tag-directory-{{ loop.index }}" type="checkbox" name="directory" {% if tag.directory %}checked{% endif %}><label class="form-check-label" for="tag-directory-{{ loop.index }}">Persons</label></div>
-                            <div class="form-check"><input class="form-check-input" id="tag-my-drive-{{ loop.index }}" type="checkbox" name="my_drive" {% if tag.my_drive %}checked{% endif %}><label class="form-check-label" for="tag-my-drive-{{ loop.index }}">My Drive</label></div>
-                            <div class="form-check"><input class="form-check-input" id="tag-shared-drives-{{ loop.index }}" type="checkbox" name="shared_drives" {% if tag.shared_drives %}checked{% endif %}><label class="form-check-label" for="tag-shared-drives-{{ loop.index }}">Shared Drive</label></div>
-                            <div class="form-check"><input class="form-check-input" id="tag-shared-with-me-{{ loop.index }}" type="checkbox" name="shared_with_me" {% if tag.shared_with_me %}checked{% endif %}><label class="form-check-label" for="tag-shared-with-me-{{ loop.index }}">Shared with me</label></div>
-                        </div>
-                    </fieldset>
-                </form>
-                {% endfor %}
-            </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-primary" type="submit"><i class="bi bi-plus-circle me-1"></i>Add Tag</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
+
+{% for tag in tags %}
+<div class="modal fade" id="editTagModal{{ loop.index }}" tabindex="-1"
+     aria-labelledby="editTagModalLabel{{ loop.index }}" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post" action="/tags/update">
+                <input type="hidden" name="slug" value="{{ tag.slug }}">
+                <div class="modal-header">
+                    <h2 class="modal-title fs-5" id="editTagModalLabel{{ loop.index }}"><i class="bi bi-pencil me-2"></i>Edit Tag</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label" for="tag-name-{{ loop.index }}">Name</label>
+                        <input class="form-control" id="tag-name-{{ loop.index }}" name="name" value="{{ tag.name }}" maxlength="40" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="tag-description-{{ loop.index }}">Description</label>
+                        <textarea class="form-control" id="tag-description-{{ loop.index }}" name="description" rows="3" maxlength="500">{{ tag.description }}</textarea>
+                        <div class="form-text">Shown when a user hovers over this tag.</div>
+                    </div>
+                    <div class="mb-3" data-tag-color-editor>
+                        <label class="form-label" for="tag-color-code-{{ loop.index }}">Color</label>
+                        <div class="input-group">
+                            <input class="form-control form-control-color tag-color-picker" type="color" value="{{ tag.color }}" title="Choose tag color" aria-label="Choose tag color">
+                            <input class="form-control font-monospace tag-color-code" id="tag-color-code-{{ loop.index }}" name="color" value="{{ tag.color }}"
+                                   maxlength="7" pattern="#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?" title="Enter #RGB or #RRGGBB" required>
+                        </div>
+                        <div class="form-text">Enter an HTML color such as <code>#159</code> or <code>#115599</code>.</div>
+                    </div>
+                    <fieldset>
+                        <legend class="form-label mb-2">Available in</legend>
+                        <div class="d-flex flex-wrap gap-3">
+                            <div class="form-check"><input class="form-check-input" id="tag-directory-{{ loop.index }}" type="checkbox" name="directory" {% if tag.directory %}checked{% endif %}><label class="form-check-label" for="tag-directory-{{ loop.index }}">Persons</label></div>
+                            <div class="form-check"><input class="form-check-input" id="tag-my-drive-{{ loop.index }}" type="checkbox" name="my_drive" {% if tag.my_drive %}checked{% endif %}><label class="form-check-label" for="tag-my-drive-{{ loop.index }}">My Drive</label></div>
+                            <div class="form-check"><input class="form-check-input" id="tag-shared-drives-{{ loop.index }}" type="checkbox" name="shared_drives" {% if tag.shared_drives %}checked{% endif %}><label class="form-check-label" for="tag-shared-drives-{{ loop.index }}">Shared Drives</label></div>
+                            <div class="form-check"><input class="form-check-input" id="tag-shared-with-me-{{ loop.index }}" type="checkbox" name="shared_with_me" {% if tag.shared_with_me %}checked{% endif %}><label class="form-check-label" for="tag-shared-with-me-{{ loop.index }}">Shared with me</label></div>
+                        </div>
+                    </fieldset>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-danger me-auto" type="submit" formaction="/tags/delete" formnovalidate
+                            onclick="return window.confirm('Delete this tag and remove all of its assignments?');">
+                        <i class="bi bi-trash me-1"></i>Delete Tag
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-primary" type="submit"><i class="bi bi-save me-1"></i>Save Tag</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+<script>
+    (() => {
+        const normalizeColor = (value) => {
+            if (/^#[0-9a-f]{3}$/i.test(value)) {
+                return `#${value.slice(1).split("").map((digit) => digit + digit).join("")}`;
+            }
+            return /^#[0-9a-f]{6}$/i.test(value) ? value : null;
+        };
+
+        document.querySelectorAll("[data-tag-color-editor]").forEach((editor) => {
+            const picker = editor.querySelector(".tag-color-picker");
+            const code = editor.querySelector(".tag-color-code");
+
+            picker.addEventListener("input", () => {
+                code.value = picker.value;
+            });
+            code.addEventListener("input", () => {
+                const normalized = normalizeColor(code.value.trim());
+                if (normalized) picker.value = normalized;
+            });
+        });
+
+        document.querySelectorAll("[data-tag-scope-row]").forEach((row) => {
+            const checkboxes = Array.from(row.querySelectorAll(".tag-scope-checkbox"));
+            const saveButton = row.querySelector(".tag-scope-save");
+            const initialState = checkboxes.map((checkbox) => checkbox.checked).join(",");
+
+            const updateSaveState = () => {
+                const currentState = checkboxes.map((checkbox) => checkbox.checked).join(",");
+                saveButton.disabled = currentState === initialState;
+                checkboxes.forEach((checkbox) => checkbox.setCustomValidity(""));
+            };
+
+            checkboxes.forEach((checkbox) => checkbox.addEventListener("change", updateSaveState));
+
+            const form = document.getElementById(saveButton.getAttribute("form"));
+            form.addEventListener("submit", (event) => {
+                if (checkboxes.some((checkbox) => checkbox.checked)) return;
+                event.preventDefault();
+                checkboxes[0].setCustomValidity("Select at least one tag location.");
+                checkboxes[0].reportValidity();
+            });
+        });
+    })();
+</script>
 
 {% endblock %}

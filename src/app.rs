@@ -441,6 +441,91 @@ impl AppState {
         }
     }
 
+    pub fn start_migration_copy(state: Arc<Self>, migration_id: i64) -> Result<(), String> {
+        let database = state.database()?;
+        let job = database::migration::get(&database, migration_id)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| format!("Unknown migration: {migration_id}"))?;
+        if job.destination_drive_name.is_empty() || job.destination_folder_name.is_empty() {
+            return Err("Validate a migration destination before starting the copy".to_string());
+        }
+        let executable = match state.rclone_state() {
+            RcloneState::Ready(status) => status.path,
+            _ => return Err("Rclone is not ready".to_string()),
+        };
+        let remotes = state.google_remotes_state();
+        if !matches!(remotes.ro, RemoteState::Ready) {
+            return Err("My Drive RO is not ready".to_string());
+        }
+        if !matches!(remotes.rw, RemoteState::Ready) {
+            return Err("Add and authorize My Drive RW before starting a migration".to_string());
+        }
+        database::migration::begin_copy(&database, migration_id)
+            .map_err(|error| error.to_string())?;
+
+        tokio::spawn(async move {
+            let failure_database = database.clone();
+            let result = tokio::task::spawn_blocking(move || -> Result<(), String> {
+                if let Err(error) = rclone::migration::preflight_copy(
+                    &state.runtime,
+                    &executable,
+                    &job.destination_drive_id,
+                    &job.destination_folder_id,
+                    &job.sources,
+                ) {
+                    let message = error.to_string();
+                    let _ = database::migration::fail_preflight(&database, migration_id, &message);
+                    return Err(message);
+                }
+                database::migration::confirm_copy_started(&database, migration_id)
+                    .map_err(|error| error.to_string())?;
+                for source in &job.sources {
+                    database::migration::start_source(&database, migration_id, &source.item_id)
+                        .map_err(|error| error.to_string())?;
+                    if let Err(error) = rclone::migration::copy_source(
+                        &state.runtime,
+                        &executable,
+                        &job.source_kind,
+                        source,
+                        &job.destination_drive_id,
+                        &job.destination_folder_id,
+                    ) {
+                        let message = error.to_string();
+                        let _ = database::migration::fail_copy(
+                            &database,
+                            migration_id,
+                            Some(&source.item_id),
+                            &message,
+                        );
+                        return Err(message);
+                    }
+                    database::migration::complete_source(&database, migration_id, &source.item_id)
+                        .map_err(|error| error.to_string())?;
+                }
+                database::migration::complete_copy(&database, migration_id)
+                    .map_err(|error| error.to_string())
+            })
+            .await;
+            let task_error = match result {
+                Ok(Ok(())) => None,
+                Ok(Err(error)) => Some(error),
+                Err(error) => Some(format!("Migration copy task failed: {error}")),
+            };
+            if let Some(message) = task_error {
+                let preflight_failed = database::migration::get(&failure_database, migration_id)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|job| job.status == "ready" && job.started_at.is_empty());
+                if preflight_failed {
+                    return;
+                }
+                let _ =
+                    database::migration::fail_copy(&failure_database, migration_id, None, &message);
+            }
+        });
+        Ok(())
+    }
+
     pub fn database(&self) -> Result<Database, String> {
         match &self.database {
             DatabaseState::Ready(database) => Ok(database.clone()),
@@ -942,6 +1027,122 @@ impl AppState {
             state.finish_metadata_job();
         });
 
+        Ok(())
+    }
+
+    pub fn start_selected_metadata_update(
+        state: Arc<Self>,
+        inventory_scope: String,
+        item_ids: Vec<String>,
+        drive_ids: Vec<String>,
+    ) -> Result<(), String> {
+        if item_ids.is_empty() && drive_ids.is_empty() {
+            return Err("Select at least one Drive item or Shared Drive".to_string());
+        }
+        {
+            let mut active = state
+                .metadata_job_active
+                .lock()
+                .map_err(|error| format!("Unable to start metadata update: {error}"))?;
+            if *active {
+                return Err("A metadata update is already running".to_string());
+            }
+            *active = true;
+        }
+        let database = state.database().map_err(|error| {
+            state.finish_metadata_job();
+            error
+        })?;
+        let executable = match state.rclone_state() {
+            RcloneState::Ready(status) => status.path,
+            _ => {
+                state.finish_metadata_job();
+                return Err("Rclone is not ready".to_string());
+            }
+        };
+        if !matches!(state.google_remotes_state().ro, RemoteState::Ready) {
+            state.finish_metadata_job();
+            return Err("My Drive RO is not ready".to_string());
+        }
+        let previous_state = state.metadata_state();
+        let selection = MetadataUpdateSelection {
+            my_drive: inventory_scope == database::inventory::MY_DRIVE_SCOPE,
+            shared_drives: !drive_ids.is_empty()
+                || inventory_scope.starts_with(database::inventory::SHARED_DRIVE_SCOPE_PREFIX),
+            shared_with_me: inventory_scope == database::inventory::SHARED_WITH_ME_SCOPE,
+            directory_info: false,
+        };
+        state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+            selection,
+            phase: "Refreshing selected metadata".to_string(),
+            files_scanned: 0,
+            folders_scanned: 0,
+            permissions_scanned: 0,
+            bytes_discovered: 0,
+            errors: 0,
+        }));
+        tokio::spawn(async move {
+            let worker_state = Arc::clone(&state);
+            let result = tokio::task::spawn_blocking(move || -> Result<(), String> {
+                for drive_id in drive_ids {
+                    let scope = database::inventory::shared_drive_scope(&drive_id);
+                    let scan_id = database
+                        .start_scan_run(&format!("partial:{scope}"))
+                        .map_err(|error| error.to_string())?;
+                    let items = rclone::inventory::fetch_shared_drive(
+                        &worker_state.runtime,
+                        &executable,
+                        scan_id,
+                        &drive_id,
+                        true,
+                    )
+                    .map_err(|error| error.to_string())?;
+                    let summary = database::inventory::synchronize_drive(
+                        &database, &scope, scan_id, &items, true,
+                    )
+                    .map_err(|error| error.to_string())?;
+                    database::inventory::record_shared_drive_scan(&database, &drive_id, &summary)
+                        .map_err(|error| error.to_string())?;
+                }
+                for item_id in item_ids {
+                    let item = database::inventory::get_drive_download_item(
+                        &database,
+                        &inventory_scope,
+                        &item_id,
+                    )
+                    .map_err(|error| error.to_string())?
+                    .ok_or_else(|| format!("Unknown selected Drive item: {item_id}"))?;
+                    let scan_id = database
+                        .start_scan_run(&format!("partial:{inventory_scope}"))
+                        .map_err(|error| error.to_string())?;
+                    let items = rclone::inventory::fetch_selected_path(
+                        &worker_state.runtime,
+                        &executable,
+                        &inventory_scope,
+                        &item.relative_path,
+                        item.is_directory,
+                    )
+                    .map_err(|error| error.to_string())?;
+                    database::inventory::refresh_drive_items(
+                        &database,
+                        &inventory_scope,
+                        scan_id,
+                        &items,
+                    )
+                    .map_err(|error| error.to_string())?;
+                }
+                Ok(())
+            })
+            .await;
+            match result {
+                Ok(Ok(())) => state.set_metadata_state(previous_state),
+                Ok(Err(message)) => state.set_metadata_state(MetadataState::Error(message)),
+                Err(error) => state.set_metadata_state(MetadataState::Error(format!(
+                    "Selected metadata update task failed: {error}"
+                ))),
+            }
+            state.finish_metadata_job();
+        });
         Ok(())
     }
 

@@ -120,6 +120,82 @@ pub fn fetch_shared_with_me(
     )
 }
 
+pub fn fetch_selected_path(
+    runtime: &Runtime,
+    executable: &Path,
+    inventory_scope: &str,
+    relative_path: &str,
+    is_directory: bool,
+) -> Result<Vec<DriveItem>, RcloneError> {
+    let config_path = config::path(runtime)?;
+    let remote = if inventory_scope == crate::database::inventory::SHARED_WITH_ME_SCOPE {
+        format!(
+            "{},shared_with_me=true:{}",
+            RemoteKind::MyDriveRo.name(),
+            relative_path.trim_start_matches('/')
+        )
+    } else if let Some(drive_id) =
+        inventory_scope.strip_prefix(crate::database::inventory::SHARED_DRIVE_SCOPE_PREFIX)
+    {
+        format!(
+            "{},team_drive={drive_id}:{}",
+            RemoteKind::MyDriveRo.name(),
+            relative_path.trim_start_matches('/')
+        )
+    } else {
+        format!(
+            "{}:{}",
+            RemoteKind::MyDriveRo.name(),
+            relative_path.trim_start_matches('/')
+        )
+    };
+    let config_string = config_path.to_string_lossy().into_owned();
+    let common = [
+        "--metadata",
+        "--drive-metadata-owner=read",
+        "--drive-metadata-permissions=read",
+        "--config",
+        config_string.as_str(),
+    ];
+    let stat = Command::new(executable)
+        .args(["lsjson", &remote, "--stat"])
+        .args(common)
+        .output()
+        .map_err(|error| format!("Unable to refresh selected Drive item: {error}"))?;
+    if !stat.status.success() {
+        return Err(format!(
+            "Selected Drive item refresh failed: {}",
+            String::from_utf8_lossy(&stat.stderr).trim()
+        )
+        .into());
+    }
+    let mut root: DriveItem = serde_json::from_slice(&stat.stdout)
+        .map_err(|error| format!("Unable to parse selected Drive item: {error}"))?;
+    root.path = relative_path.to_string();
+    let mut items = vec![root];
+    if is_directory {
+        let output = Command::new(executable)
+            .args(["lsjson", &remote, "--recursive"])
+            .args(common)
+            .output()
+            .map_err(|error| format!("Unable to refresh selected Drive folder: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "Selected Drive folder refresh failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )
+            .into());
+        }
+        let mut descendants: Vec<DriveItem> = serde_json::from_slice(&output.stdout)
+            .map_err(|error| format!("Unable to parse selected Drive folder: {error}"))?;
+        for item in &mut descendants {
+            item.path = format!("{relative_path}/{}", item.path.trim_start_matches('/'));
+        }
+        items.extend(descendants);
+    }
+    Ok(items)
+}
+
 fn fetch_drive_with_options(
     runtime: &Runtime,
     executable: &Path,

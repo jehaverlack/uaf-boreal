@@ -23,7 +23,18 @@
 
         {% for alert in alerts %}
 
-        {% if alert.modal_target.len() > 0 %}
+        {% if alert.dismiss_action.len() > 0 %}
+
+        <span class="badge text-bg-{{ alert.level }} d-inline-flex align-items-center gap-1">
+            <a class="text-reset text-decoration-none" href="/settings#bookmark-this-page">
+                <i class="bi {{ alert.icon }} me-1"></i>{{ alert.message }}
+            </a>
+            <button class="btn-close btn-close-white ms-1" type="button"
+                    style="font-size: .55rem" aria-label="Dismiss bookmark reminder"
+                    hx-post="{{ alert.dismiss_action }}" hx-target="#boreal-alerts" hx-swap="outerHTML"></button>
+        </span>
+
+        {% else if alert.modal_target.len() > 0 %}
 
         <button
             type="button"

@@ -130,6 +130,13 @@
             color: #664d03;
         }
 
+        .boreal-tag-filter-pill {
+            --bs-btn-font-size: 0.75rem;
+            --bs-btn-padding-x: 0.5rem;
+            --bs-btn-padding-y: 0.125rem;
+            line-height: 1.25;
+        }
+
         .navbar .boreal-update-nav {
             color: var(--bs-primary) !important;
         }
@@ -158,11 +165,21 @@
         .navbar .boreal-person-nav:focus {
             color: #087990 !important;
         }
+
+        .navbar .boreal-purple-nav,
+        .navbar .boreal-purple-nav.active {
+            color: #6f42c1 !important;
+        }
+
+        .navbar .boreal-purple-nav:hover,
+        .navbar .boreal-purple-nav:focus {
+            color: #59359a !important;
+        }
     </style>
 
 </head>
 
-<body class="d-flex flex-column min-vh-100{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" %} vh-100 overflow-hidden{% endif %}">
+<body class="d-flex flex-column min-vh-100{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" || active_page == "directory" || active_page == "tags" %} vh-100 overflow-hidden{% endif %}">
 
     <nav
         class="navbar navbar-expand-lg bg-body-tertiary border-bottom"
@@ -264,8 +281,14 @@
                     </li>
 
                     <li class="nav-item">
+                        <a class="nav-link boreal-purple-nav{% if active_page == "migrations" %} active{% endif %}"
+                           {% if active_page == "migrations" %}aria-current="page"{% endif %}
+                           href="/migrations" title="Migration plans and history">Migrations</a>
+                    </li>
+
+                    <li class="nav-item">
                         <a
-                            class="nav-link{% if active_page == "remotes" %} active{% endif %}"
+                            class="nav-link boreal-purple-nav{% if active_page == "remotes" %} active{% endif %}"
                             {% if active_page == "remotes" %}aria-current="page"{% endif %}
                             href="/remotes"
                             title="View Remotes"
@@ -295,7 +318,7 @@
                     <li class="nav-item dropdown">
 
                         <a
-                            class="nav-link dropdown-toggle{% if active_page == "about" || active_page == "settings" || active_page == "tags" %} active{% endif %}"
+                            class="nav-link dropdown-toggle{% if active_page == "about" || active_page == "settings" || active_page == "tags" || active_page == "docs" || active_page == "help" %} active{% endif %}"
                             href="#"
                             role="button"
                             data-bs-toggle="dropdown"
@@ -329,6 +352,30 @@
                                 >
                                     <i class="bi bi-gear me-2"></i>
                                     Settings
+                                </a>
+
+                            </li>
+
+                            <li>
+
+                                <a
+                                    class="dropdown-item{% if active_page == "docs" %} active{% endif %}"
+                                    href="/docs"
+                                >
+                                    <i class="bi bi-book me-2"></i>
+                                    Docs
+                                </a>
+
+                            </li>
+
+                            <li>
+
+                                <a
+                                    class="dropdown-item{% if active_page == "help" %} active{% endif %}"
+                                    href="/help"
+                                >
+                                    <i class="bi bi-question-circle me-2"></i>
+                                    Help
                                 </a>
 
                             </li>
@@ -380,7 +427,7 @@
 
     {% include "partials/alerts.html" %}
 
-    <main class="container-fluid py-4 flex-grow-1{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" %} overflow-hidden{% endif %}">
+    <main class="container-fluid py-4 flex-grow-1{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" || active_page == "directory" || active_page == "tags" %} overflow-hidden{% endif %}">
 
         {% block content %}
         {% endblock %}
@@ -463,10 +510,15 @@
 
                 <div class="modal-body">
 
-                    <p class="mb-0">
+                    <p>
                         The BOREAL application is no longer running.
                         Use the button below to close this browser tab.
                     </p>
+
+                    <div class="alert alert-warning mb-0 d-none" id="boreal-close-tab-blocked" role="alert">
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        <span id="boreal-close-tab-blocked-message"></span>
+                    </div>
 
                 </div>
 
@@ -476,7 +528,7 @@
                         class="btn btn-primary"
                         id="boreal-close-tab"
                     >
-                        Close
+                        Close Tab
                     </button>
                 </div>
 
@@ -718,6 +770,12 @@
             const closeTabButton =
                 document.getElementById("boreal-close-tab");
 
+            const closeTabBlocked =
+                document.getElementById("boreal-close-tab-blocked");
+
+            const closeTabBlockedMessage =
+                document.getElementById("boreal-close-tab-blocked-message");
+
             const stoppedModal =
                 new bootstrap.Modal(stoppedModalElement);
 
@@ -726,6 +784,8 @@
 
             if (closeTabButton) {
                 closeTabButton.addEventListener("click", () => {
+                    closeTabBlocked?.classList.add("d-none");
+
                     // Browsers only permit script-opened tabs to close
                     // themselves. Try the standards-based call first while
                     // this user gesture is still active.
@@ -739,8 +799,22 @@
                         // Some browsers do not allow the opener to be changed.
                     }
 
-                    const currentTab = window.open("", "_self");
+                    const currentTab = window.open("", "_self", "");
                     currentTab?.close();
+
+                    // A rejected window.close() does not throw an exception.
+                    // If this callback still runs, tell the user what the
+                    // browser requires instead of leaving a dead button.
+                    window.setTimeout(() => {
+                        const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+                        const shortcut = isMac ? "Command-W (⌘W)" : "Ctrl-W";
+                        if (closeTabBlockedMessage) {
+                            closeTabBlockedMessage.textContent =
+                                `The browser prevented this tab from closing itself. Press ${shortcut} to close it.`;
+                        }
+                        closeTabBlocked?.classList.remove("d-none");
+                        closeTabButton.textContent = "Try Closing Again";
+                    }, 200);
                 });
             }
 

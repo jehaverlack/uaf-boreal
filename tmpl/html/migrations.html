@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div><h1 class="h3 mb-1"><i class="bi bi-arrow-left-right me-2"></i>Migrations</h1><p class="text-body-secondary mb-0">Plan migrations and review their progress, capacity, dates, and history.</p></div>
+</div>
+<div class="alert alert-info py-2"><i class="bi bi-shield-check me-2"></i>BOREAL migration plans never delete source content. My Drive removal is performed manually in Google Drive after verification.</div>
+<form class="card card-body mb-3" method="get" action="/migrations">
+    <div class="row g-2 align-items-center">
+        <div class="col"><div class="input-group"><span class="input-group-text"><i class="bi bi-search"></i></span><input class="form-control" type="search" name="q" value="{{ search }}" placeholder="Search migrations, sources, destinations, status, or dates" aria-label="Search migrations"><button class="btn btn-primary" type="submit">Search</button></div></div>
+        <div class="col-auto"><div class="form-check"><input class="form-check-input" id="includeArchived" type="checkbox" name="archived" value="1" {% if include_archived %}checked{% endif %} onchange="this.form.submit()"><label class="form-check-label" for="includeArchived">Include archived</label></div></div>
+        {% if search.len() > 0 %}<div class="col-auto"><a class="btn btn-outline-secondary" href="/migrations{% if include_archived %}?archived=1{% endif %}">Clear</a></div>{% endif %}
+    </div>
+</form>
+<div class="card"><div class="table-responsive"><table class="table table-hover align-middle mb-0">
+    <thead class="table-light"><tr>{% for header in sort_headers %}<th><a class="link-dark text-decoration-none text-nowrap" href="{{ header.url }}">{{ header.label }}{% if header.active %}<i class="bi bi-caret-{% if header.descending %}down{% else %}up{% endif %}-fill ms-1" aria-hidden="true"></i>{% endif %}</a></th>{% endfor %}<th>Actions</th></tr></thead>
+    <tbody>
+    {% for migration in migrations %}
+    <tr><td><a href="/migrations/{{ migration.id }}" class="fw-semibold">#{{ migration.id }}</a>{% if migration.archived_at.len() > 0 %}<span class="badge text-bg-light ms-1">archived</span>{% endif %}</td><td><div>{{ migration.source_label }}</div>{% for source in migration.sources %}<div class="small text-truncate" style="max-width:18rem"><a href="{{ source.drive_url }}" target="_blank" rel="noopener noreferrer" title="Open {{ source.name }} in Google Drive">{{ source.name }}<i class="bi bi-box-arrow-up-right ms-1" aria-hidden="true"></i></a></div>{% endfor %}</td><td><span class="badge text-bg-{% if migration.status == "ready" %}success{% else if migration.status == "error" %}danger{% else %}secondary{% endif %}">{{ migration.status }}</span><div class="small text-body-secondary">{{ migration.phase }}</div></td><td>{% if migration.destination_url.len() > 0 %}<a href="{{ migration.destination_url }}" target="_blank" rel="noopener noreferrer">{{ migration.destination_label }}</a>{% else %}&mdash;{% endif %}</td><td>{{ migration.files_copied }} / {{ migration.files_total }}</td><td>{{ migration.folders_total }}</td><td>{{ migration.copied_size_label }} / {{ migration.size_label }}</td><td class="text-nowrap">{{ migration.created_at }} UTC</td><td class="text-nowrap">{% if migration.can_cancel %}<form class="d-inline" method="post" action="/migrations/{{ migration.id }}/cancel" onsubmit="return confirm('Cancel migration #{{ migration.id }}? It has not started and no source content will be changed.')"><button class="btn btn-sm btn-outline-danger" type="submit"><i class="bi bi-x-circle me-1"></i>Cancel</button></form>{% endif %}{% if migration.can_archive %}<form class="d-inline" method="post" action="/migrations/{{ migration.id }}/archive"><button class="btn btn-sm btn-outline-secondary" type="submit"><i class="bi bi-archive me-1"></i>Archive</button></form>{% endif %}{% if !migration.can_cancel && !migration.can_archive %}&mdash;{% endif %}</td></tr>
+    {% endfor %}
+    {% if migrations.is_empty() %}<tr><td colspan="9" class="text-center text-body-secondary py-5">No migrations match this view. Select content in My Drive or Shared with Me and click <strong>Migrate</strong> to create a plan.</td></tr>{% endif %}
+    </tbody>
+</table></div></div>
+{% endblock %}

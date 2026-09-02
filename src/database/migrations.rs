@@ -89,6 +89,51 @@ const MIGRATIONS: &[Migration] = &[
         name: "builtin_tag_scopes",
         sql: include_str!("migrations/0016_builtin_tag_scopes.sql"),
     },
+    Migration {
+        version: 17,
+        name: "builtin_tag_descriptions",
+        sql: include_str!("migrations/0017_builtin_tag_descriptions.sql"),
+    },
+    Migration {
+        version: 18,
+        name: "default_tag_workflow",
+        sql: include_str!("migrations/0018_default_tag_workflow.sql"),
+    },
+    Migration {
+        version: 19,
+        name: "remove_my_permissions_tag",
+        sql: include_str!("migrations/0019_remove_my_permissions_tag.sql"),
+    },
+    Migration {
+        version: 20,
+        name: "migration_tracking",
+        sql: include_str!("migrations/0020_migration_tracking.sql"),
+    },
+    Migration {
+        version: 21,
+        name: "migration_lifecycle",
+        sql: include_str!("migrations/0021_migration_lifecycle.sql"),
+    },
+    Migration {
+        version: 22,
+        name: "migration_copy_progress",
+        sql: include_str!("migrations/0022_migration_copy_progress.sql"),
+    },
+    Migration {
+        version: 23,
+        name: "migration_copy_completion",
+        sql: include_str!("migrations/0023_migration_copy_completion.sql"),
+    },
+    Migration {
+        version: 24,
+        name: "remove_canceled_migrations",
+        sql: include_str!("migrations/0024_remove_canceled_migrations.sql"),
+    },
+    Migration {
+        version: 25,
+        name: "migrated_tag",
+        sql: include_str!("migrations/0025_migrated_tag.sql"),
+    },
 ];
 
 pub fn apply(connection: &mut Connection) -> Result<(), DatabaseError> {
