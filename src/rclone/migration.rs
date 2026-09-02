@@ -18,17 +18,28 @@ pub struct SharedDriveDestination {
 /// belongs to one of the account's Shared Drives. This performs only a Shared
 /// Drive listing and one exact Google Drive metadata lookup authenticated by
 /// the Rclone-managed token; it does not build an inventory.
-pub fn validate_shared_drive_destination(
+pub fn validate_destination(
     runtime: &Runtime,
     executable: &Path,
     folder_id: &str,
+    require_shared_drive: bool,
 ) -> Result<SharedDriveDestination, RcloneError> {
+    let folder = identity::fetch_google_drive_folder(runtime, folder_id)?;
+    if folder.drive_id.is_empty() {
+        if require_shared_drive {
+            return Err("My Drive migrations require a Shared Drive destination folder".into());
+        }
+        return Ok(SharedDriveDestination {
+            drive_id: String::new(),
+            drive_name: "My Drive".to_string(),
+            folder_id: folder.id,
+            folder_name: folder.name,
+        });
+    }
     let drives = inventory::discover_shared_drives(runtime, executable)?;
     if drives.is_empty() {
         return Err("The authenticated read-only account cannot access any Shared Drives".into());
     }
-
-    let folder = identity::fetch_google_drive_folder(runtime, folder_id)?;
     let drive = drives
         .into_iter()
         .find(|drive| drive.id == folder.drive_id)
@@ -189,8 +200,15 @@ pub fn copy_source(
 }
 
 fn destination_remote(drive_id: &str, folder_id: &str) -> String {
-    format!(
-        "{},team_drive={drive_id},root_folder_id={folder_id}:",
-        RemoteKind::MyDriveRw.name()
-    )
+    if drive_id.is_empty() {
+        format!(
+            "{},root_folder_id={folder_id}:",
+            RemoteKind::MyDriveRw.name()
+        )
+    } else {
+        format!(
+            "{},team_drive={drive_id},root_folder_id={folder_id}:",
+            RemoteKind::MyDriveRw.name()
+        )
+    }
 }

@@ -219,6 +219,7 @@ pub struct MigrationView {
     pub can_archive: bool,
     pub can_start: bool,
     pub running: bool,
+    pub allows_my_drive_destination: bool,
     pub sources: Vec<database::migration::MigrationSource>,
 }
 
@@ -1923,6 +1924,11 @@ async fn save_migration_destination(
 ) -> Result<axum::response::Response, StatusCode> {
     let result = async {
         let folder_id = google_drive_folder_id(&form.destination_url)?;
+        let database = state.database().map_err(|error| error.to_string())?;
+        let job = database::migration::get(&database, migration_id)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| format!("Unknown migration: {migration_id}"))?;
+        let require_shared_drive = job.source_kind == "my-drive";
         let executable = match state.rclone_state() {
             RcloneState::Ready(status) => status.path,
             RcloneState::Initializing => {
@@ -1935,17 +1941,17 @@ async fn save_migration_destination(
         let probe_state = Arc::clone(&state);
         let probe_folder_id = folder_id.clone();
         let destination = tokio::task::spawn_blocking(move || {
-            rclone::migration::validate_shared_drive_destination(
+            rclone::migration::validate_destination(
                 &probe_state.runtime,
                 &executable,
                 &probe_folder_id,
+                require_shared_drive,
             )
         })
         .await
         .map_err(|error| format!("Destination validation task failed: {error}"))?
         .map_err(|error| error.to_string())?;
 
-        let database = state.database().map_err(|error| error.to_string())?;
         let local_destination = database::migration::resolve_destination(&database, &folder_id)
             .map_err(|error| error.to_string())?;
         let (drive_name, folder_name) = match local_destination {
@@ -2032,6 +2038,7 @@ fn migration_view(job: database::migration::MigrationJob) -> MigrationView {
         !matches!(job.status.as_str(), "preflight" | "running") && job.archived_at.is_empty();
     let can_start = job.status == "ready" && job.started_at.is_empty();
     let running = matches!(job.status.as_str(), "preflight" | "running");
+    let allows_my_drive_destination = job.source_kind == "shared-with-me";
     MigrationView {
         id: job.id,
         source_label: if job.source_kind == "my-drive" {
@@ -2068,6 +2075,7 @@ fn migration_view(job: database::migration::MigrationJob) -> MigrationView {
         can_archive,
         can_start,
         running,
+        allows_my_drive_destination,
         sources: job.sources,
     }
 }

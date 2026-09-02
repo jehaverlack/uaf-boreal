@@ -83,9 +83,7 @@ pub fn fetch_google_drive_folder_for_remote(
     Ok(GoogleDriveFolder {
         id: value_string("id").ok_or("Google Drive did not return the destination folder ID")?,
         name: value_string("name").ok_or("Google Drive did not return the destination name")?,
-        drive_id: value_string("driveId").ok_or(
-            "The destination is not in a Shared Drive. Select a Shared Drive or one of its folders.",
-        )?,
+        drive_id: value_string("driveId").unwrap_or_default(),
         can_add_children: value
             .get("capabilities")
             .and_then(|capabilities| capabilities.get("canAddChildren"))
