@@ -11,6 +11,30 @@
 
 ## v0.1.4 - 2026-09-01 (RC1)
 
+**Summary**
+Release Candidate
+
+**Notes**
+Added Migration Assitant and Polished Interfaces
+
+- v0.1.4
+- Migrated tag
+- Partial Metadata Updates
+- Indexing on Migration
+- Migration Source links
+- Migration Source links
+- Shared with me to My Drives
+- Menu Cleanup
+- Migraion view updates
+- Migration View Changes
+- Migration Assstant
+- Migration Assistant
+- Adding rw Remote
+- Adding Migration edits and search
+- WIP: Migration Assistant
+- Default Tag Updates
+- Adding Docs and Help
+- Bookmarks Alert
 - Tag Filter Clean up for Explorers
 - Clean up of MyDrive Explorer
 - Added XLS Exporter
@@ -187,6 +211,24 @@
 **Summary**
 Project Initialization
 
+- v0.1.4
+- Migrated tag
+- Partial Metadata Updates
+- Indexing on Migration
+- Migration Source links
+- Migration Source links
+- Shared with me to My Drives
+- Menu Cleanup
+- Migraion view updates
+- Migration View Changes
+- Migration Assstant
+- Migration Assistant
+- Adding rw Remote
+- Adding Migration edits and search
+- WIP: Migration Assistant
+- Default Tag Updates
+- Adding Docs and Help
+- Bookmarks Alert
 - Tag Filter Clean up for Explorers
 - Clean up of MyDrive Explorer
 - Added XLS Exporter
