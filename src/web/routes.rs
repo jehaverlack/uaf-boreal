@@ -757,6 +757,8 @@ struct DownloadForm {
     inventory_scope: String,
     #[serde(default)]
     drive: String,
+    #[serde(default)]
+    shared_drive_root: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -3744,13 +3746,33 @@ async fn start_download(
     let database = state
         .database()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let item = database::inventory::get_drive_download_item(
-        &database,
-        &form.inventory_scope,
-        &form.item_id,
-    )
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
+    let item = if form.shared_drive_root {
+        let drive_id = shared_drive_id.as_deref().ok_or(StatusCode::BAD_REQUEST)?;
+        let drive = database::inventory::get_shared_drive(&database, drive_id)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
+        if !drive.is_accessible {
+            return render_download_message(
+                "error",
+                "This Shared Drive is not currently accessible to the Rclone account.".to_string(),
+                false,
+            );
+        }
+        database::inventory::DriveDownloadItem {
+            name: drive.name,
+            relative_path: String::new(),
+            is_directory: true,
+            is_deleted: false,
+        }
+    } else {
+        database::inventory::get_drive_download_item(
+            &database,
+            &form.inventory_scope,
+            &form.item_id,
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?
+    };
     if item.is_deleted {
         return render_download_message(
             "error",
@@ -3776,7 +3798,11 @@ async fn start_download(
     log::info!(
         "Download started: scope={}, item_id={}, item_name={}, destination={}",
         form.inventory_scope,
-        form.item_id,
+        if form.shared_drive_root {
+            "<drive-root>"
+        } else {
+            &form.item_id
+        },
         item.name,
         destination_label,
     );
