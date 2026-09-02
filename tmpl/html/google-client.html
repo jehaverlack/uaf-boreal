@@ -61,6 +61,7 @@
 
                 <section class="google-client-step" data-google-client-step="2" hidden>
                     <h2 class="h5">3. Configure Google Auth Platform</h2>
+                    <p>Complete the initial Google Auth Platform setup for the selected project.</p>
                     <ol>
                         <li>If prompted, click <strong>Get Started</strong>.</li>
                         <li>Set the app name to <strong>BOREAL</strong> and select a user support email.</li>
@@ -68,25 +69,33 @@
                         <li>Enter a contact email, accept the Google API Services User Data Policy, and create the configuration.</li>
                         <li>For an External app in testing, add every account that will use BOREAL under <strong>Audience</strong>.</li>
                     </ol>
-                    <figure class="mb-3">
-                        <img class="img-fluid border rounded" src="/assets/google-cloud-create-client.png"
-                             width="538" height="295"
-                             alt="Example Google Auth Platform Clients page with the Create client action">
-                        <figcaption class="small text-body-secondary mt-1">After Auth Platform setup, open <strong>Clients</strong>.</figcaption>
-                    </figure>
-                    <a class="btn btn-outline-primary" href="https://console.cloud.google.com/auth/clients"
+                    <p>When the configuration is complete, return here and click <strong>Next</strong>. You will create the OAuth client in Step 4.</p>
+                    <a class="btn btn-outline-primary" href="https://console.cloud.google.com/auth/overview"
                        target="_blank" rel="noopener noreferrer">
-                        <i class="bi bi-box-arrow-up-right me-1"></i>Open Google Auth Platform
+                        <i class="bi bi-box-arrow-up-right me-1"></i>Open Auth Platform Overview
                     </a>
                 </section>
 
                 <section class="google-client-step" data-google-client-step="3" hidden>
                     <h2 class="h5">4. Create and download the OAuth client</h2>
+                    <p>Open the <strong>Clients</strong> page for the same Google Cloud project.</p>
+                    <div class="mb-3">
+                        <a class="btn btn-outline-primary" href="https://console.cloud.google.com/auth/clients"
+                           target="_blank" rel="noopener noreferrer">
+                            <i class="bi bi-box-arrow-up-right me-1"></i>Open OAuth Clients
+                        </a>
+                    </div>
+                    <figure class="mb-3">
+                        <img class="img-fluid border rounded" src="/assets/google-cloud-create-client.png"
+                             width="538" height="295"
+                             alt="Google Auth Platform Clients page showing the plus Create client action">
+                        <figcaption class="small text-body-secondary mt-1">On the <strong>Clients</strong> page, click <strong>+ Create client</strong>.</figcaption>
+                    </figure>
                     <ol>
-                        <li>Open <strong>Clients</strong> and click <strong>Create client</strong>.</li>
+                        <li>Click <strong>+ Create client</strong>.</li>
                         <li>Set <strong>Application type</strong> to <strong>Desktop app</strong>.</li>
                         <li>Set <strong>Name</strong> to <strong>BOREAL</strong> and click <strong>Create</strong>.</li>
-                        <li>Click <strong>Download JSON</strong> and save the credentials file.</li>
+                        <li>In the confirmation dialog, click <strong>Download JSON</strong> and save the credentials file.</li>
                     </ol>
                     <div class="alert alert-danger">
                         <i class="bi bi-exclamation-octagon-fill me-1"></i>
@@ -99,10 +108,6 @@
                         <figcaption class="small text-body-secondary mt-1">Credentials are redacted in this example. Download your original JSON file.</figcaption>
                     </figure>
                     <div class="d-flex flex-wrap gap-2">
-                        <a class="btn btn-outline-primary" href="https://console.cloud.google.com/auth/clients"
-                           target="_blank" rel="noopener noreferrer">
-                            <i class="bi bi-box-arrow-up-right me-1"></i>Open OAuth Clients
-                        </a>
                         <button class="btn btn-primary" type="button" data-bs-toggle="modal"
                                 data-bs-target="#googleClientSetupModal">
                             <i class="bi bi-upload me-1"></i>Upload Downloaded JSON

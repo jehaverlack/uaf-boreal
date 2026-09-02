@@ -9,10 +9,9 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <p>Select the JSON credentials file for a Google OAuth <strong>Desktop app</strong>.</p>
                 <form id="google-client-import-form" method="post"
                       action="/setup/google-client/import" enctype="multipart/form-data">
-                    <label for="googleClientCredentials" class="form-label">Google OAuth credentials JSON</label>
+                    <label for="googleClientCredentials" class="form-label"><strong>Select:</strong> Google OAuth credentials JSON</label>
                     <input class="form-control" type="file" id="googleClientCredentials"
                            name="credentials" accept=".json,application/json" required>
                     <div class="alert alert-secondary mt-3 mb-0">
@@ -21,9 +20,9 @@
                         <code>google-client.json</code>.
                     </div>
                 </form>
-                <p class="small text-body-secondary mt-3 mb-0">
-                    Don’t have a Desktop app credentials file?
-                    <a href="/google-client">Follow the Google Client ID creation wizard</a>.
+                <p class="mt-3 mb-0">
+                    Don’t have a Client ID JSON file?
+                    <a href="/google-client" class="fw-semibold">Create a Google Client ID</a>.
                 </p>
             </div>
             <div class="modal-footer">
