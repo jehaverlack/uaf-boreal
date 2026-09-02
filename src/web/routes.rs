@@ -5170,19 +5170,9 @@ fn rclone_gui_url(rclone_state: &RcloneState) -> String {
 fn build_alerts(
     rclone_state: &RcloneState,
     google_client_state: &GoogleClientState,
-    show_bookmark_reminder: bool,
+    _show_bookmark_reminder: bool,
 ) -> Vec<AlertItem> {
     let mut alerts = Vec::new();
-
-    if show_bookmark_reminder {
-        alerts.push(AlertItem {
-            level: "primary",
-            icon: "bi-bookmark-star",
-            message: "Bookmark this page so you can reopen BOREAL while it is running".to_string(),
-            modal_target: "",
-            dismiss_action: "/settings/bookmark-reminder/dismiss",
-        });
-    }
 
     match rclone_state {
         RcloneState::Initializing => {
