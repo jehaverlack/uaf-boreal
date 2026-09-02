@@ -7,10 +7,26 @@
 | **License** | MIT |
 | **Version** | 1.0.1 |
 | **Maturity** | STABLE |
-| **Date** | 2026-09-01 |
+| **Date** | 2026-09-02 |
 
-## v1.0.1 - 2026-09-01 (STABLE)
+## v1.0.1 - 2026-09-02 (STABLE)
 
+- v1.0.1
+- v1.0.1
+- Cleaning up Modals
+- Planning service feature
+- Cleaning up App Menu
+- Simplify Setup
+- Task Bar Menu Cleanup
+- Removed Bookmark Alerts
+- Exit messgae
+- Added Taskbar Widget
+- Fixing Quit
+- GDrive and Rclone Menu Icons
+- Adding Download As Migration
+- Adding Download As Migration
+- Checking Update Order
+- Starting v1.0.1
 - Start v1.0.1
 
 ## v1.0.0 - 2026-09-01 (STABLE)
@@ -237,5 +253,21 @@ Added Migration Assitant and Polished Interfaces
 **Summary**
 Project Initialization
 
+- v1.0.1
+- v1.0.1
+- Cleaning up Modals
+- Planning service feature
+- Cleaning up App Menu
+- Simplify Setup
+- Task Bar Menu Cleanup
+- Removed Bookmark Alerts
+- Exit messgae
+- Added Taskbar Widget
+- Fixing Quit
+- GDrive and Rclone Menu Icons
+- Adding Download As Migration
+- Adding Download As Migration
+- Checking Update Order
+- Starting v1.0.1
 - Start v1.0.1
 
