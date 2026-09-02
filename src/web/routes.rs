@@ -213,7 +213,18 @@ pub struct MigrationView {
     pub started_at: String,
     pub completed_at: String,
     pub error_message: String,
+    pub archived_at: String,
+    pub can_cancel: bool,
+    pub can_archive: bool,
     pub sources: Vec<database::migration::MigrationSource>,
+}
+
+#[allow(dead_code)]
+pub struct MigrationSortHeader {
+    pub label: &'static str,
+    pub url: String,
+    pub active: bool,
+    pub descending: bool,
 }
 
 #[allow(dead_code)]
@@ -226,6 +237,9 @@ struct MigrationsTemplate {
     status_items: Vec<StatusItem>,
     poll_rclone: bool,
     migrations: Vec<MigrationView>,
+    search: String,
+    include_archived: bool,
+    sort_headers: Vec<MigrationSortHeader>,
 }
 
 #[allow(dead_code)]
@@ -810,6 +824,18 @@ struct MigrationDestinationForm {
     destination_url: String,
 }
 
+#[derive(Default, serde::Deserialize)]
+struct MigrationListQuery {
+    #[serde(default)]
+    q: String,
+    #[serde(default)]
+    archived: Option<String>,
+    #[serde(default)]
+    sort: String,
+    #[serde(default)]
+    dir: String,
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(index))
@@ -861,6 +887,11 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/migrations", get(migrations_page))
         .route("/migrations/new", post(create_migration))
         .route("/migrations/{migration_id}", get(migration_wizard))
+        .route("/migrations/{migration_id}/cancel", post(cancel_migration))
+        .route(
+            "/migrations/{migration_id}/archive",
+            post(archive_migration),
+        )
         .route(
             "/migrations/{migration_id}/destination",
             post(save_migration_destination),
@@ -1700,15 +1731,53 @@ async fn help_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, S
     })
 }
 
-async fn migrations_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
+async fn migrations_page(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<MigrationListQuery>,
+) -> Result<Html<String>, StatusCode> {
     let database = state
         .database()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let migrations = database::migration::list(&database)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .into_iter()
-        .map(migration_view)
-        .collect();
+    let sort = match query.sort.as_str() {
+        "id" | "source" | "status" | "destination" | "files" | "folders" | "capacity"
+        | "created" | "completed" => query.sort.as_str(),
+        _ => "created",
+    };
+    let descending = if query.dir.is_empty() {
+        true
+    } else {
+        query.dir == "desc"
+    };
+    let include_archived = query.archived.is_some();
+    let migrations =
+        database::migration::list(&database, &query.q, include_archived, sort, descending)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .into_iter()
+            .map(migration_view)
+            .collect();
+    let sort_headers = [
+        ("ID", "id"),
+        ("Source", "source"),
+        ("Status / Phase", "status"),
+        ("Destination", "destination"),
+        ("Files", "files"),
+        ("Folders", "folders"),
+        ("Capacity", "capacity"),
+        ("Created", "created"),
+        ("Completed", "completed"),
+    ]
+    .into_iter()
+    .map(|(label, column)| {
+        let active = sort == column;
+        let next_descending = if active { !descending } else { false };
+        MigrationSortHeader {
+            label,
+            url: migration_list_url(&query.q, include_archived, column, next_descending),
+            active,
+            descending,
+        }
+    })
+    .collect();
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
@@ -1732,7 +1801,64 @@ async fn migrations_page(State(state): State<Arc<AppState>>) -> Result<Html<Stri
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
         migrations,
+        search: query.q,
+        include_archived,
+        sort_headers,
     })
+}
+
+async fn cancel_migration(
+    State(state): State<Arc<AppState>>,
+    Path(migration_id): Path<i64>,
+) -> Result<Redirect, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::migration::cancel(&database, migration_id).map_err(|error| {
+        log::warn!("Unable to cancel migration {migration_id}: {error}");
+        StatusCode::CONFLICT
+    })?;
+    Ok(Redirect::to("/migrations"))
+}
+
+async fn archive_migration(
+    State(state): State<Arc<AppState>>,
+    Path(migration_id): Path<i64>,
+) -> Result<Redirect, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::migration::archive(&database, migration_id).map_err(|error| {
+        log::warn!("Unable to archive migration {migration_id}: {error}");
+        StatusCode::CONFLICT
+    })?;
+    Ok(Redirect::to("/migrations"))
+}
+
+fn migration_list_url(
+    search: &str,
+    include_archived: bool,
+    sort: &str,
+    descending: bool,
+) -> String {
+    format!(
+        "/migrations?q={}&sort={sort}&dir={}{}",
+        url_encode_component(search),
+        if descending { "desc" } else { "asc" },
+        if include_archived { "&archived=1" } else { "" },
+    )
+}
+
+fn url_encode_component(value: &str) -> String {
+    value
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                (byte as char).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
 }
 
 async fn create_migration(
@@ -1868,6 +1994,8 @@ fn render_migration_wizard(
 }
 
 fn migration_view(job: database::migration::MigrationJob) -> MigrationView {
+    let can_cancel = job.started_at.is_empty() && matches!(job.status.as_str(), "draft" | "ready");
+    let can_archive = job.status == "completed" && job.archived_at.is_empty();
     MigrationView {
         id: job.id,
         source_label: if job.source_kind == "my-drive" {
@@ -1898,6 +2026,9 @@ fn migration_view(job: database::migration::MigrationJob) -> MigrationView {
         started_at: job.started_at,
         completed_at: job.completed_at,
         error_message: job.error_message,
+        archived_at: job.archived_at,
+        can_cancel,
+        can_archive,
         sources: job.sources,
     }
 }

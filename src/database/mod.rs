@@ -187,7 +187,7 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 20,);
+        assert_eq!(migration_count, 21,);
 
         let safe_to_delete_scope_count: i64 = connection
             .query_row(
@@ -1145,6 +1145,47 @@ mod tests {
         assert_eq!(retained_tags, 2);
 
         drop(connection);
+        fs::remove_dir_all(root).expect("temporary database directory should be removable");
+    }
+
+    #[test]
+    fn enforces_migration_cancel_and_archive_lifecycle() {
+        let root = temporary_directory();
+        let database = Database::initialize(&runtime(&root)).expect("database should initialize");
+        let connection = database.connect().expect("database should connect");
+        connection
+            .execute(
+                "INSERT INTO migration_jobs (source_scope, source_kind) VALUES ('my-drive', 'my-drive')",
+                [],
+            )
+            .expect("draft migration should insert");
+        let draft_id = connection.last_insert_rowid();
+        connection
+            .execute(
+                "INSERT INTO migration_jobs
+                 (source_scope, source_kind, status, phase, started_at, completed_at)
+                 VALUES ('my-drive', 'my-drive', 'completed', 'Complete', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                [],
+            )
+            .expect("completed migration should insert");
+        let completed_id = connection.last_insert_rowid();
+        drop(connection);
+
+        migration::cancel(&database, draft_id).expect("unstarted migration should cancel");
+        assert!(migration::cancel(&database, completed_id).is_err());
+        migration::archive(&database, completed_id).expect("completed migration should archive");
+        assert!(migration::archive(&database, draft_id).is_err());
+
+        let active = migration::list(&database, "", false, "created", true)
+            .expect("active migrations should list");
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].status, "canceled");
+        let archived = migration::list(&database, "complete", true, "status", false)
+            .expect("archived migrations should be searchable");
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].id, completed_id);
+        assert!(!archived[0].archived_at.is_empty());
+
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
 }

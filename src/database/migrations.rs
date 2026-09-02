@@ -109,6 +109,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "migration_tracking",
         sql: include_str!("migrations/0020_migration_tracking.sql"),
     },
+    Migration {
+        version: 21,
+        name: "migration_lifecycle",
+        sql: include_str!("migrations/0021_migration_lifecycle.sql"),
+    },
 ];
 
 pub fn apply(connection: &mut Connection) -> Result<(), DatabaseError> {

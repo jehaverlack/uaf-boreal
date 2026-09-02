@@ -20,6 +20,7 @@ pub struct MigrationJob {
     pub created_at: String,
     pub started_at: String,
     pub completed_at: String,
+    pub archived_at: String,
     pub error_message: String,
     pub sources: Vec<MigrationSource>,
 }
@@ -100,17 +101,50 @@ pub fn create(
     Ok(migration_id)
 }
 
-pub fn list(database: &Database) -> Result<Vec<MigrationJob>, DatabaseError> {
+pub fn list(
+    database: &Database,
+    search: &str,
+    include_archived: bool,
+    sort: &str,
+    descending: bool,
+) -> Result<Vec<MigrationJob>, DatabaseError> {
     let connection = database.connect()?;
-    let mut statement = connection.prepare(
-        "SELECT id, source_kind, status, phase, destination_url, destination_drive_name,
+    let order_column = match sort {
+        "id" => "mj.id",
+        "source" => "mj.source_kind",
+        "status" => "mj.status",
+        "destination" => "mj.destination_drive_name COLLATE NOCASE",
+        "files" => "mj.files_total",
+        "folders" => "mj.folders_total",
+        "capacity" => "mj.bytes_total",
+        "completed" => "mj.completed_at",
+        _ => "mj.created_at",
+    };
+    let direction = if descending { "DESC" } else { "ASC" };
+    let sql = format!(
+        "SELECT mj.id, mj.source_kind, mj.status, mj.phase, mj.destination_url, mj.destination_drive_name,
                 destination_folder_name, files_total, folders_total, bytes_total,
                 files_copied, bytes_copied, exceptions_count, created_at,
-                COALESCE(started_at, ''), COALESCE(completed_at, ''), error_message
-         FROM migration_jobs ORDER BY created_at DESC, id DESC",
-    )?;
+                COALESCE(started_at, ''), COALESCE(completed_at, ''), error_message,
+                COALESCE(archived_at, '')
+         FROM migration_jobs mj
+         WHERE (?1 OR mj.archived_at IS NULL)
+           AND (?2 = '' OR CAST(mj.id AS TEXT) LIKE ?3 OR mj.source_kind LIKE ?3
+                OR mj.status LIKE ?3 OR mj.phase LIKE ?3
+                OR mj.destination_drive_name LIKE ?3 OR mj.destination_folder_name LIKE ?3
+                OR mj.created_at LIKE ?3 OR COALESCE(mj.completed_at, '') LIKE ?3
+                OR EXISTS (SELECT 1 FROM migration_sources ms
+                           WHERE ms.migration_id = mj.id
+                             AND (ms.name LIKE ?3 OR ms.relative_path LIKE ?3)))
+         ORDER BY {order_column} {direction}, mj.id {direction}"
+    );
+    let mut statement = connection.prepare(&sql)?;
+    let pattern = format!("%{}%", search.trim());
     let jobs = statement
-        .query_map([], job_from_row)?
+        .query_map(
+            params![include_archived, search.trim(), pattern],
+            job_from_row,
+        )?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(jobs)
 }
@@ -123,6 +157,7 @@ pub fn get(database: &Database, id: i64) -> Result<Option<MigrationJob>, Databas
                     destination_folder_name, files_total, folders_total, bytes_total,
                     files_copied, bytes_copied, exceptions_count, created_at,
                     COALESCE(started_at, ''), COALESCE(completed_at, ''), error_message
+                    , COALESCE(archived_at, '')
              FROM migration_jobs WHERE id = ?1",
             [id],
             job_from_row,
@@ -150,6 +185,33 @@ pub fn get(database: &Database, id: i64) -> Result<Option<MigrationJob>, Databas
     Ok(job)
 }
 
+pub fn cancel(database: &Database, id: i64) -> Result<(), DatabaseError> {
+    let connection = database.connect()?;
+    let changed = connection.execute(
+        "UPDATE migration_jobs
+         SET status = 'canceled', phase = 'Canceled before copy', updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?1 AND started_at IS NULL AND status IN ('draft', 'ready')",
+        [id],
+    )?;
+    if changed == 0 {
+        return Err("Only migrations that have not started can be canceled".into());
+    }
+    Ok(())
+}
+
+pub fn archive(database: &Database, id: i64) -> Result<(), DatabaseError> {
+    let connection = database.connect()?;
+    let changed = connection.execute(
+        "UPDATE migration_jobs SET archived_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?1 AND status = 'completed' AND archived_at IS NULL",
+        [id],
+    )?;
+    if changed == 0 {
+        return Err("Only completed, unarchived migrations can be archived".into());
+    }
+    Ok(())
+}
+
 pub fn set_destination(
     database: &Database,
     id: i64,
@@ -164,7 +226,8 @@ pub fn set_destination(
         "UPDATE migration_jobs SET destination_url = ?2, destination_drive_id = ?3,
             destination_drive_name = ?4, destination_folder_id = ?5,
             destination_folder_name = ?6, status = 'ready', phase = 'Ready for copy authorization',
-            updated_at = CURRENT_TIMESTAMP, error_message = '' WHERE id = ?1",
+            updated_at = CURRENT_TIMESTAMP, error_message = ''
+         WHERE id = ?1 AND started_at IS NULL AND status IN ('draft', 'ready')",
         params![id, url, drive_id, drive_name, folder_id, folder_name],
     )?;
     if changed == 0 {
@@ -211,6 +274,7 @@ fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MigrationJob> {
         started_at: row.get(14)?,
         completed_at: row.get(15)?,
         error_message: row.get(16)?,
+        archived_at: row.get(17)?,
         sources: Vec::new(),
     })
 }
