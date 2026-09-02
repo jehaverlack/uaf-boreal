@@ -1,4 +1,8 @@
-use std::sync::{Arc, OnceLock};
+use std::{
+    path::{Path as FsPath, PathBuf},
+    process::Command,
+    sync::{Arc, OnceLock},
+};
 
 use askama::Template;
 
@@ -228,6 +232,7 @@ pub struct MigrationView {
     pub operation_label: String,
     pub destination_kind: String,
     pub destination_path: String,
+    pub can_open_local: bool,
     pub status: String,
     pub phase: String,
     pub destination_url: String,
@@ -988,6 +993,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/migrations/{migration_id}/local-destination",
             post(save_local_migration_destination),
+        )
+        .route(
+            "/migrations/{migration_id}/open-local",
+            post(open_local_migration_destination),
         )
         .route(
             "/migrations/{migration_id}/start",
@@ -2268,6 +2277,101 @@ async fn save_local_migration_destination(
     Ok(Redirect::to(&format!("/migrations/{migration_id}")).into_response())
 }
 
+async fn open_local_migration_destination(
+    State(state): State<Arc<AppState>>,
+    Path(migration_id): Path<i64>,
+) -> Result<axum::response::Response, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let migration = database::migration::get(&database, migration_id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if migration.destination_kind != "local" || migration.destination_path.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let path = FsPath::new(&migration.destination_path);
+    if !path.is_dir() {
+        return render_migration_wizard(
+            &state,
+            migration_id,
+            format!(
+                "The local destination folder no longer exists: {}",
+                migration.destination_path
+            ),
+        )
+        .map(IntoResponse::into_response);
+    }
+    let open_path = PathBuf::from(path);
+    let open_result = tokio::task::spawn_blocking(move || open_folder_in_os(&open_path))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if let Err(error) = open_result {
+        log::warn!(
+            "Unable to open local migration destination: migration_id={migration_id}, path={}, error={error}",
+            migration.destination_path,
+        );
+        return render_migration_wizard(&state, migration_id, error)
+            .map(IntoResponse::into_response);
+    }
+    log::info!(
+        "Opened local migration destination: migration_id={migration_id}, path={}",
+        migration.destination_path,
+    );
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+fn open_folder_in_os(path: &FsPath) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    let result = Command::new("explorer").arg(path).status();
+    #[cfg(target_os = "macos")]
+    let result = Command::new("open").arg(path).status();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = Command::new("xdg-open").arg(path).status();
+    #[cfg(not(any(target_os = "windows", target_os = "macos", unix)))]
+    let result: std::io::Result<std::process::ExitStatus> = Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "No supported file explorer command is available",
+    ));
+
+    match result {
+        Ok(status) if status.success() => Ok(()),
+        result => {
+            let command_error = match result {
+                Ok(status) => format!("file explorer exited with {status}"),
+                Err(error) => error.to_string(),
+            };
+            let file_url = local_file_url(path)?;
+            webbrowser::open(&file_url).map_err(|browser_error| {
+                format!(
+                    "Unable to open the folder in the OS file explorer ({command_error}) or as a file URL ({browser_error})."
+                )
+            })
+        }
+    }
+}
+
+fn local_file_url(path: &FsPath) -> Result<String, String> {
+    let canonical = path
+        .canonicalize()
+        .map_err(|error| format!("Unable to resolve the local destination: {error}"))?;
+    let normalized = canonical.to_string_lossy().replace('\\', "/");
+    let encoded = normalized
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b':' | b'-' | b'.' | b'_' | b'~' => {
+                (byte as char).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect::<String>();
+    Ok(if encoded.starts_with('/') {
+        format!("file://{encoded}")
+    } else {
+        format!("file:///{encoded}")
+    })
+}
+
 async fn start_migration_copy(
     State(state): State<Arc<AppState>>,
     Path(migration_id): Path<i64>,
@@ -2365,6 +2469,9 @@ fn migration_view(job: database::migration::MigrationJob) -> MigrationView {
         },
         destination_kind: job.destination_kind.clone(),
         destination_path: job.destination_path.clone(),
+        can_open_local: job.destination_kind == "local"
+            && !job.destination_path.is_empty()
+            && FsPath::new(&job.destination_path).is_dir(),
         status: job.status,
         phase: job.phase,
         destination_url: job.destination_url,
