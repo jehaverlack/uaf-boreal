@@ -15,6 +15,7 @@ use crate::{
     app::{
         AppState, DownloadState, GoogleClientState, GoogleRemotesState, MetadataState, RcloneState,
     },
+    config,
     database::{
         self,
         settings::{self, InventorySettings},
@@ -65,6 +66,7 @@ pub struct AlertItem {
     pub icon: &'static str,
     pub message: String,
     pub modal_target: &'static str,
+    pub dismiss_action: &'static str,
 }
 
 #[allow(dead_code)]
@@ -156,6 +158,8 @@ struct SettingsTemplate {
     error: String,
     notice: String,
     directory_source: database::directory::LinkedSheetStatus,
+    boreal_url: String,
+    bookmark_reminder_dismissed: bool,
 }
 
 #[allow(dead_code)]
@@ -809,6 +813,14 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/tags/update", post(update_tag))
         .route("/tags/delete", post(delete_tag))
         .route("/settings", get(settings_page).post(save_settings))
+        .route(
+            "/settings/bookmark-reminder/dismiss",
+            post(dismiss_bookmark_reminder),
+        )
+        .route(
+            "/settings/bookmark-reminder/show",
+            post(show_bookmark_reminder),
+        )
         .route("/settings/directory/test", post(test_directory_sheet))
         .route("/status", get(status))
         .route("/rclone-gui", get(open_rclone_gui))
@@ -908,7 +920,11 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
     let google_remotes_state = state.google_remotes_state();
     let metadata_state = state.metadata_state();
 
-    let alerts = build_alerts(&rclone_state, &google_client_state);
+    let alerts = build_alerts(
+        &rclone_state,
+        &google_client_state,
+        bookmark_reminder_visible(&state),
+    );
 
     let status_items = build_status_items(
         &state.download_state(),
@@ -1337,6 +1353,28 @@ async fn save_settings(
     }
 }
 
+async fn dismiss_bookmark_reminder(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    settings::set_bookmark_reminder_dismissed(&database, true)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    ui_alerts(State(state)).await
+}
+
+async fn show_bookmark_reminder(
+    State(state): State<Arc<AppState>>,
+) -> Result<Redirect, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    settings::set_bookmark_reminder_dismissed(&database, false)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Redirect::to("/settings?saved=true#bookmark-this-page"))
+}
+
 async fn test_directory_sheet(
     State(state): State<Arc<AppState>>,
     Form(form): Form<SettingsForm>,
@@ -1435,7 +1473,11 @@ fn render_settings(
     let template = SettingsTemplate {
         title: "Settings - BOREAL",
         active_page: "settings",
-        alerts: build_alerts(&rclone_state, &google_client_state),
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(state),
+        ),
         status_items: build_status_items(
             &state.download_state(),
             &rclone_state,
@@ -1451,9 +1493,33 @@ fn render_settings(
         error,
         notice,
         directory_source,
+        boreal_url: boreal_web_url(state),
+        bookmark_reminder_dismissed: !bookmark_reminder_visible(state),
     };
 
     render_template(&template)
+}
+
+fn bookmark_reminder_visible(state: &AppState) -> bool {
+    state
+        .database()
+        .ok()
+        .and_then(|database| settings::bookmark_reminder_dismissed(&database).ok())
+        .map(|dismissed| !dismissed)
+        .unwrap_or(true)
+}
+
+fn boreal_web_url(state: &AppState) -> String {
+    config::get_webapp_config(&state.runtime.boreal)
+        .map(|webapp| {
+            let host = if webapp.listen == "::1" {
+                "[::1]".to_string()
+            } else {
+                webapp.listen
+            };
+            format!("http://{host}:{}", webapp.port)
+        })
+        .unwrap_or_else(|_| "http://127.0.0.1:8765".to_string())
 }
 
 async fn about(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
@@ -1463,7 +1529,11 @@ async fn about(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
     let google_remotes_state = state.google_remotes_state();
     let metadata_state = state.metadata_state();
 
-    let alerts = build_alerts(&rclone_state, &google_client_state);
+    let alerts = build_alerts(
+        &rclone_state,
+        &google_client_state,
+        bookmark_reminder_visible(&state),
+    );
 
     let status_items = build_status_items(
         &state.download_state(),
@@ -1545,7 +1615,11 @@ async fn remotes_page(State(state): State<Arc<AppState>>) -> Result<Html<String>
     let template = RemotesTemplate {
         title: "Remotes - BOREAL",
         active_page: "remotes",
-        alerts: build_alerts(&rclone_state, &google_client_state),
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
         status_items: build_status_items(
             &state.download_state(),
             &rclone_state,
@@ -2097,7 +2171,11 @@ async fn shared_drives_page(
         return render_template(&SharedDrivesTemplate {
             title: "Shared Drives - BOREAL",
             active_page: "shared-drives",
-            alerts: build_alerts(&rclone_state, &google_client_state),
+            alerts: build_alerts(
+                &rclone_state,
+                &google_client_state,
+                bookmark_reminder_visible(&state),
+            ),
             status_items: build_status_items(
                 &state.download_state(),
                 &rclone_state,
@@ -2373,7 +2451,11 @@ fn render_drive_explorer(
     let template = MyDriveTemplate {
         title: heading.to_string(),
         active_page,
-        alerts: build_alerts(&rclone_state, &google_client_state),
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(state),
+        ),
         status_items: build_status_items(
             &state.download_state(),
             &rclone_state,
@@ -3027,7 +3109,11 @@ async fn tags_page(
     render_template(&TagsTemplate {
         title: "Tags - BOREAL",
         active_page: "tags",
-        alerts: build_alerts(&rclone_state, &google_client_state),
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
         status_items: build_status_items(
             &state.download_state(),
             &rclone_state,
@@ -3088,7 +3174,11 @@ async fn directory_page(
     render_template(&DirectoryTemplate {
         title: "Persons - BOREAL",
         active_page: "directory",
-        alerts: build_alerts(&rclone_state, &google_client_state),
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
         status_items: build_status_items(
             &state.download_state(),
             &rclone_state,
@@ -3368,7 +3458,11 @@ fn render_principal_editor(
             "Edit Person - BOREAL".to_string()
         },
         active_page: "directory",
-        alerts: build_alerts(&rclone_state, &google_client_state),
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
         status_items: build_status_items(
             &state.download_state(),
             &rclone_state,
@@ -3478,7 +3572,11 @@ async fn principal_page(
     render_template(&PrincipalTemplate {
         title: format!("{} - Persons - BOREAL", principal.display_name),
         active_page: "directory",
-        alerts: build_alerts(&rclone_state, &google_client_state),
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
         status_items: build_status_items(
             &state.download_state(),
             &rclone_state,
@@ -3610,7 +3708,11 @@ async fn ui_alerts(State(state): State<Arc<AppState>>) -> Result<Html<String>, S
     let google_client_state = state.google_client_state();
 
     let template = AlertsTemplate {
-        alerts: build_alerts(&rclone_state, &google_client_state),
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
 
         poll_rclone: should_poll_rclone(&rclone_state),
     };
@@ -4122,8 +4224,19 @@ fn rclone_gui_url(rclone_state: &RcloneState) -> String {
 fn build_alerts(
     rclone_state: &RcloneState,
     google_client_state: &GoogleClientState,
+    show_bookmark_reminder: bool,
 ) -> Vec<AlertItem> {
     let mut alerts = Vec::new();
+
+    if show_bookmark_reminder {
+        alerts.push(AlertItem {
+            level: "primary",
+            icon: "bi-bookmark-star",
+            message: "Bookmark this page so you can reopen BOREAL while it is running".to_string(),
+            modal_target: "",
+            dismiss_action: "/settings/bookmark-reminder/dismiss",
+        });
+    }
 
     match rclone_state {
         RcloneState::Initializing => {
@@ -4132,6 +4245,7 @@ fn build_alerts(
                 icon: "bi-hourglass-split",
                 message: "BOREAL is initializing Rclone...".to_string(),
                 modal_target: "",
+                dismiss_action: "",
             });
         }
 
@@ -4143,6 +4257,7 @@ fn build_alerts(
                 icon: "bi-exclamation-triangle",
                 message: format!("Rclone initialization failed: {error}"),
                 modal_target: "",
+                dismiss_action: "",
             });
         }
     }
@@ -4154,6 +4269,7 @@ fn build_alerts(
                 icon: "bi-key",
                 message: "Google Client ID is not configured".to_string(),
                 modal_target: "googleClientSetupModal",
+                dismiss_action: "",
             });
         }
 
@@ -4165,6 +4281,7 @@ fn build_alerts(
                 icon: "bi-key",
                 message: format!("Google Client ID configuration is invalid: {error}"),
                 modal_target: "googleClientSetupModal",
+                dismiss_action: "",
             });
         }
     }

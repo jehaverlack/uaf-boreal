@@ -165,6 +165,26 @@ pub fn set_metadata_setup_skipped(database: &Database, skipped: bool) -> Result<
     Ok(())
 }
 
+pub fn bookmark_reminder_dismissed(database: &Database) -> Result<bool, DatabaseError> {
+    let connection = database.connect()?;
+    get_bool(&connection, "ui.bookmark_reminder_dismissed", false)
+}
+
+pub fn set_bookmark_reminder_dismissed(
+    database: &Database,
+    dismissed: bool,
+) -> Result<(), DatabaseError> {
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    set(
+        &transaction,
+        "ui.bookmark_reminder_dismissed",
+        bool_value(dismissed),
+    )?;
+    transaction.commit()?;
+    Ok(())
+}
+
 fn get_bool(
     connection: &rusqlite::Connection,
     key: &str,

@@ -35,6 +35,25 @@
         </div>
         {% endif %}
 
+        <div class="card mb-3" id="bookmark-this-page">
+            <div class="card-header fw-semibold"><i class="bi bi-bookmark-star me-1"></i>Bookmark this page</div>
+            <div class="card-body">
+                <p class="mb-2">Bookmark BOREAL so you can reopen the WebUI if this browser tab is closed while BOREAL is still running.</p>
+                <div class="input-group mb-2">
+                    <input class="form-control font-monospace" id="borealWebUrl" value="{{ boreal_url }}" readonly aria-label="BOREAL WebUI address">
+                    <a class="btn btn-outline-primary" href="{{ boreal_url }}"><i class="bi bi-box-arrow-up-right me-1"></i>Open</a>
+                </div>
+                <p class="small text-body-secondary mb-3">Press <kbd>Ctrl</kbd>+<kbd>D</kbd> on Windows or Linux, or <kbd>Command</kbd>+<kbd>D</kbd> on macOS.</p>
+                {% if bookmark_reminder_dismissed %}
+                <form method="post" action="/settings/bookmark-reminder/show">
+                    <button class="btn btn-sm btn-outline-secondary" type="submit"><i class="bi bi-bell me-1"></i>Show bookmark reminder again</button>
+                </form>
+                {% else %}
+                <p class="small text-success mb-0"><i class="bi bi-bell-fill me-1"></i>The bookmark reminder is currently shown in the Alerts bar.</p>
+                {% endif %}
+            </div>
+        </div>
+
         <form method="post" action="/settings">
 
             <div class="card mb-3">

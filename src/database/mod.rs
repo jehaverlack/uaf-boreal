@@ -334,6 +334,16 @@ mod tests {
             settings::metadata_setup_skipped(&database)
                 .expect("metadata setup state should reload")
         );
+        assert!(
+            !settings::bookmark_reminder_dismissed(&database)
+                .expect("bookmark reminder state should default to visible")
+        );
+        settings::set_bookmark_reminder_dismissed(&database, true)
+            .expect("bookmark reminder state should save");
+        assert!(
+            settings::bookmark_reminder_dismissed(&database)
+                .expect("bookmark reminder state should reload")
+        );
 
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
