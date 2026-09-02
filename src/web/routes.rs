@@ -226,6 +226,17 @@ struct HelpTemplate {
 }
 
 #[allow(dead_code)]
+#[derive(Template)]
+#[template(path = "google-client.html", config = "askama.toml")]
+struct GoogleClientTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+}
+
+#[allow(dead_code)]
 pub struct MigrationView {
     pub id: i64,
     pub source_label: String,
@@ -1039,6 +1050,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/tags/update", post(update_tag))
         .route("/tags/delete", post(delete_tag))
         .route("/settings", get(settings_page).post(save_settings))
+        .route("/google-client", get(google_client_page))
         .route(
             "/settings/bookmark-reminder/dismiss",
             post(dismiss_bookmark_reminder),
@@ -1282,11 +1294,9 @@ fn build_setup_progress(
     let google_step = match google_client_state {
         GoogleClientState::NotConfigured => SetupStep {
             icon: "bi-key",
-            title: "Configure Google Client ID",
-            description:
-                "Enable the Google Drive API, create a Desktop OAuth client, and import its JSON file."
-                    .to_string(),
-            state_label: "Set up",
+            title: "Upload Google Client ID",
+            description: "Upload a Google OAuth Desktop app credentials JSON file.".to_string(),
+            state_label: "Upload JSON",
             state_class: "text-bg-warning",
             complete: false,
             modal_target: "googleClientSetupModal",
@@ -1295,11 +1305,9 @@ fn build_setup_progress(
             detail: String::new(),
         },
 
-        GoogleClientState::Ready(
-            _,
-        ) => SetupStep {
+        GoogleClientState::Ready(_) => SetupStep {
             icon: "bi-check-circle-fill",
-            title: "Configure Google Client ID",
+            title: "Upload Google Client ID",
             description:
                 "Google Desktop OAuth credentials are stored in BOREAL's private conf directory."
                     .to_string(),
@@ -1312,15 +1320,11 @@ fn build_setup_progress(
             detail: String::new(),
         },
 
-        GoogleClientState::Error(
-            error,
-        ) => SetupStep {
+        GoogleClientState::Error(error) => SetupStep {
             icon: "bi-exclamation-triangle-fill",
-            title: "Configure Google Client ID",
-            description: format!(
-                "The saved credentials are invalid: {error}"
-            ),
-            state_label: "Fix setup",
+            title: "Upload Google Client ID",
+            description: format!("The saved credentials are invalid: {error}"),
+            state_label: "Upload JSON",
             state_class: "text-bg-danger",
             complete: false,
             modal_target: "googleClientSetupModal",
@@ -1916,6 +1920,35 @@ async fn help_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, S
     render_template(&HelpTemplate {
         title: "BOREAL Help",
         active_page: "help",
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
+        status_items: build_status_items(
+            &state.download_state(),
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(&state),
+            &state.update_state(),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+    })
+}
+
+async fn google_client_page(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    render_template(&GoogleClientTemplate {
+        title: "Create Google Client ID - BOREAL",
+        active_page: "google-client",
         alerts: build_alerts(
             &rclone_state,
             &google_client_state,

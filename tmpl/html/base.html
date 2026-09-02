@@ -344,7 +344,7 @@
                     <li class="nav-item dropdown">
 
                         <a
-                            class="nav-link dropdown-toggle{% if active_page == "about" || active_page == "settings" || active_page == "tags" || active_page == "docs" || active_page == "help" || active_page == "update" %} active{% endif %}"
+                            class="nav-link dropdown-toggle{% if active_page == "about" || active_page == "settings" || active_page == "tags" || active_page == "docs" || active_page == "help" || active_page == "update" || active_page == "google-client" %} active{% endif %}"
                             href="#"
                             role="button"
                             data-bs-toggle="dropdown"
@@ -357,6 +357,18 @@
                         <ul
                             class="dropdown-menu dropdown-menu-end"
                         >
+
+                            <li>
+
+                                <a
+                                    class="dropdown-item{% if active_page == "google-client" %} active{% endif %}"
+                                    href="/google-client"
+                                >
+                                    <i class="bi bi-key me-2"></i>
+                                    Create Google Client ID
+                                </a>
+
+                            </li>
 
                             <li>
 

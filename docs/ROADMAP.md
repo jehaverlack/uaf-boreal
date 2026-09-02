@@ -9,6 +9,7 @@
 - [x] Executable Icon
 - [ ] App Installer
 - [x] Streamline Client ID Setup
+- [x] Separate Google Client ID creation wizard from JSON upload
 - [ ] Set up as a user service
 - [ ] install binary to .boreal/bin
 - [x] Migration Wizard
