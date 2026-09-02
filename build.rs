@@ -27,7 +27,7 @@ fn add_windows_resources() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Encode the BOREAL folder/link mark as a 32-bit ICO/DIB image.
+/// Encode the Bootstrap-style BOREAL mark as a 32-bit ICO/DIB image.
 fn windows_icon() -> io::Result<Vec<u8>> {
     const SIZE: u32 = 32;
     let rgba = boreal_icon_rgba(SIZE);
@@ -75,46 +75,30 @@ fn windows_icon() -> io::Result<Vec<u8>> {
 
 fn boreal_icon_rgba(size: u32) -> Vec<u8> {
     let mut pixels = vec![0_u8; (size * size * 4) as usize];
-    let scale = size as f32 / 32.0;
-    let inside = |x: u32, y: u32, left: f32, top: f32, right: f32, bottom: f32| {
-        (x as f32) >= left * scale
-            && (x as f32) < right * scale
-            && (y as f32) >= top * scale
-            && (y as f32) < bottom * scale
-    };
     let set = |pixels: &mut [u8], x: u32, y: u32, color: [u8; 4]| {
         let offset = ((y * size + x) * 4) as usize;
         pixels[offset..offset + 4].copy_from_slice(&color);
     };
     for y in 0..size {
         for x in 0..size {
-            if inside(x, y, 3.0, 8.0, 29.0, 26.0) || inside(x, y, 5.0, 5.0, 15.0, 11.0) {
-                set(&mut pixels, x, y, [13, 110, 253, 255]);
+            let px = (x as f32 + 0.5) * 32.0 / size as f32;
+            let py = (y as f32 + 0.5) * 32.0 / size as f32;
+            let dx = (7.0 - px).max(0.0).max(px - 25.0);
+            let dy = (7.0 - py).max(0.0).max(py - 25.0);
+            if dx * dx + dy * dy <= 25.0 {
+                set(&mut pixels, x, y, [0, 132, 193, 255]);
+                let stem = (9.5..13.0).contains(&px) && (7.0..25.0).contains(&py);
+                let upper_outer = ((px - 15.0) / 7.0).powi(2) + ((py - 11.5) / 5.0).powi(2) <= 1.0;
+                let upper_inner = ((px - 14.5) / 3.0).powi(2) + ((py - 11.5) / 2.1).powi(2) <= 1.0;
+                let lower_outer = ((px - 15.0) / 7.5).powi(2) + ((py - 20.0) / 5.5).powi(2) <= 1.0;
+                let lower_inner = ((px - 14.5) / 3.2).powi(2) + ((py - 20.0) / 2.4).powi(2) <= 1.0;
+                if stem
+                    || (px >= 11.0 && upper_outer && !upper_inner)
+                    || (px >= 11.0 && lower_outer && !lower_inner)
+                {
+                    set(&mut pixels, x, y, [255, 255, 255, 255]);
+                }
             }
-            if inside(x, y, 5.0, 11.0, 27.0, 24.0) {
-                set(&mut pixels, x, y, [25, 135, 250, 255]);
-            }
-        }
-    }
-    for step in 0..12_u32 {
-        let x = ((9.0 + step as f32) * scale) as u32;
-        let y = ((21.0 - step as f32 * 0.65) * scale) as u32;
-        let thickness = scale.max(1.0) as u32;
-        for offset in 0..thickness {
-            if x < size && y + offset < size {
-                set(&mut pixels, x, y + offset, [255, 255, 255, 255]);
-            }
-        }
-    }
-    for step in 0..6_u32 {
-        let x = ((18.0 + step as f32) * scale) as u32;
-        let upper = ((13.0 + step as f32) * scale) as u32;
-        let lower = ((13.0 + (5 - step) as f32) * scale) as u32;
-        if x < size && upper < size {
-            set(&mut pixels, x, upper, [255, 255, 255, 255]);
-        }
-        if x < size && lower < size {
-            set(&mut pixels, x, lower, [255, 255, 255, 255]);
         }
     }
     pixels

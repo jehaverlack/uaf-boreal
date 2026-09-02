@@ -14,7 +14,6 @@ use std::{
 
 use crate::app::AppState;
 
-const GOOGLE_DRIVE_URL: &str = "https://drive.google.com/drive/quota";
 const DEFAULT_WEB_URL: &str = "http://127.0.0.1:8765";
 
 static APP_STATE: OnceLock<Mutex<Weak<AppState>>> = OnceLock::new();
@@ -56,14 +55,6 @@ fn open_boreal() {
     open_url(&web_url(), "the BOREAL WebUI");
 }
 
-fn open_google_drive() {
-    open_url(GOOGLE_DRIVE_URL, "Google Drive");
-}
-
-fn open_rclone() {
-    open_url(&format!("{}/rclone-gui", web_url()), "the Rclone WebGUI");
-}
-
 fn request_quit() {
     QUIT_REQUESTED.store(true, Ordering::Release);
     let state = APP_STATE
@@ -76,7 +67,7 @@ fn request_quit() {
     }
 }
 
-/// A compact BOREAL folder/link mark rendered directly into the executable.
+/// A compact Bootstrap-style BOREAL mark rendered directly into the executable.
 /// This avoids platform-specific icon files for the live tray icon.
 fn boreal_icon_rgba(size: u32) -> Vec<u8> {
     let mut pixels = vec![0_u8; (size * size * 4) as usize];
@@ -84,49 +75,42 @@ fn boreal_icon_rgba(size: u32) -> Vec<u8> {
         let offset = ((y * size + x) * 4) as usize;
         pixels[offset..offset + 4].copy_from_slice(&color);
     };
-    let scale = size as f32 / 32.0;
-    let inside = |x: u32, y: u32, left: f32, top: f32, right: f32, bottom: f32| {
-        (x as f32) >= left * scale
-            && (x as f32) < right * scale
-            && (y as f32) >= top * scale
-            && (y as f32) < bottom * scale
-    };
-
     for y in 0..size {
         for x in 0..size {
-            if inside(x, y, 3.0, 8.0, 29.0, 26.0) || inside(x, y, 5.0, 5.0, 15.0, 11.0) {
-                set(&mut pixels, x, y, [13, 110, 253, 255]);
+            let px = (x as f32 + 0.5) * 32.0 / size as f32;
+            let py = (y as f32 + 0.5) * 32.0 / size as f32;
+            let dx = (7.0 - px).max(0.0).max(px - 25.0);
+            let dy = (7.0 - py).max(0.0).max(py - 25.0);
+            if dx * dx + dy * dy <= 25.0 {
+                set(&mut pixels, x, y, [0, 132, 193, 255]);
+                let stem = (9.5..13.0).contains(&px) && (7.0..25.0).contains(&py);
+                let upper_outer = ((px - 15.0) / 7.0).powi(2) + ((py - 11.5) / 5.0).powi(2) <= 1.0;
+                let upper_inner = ((px - 14.5) / 3.0).powi(2) + ((py - 11.5) / 2.1).powi(2) <= 1.0;
+                let lower_outer = ((px - 15.0) / 7.5).powi(2) + ((py - 20.0) / 5.5).powi(2) <= 1.0;
+                let lower_inner = ((px - 14.5) / 3.2).powi(2) + ((py - 20.0) / 2.4).powi(2) <= 1.0;
+                if stem
+                    || (px >= 11.0 && upper_outer && !upper_inner)
+                    || (px >= 11.0 && lower_outer && !lower_inner)
+                {
+                    set(&mut pixels, x, y, [255, 255, 255, 255]);
+                }
             }
-            if inside(x, y, 5.0, 11.0, 27.0, 24.0) {
-                set(&mut pixels, x, y, [25, 135, 250, 255]);
-            }
-        }
-    }
-
-    // White linked-arrow mark inside the folder.
-    for step in 0..12_u32 {
-        let x = ((9.0 + step as f32) * scale) as u32;
-        let y = ((21.0 - step as f32 * 0.65) * scale) as u32;
-        let thickness = scale.max(1.0) as u32;
-        for offset in 0..thickness {
-            if x < size && y + offset < size {
-                set(&mut pixels, x, y + offset, [255, 255, 255, 255]);
-            }
-        }
-    }
-    for step in 0..6_u32 {
-        let x = ((18.0 + step as f32) * scale) as u32;
-        let upper = ((13.0 + step as f32) * scale) as u32;
-        let lower = ((13.0 + (5 - step) as f32) * scale) as u32;
-        if x < size && upper < size {
-            set(&mut pixels, x, upper, [255, 255, 255, 255]);
-        }
-        if x < size && lower < size {
-            set(&mut pixels, x, lower, [255, 255, 255, 255]);
         }
     }
     pixels
 }
+
+#[cfg(all(unix, not(target_os = "macos")))]
+const BOREAL_MENU_ICON_PNG: &[u8] = &[
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x10, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0xf3, 0xff,
+    0x61, 0x00, 0x00, 0x00, 0x3d, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0x60, 0xa0, 0x1a, 0x68,
+    0x39, 0xf8, 0x9f, 0x24, 0x4c, 0x91, 0x66, 0x0c, 0x43, 0xd0, 0x24, 0xd0, 0x01, 0xc5, 0x06, 0xe0,
+    0x34, 0x08, 0x9f, 0x01, 0xd8, 0x0c, 0x24, 0xcb, 0x00, 0xb2, 0x5d, 0x40, 0x54, 0x38, 0x0c, 0x8d,
+    0x30, 0x20, 0xdb, 0x00, 0x8a, 0xbc, 0x40, 0x30, 0xf4, 0x89, 0x31, 0x80, 0xf6, 0xf9, 0x81, 0x5a,
+    0x00, 0x00, 0x78, 0x58, 0xfc, 0xf8, 0x63, 0x1e, 0x6d, 0xf9, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+    0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+];
 
 #[cfg(test)]
 mod tests {
@@ -186,22 +170,8 @@ impl ksni::Tray for BorealTray {
         vec![
             StandardItem {
                 label: "Open BOREAL".to_string(),
-                icon_name: "web-browser".to_string(),
+                icon_data: BOREAL_MENU_ICON_PNG.to_vec(),
                 activate: Box::new(|_| open_boreal()),
-                ..Default::default()
-            }
-            .into(),
-            StandardItem {
-                label: "Open Google Drive".to_string(),
-                icon_name: "folder-remote".to_string(),
-                activate: Box::new(|_| open_google_drive()),
-                ..Default::default()
-            }
-            .into(),
-            StandardItem {
-                label: "Open Rclone".to_string(),
-                icon_name: "folder-sync".to_string(),
-                activate: Box::new(|_| open_rclone()),
                 ..Default::default()
             }
             .into(),
@@ -258,7 +228,9 @@ mod native {
     };
     use tray_icon::{
         Icon, TrayIconBuilder, TrayIconEvent,
-        menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
+        menu::{
+            Icon as MenuIcon, IconMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem,
+        },
     };
 
     enum DesktopEvent {
@@ -273,29 +245,19 @@ mod native {
 
     struct MenuIds {
         open: MenuId,
-        drive: MenuId,
-        rclone: MenuId,
         quit: MenuId,
     }
 
     fn create_tray() -> Result<(tray_icon::TrayIcon, MenuIds), String> {
         let menu = Menu::new();
-        let open = MenuItem::new("Open BOREAL", true, None);
-        let drive = MenuItem::new("Open Google Drive", true, None);
-        let rclone = MenuItem::new("Open Rclone", true, None);
+        let open_icon =
+            MenuIcon::from_rgba(boreal_icon_rgba(16), 16, 16).map_err(|error| error.to_string())?;
+        let open = IconMenuItem::new("Open BOREAL", true, Some(open_icon), None);
         let quit = MenuItem::new("Quit BOREAL", true, None);
-        menu.append_items(&[
-            &open,
-            &drive,
-            &rclone,
-            &PredefinedMenuItem::separator(),
-            &quit,
-        ])
-        .map_err(|error| error.to_string())?;
+        menu.append_items(&[&open, &PredefinedMenuItem::separator(), &quit])
+            .map_err(|error| error.to_string())?;
         let ids = MenuIds {
             open: open.id().clone(),
-            drive: drive.id().clone(),
-            rclone: rclone.id().clone(),
             quit: quit.id().clone(),
         };
         let icon =
@@ -312,10 +274,6 @@ mod native {
     fn handle_menu(event: MenuEvent, ids: &MenuIds) {
         if event.id == ids.open {
             open_boreal();
-        } else if event.id == ids.drive {
-            open_google_drive();
-        } else if event.id == ids.rclone {
-            open_rclone();
         } else if event.id == ids.quit {
             request_quit();
         }
