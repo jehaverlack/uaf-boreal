@@ -4774,50 +4774,46 @@ fn metadata_scope_progress_views(
     };
     let my_drive = match phase {
         "Fetching My Drive metadata" => (true, false, 40, phase.to_string()),
-        "Saving My Drive metadata" => (true, false, 85, phase.to_string()),
-        "Saving Shared with me metadata" => (false, true, 100, "Complete".to_string()),
+        "Indexing My Drive metadata" => (true, false, 85, phase.to_string()),
         "Connecting" | "Downloading directory spreadsheet" | "Importing directory spreadsheet" => {
             (false, false, 0, "Waiting".to_string())
         }
-        _ => (false, false, 65, "Downloaded; waiting to index".to_string()),
+        _ => (false, true, 100, "Complete".to_string()),
     };
-    let shared_drives =
-        if phase == "Discovering Shared Drives" || phase.starts_with("Scanning Shared Drive ") {
-            (true, false, shared_drive_percent, phase.to_string())
-        } else if matches!(
-            phase,
-            "Fetching Shared with me metadata"
-                | "Saving My Drive metadata"
-                | "Saving Shared with me metadata"
-        ) {
-            (false, true, 100, "Complete".to_string())
-        } else {
-            (false, false, 0, "Waiting".to_string())
-        };
+    let shared_drives = if phase == "Discovering Shared Drives"
+        || phase.starts_with("Fetching Shared Drive managers ")
+        || phase.starts_with("Scanning Shared Drive ")
+    {
+        (true, false, shared_drive_percent, phase.to_string())
+    } else {
+        (false, false, 0, "Waiting".to_string())
+    };
     let shared_with_me = match phase {
         "Fetching Shared with me metadata" => (true, false, 45, phase.to_string()),
-        "Saving My Drive metadata" => {
-            (false, false, 65, "Downloaded; waiting to index".to_string())
-        }
-        "Saving Shared with me metadata" => (true, false, 85, phase.to_string()),
-        _ => (false, false, 0, "Waiting".to_string()),
+        "Indexing Shared with me metadata" => (true, false, 85, phase.to_string()),
+        "Connecting"
+        | "Downloading directory spreadsheet"
+        | "Importing directory spreadsheet"
+        | "Fetching My Drive metadata"
+        | "Indexing My Drive metadata" => (false, false, 0, "Waiting".to_string()),
+        _ => (false, true, 100, "Complete".to_string()),
     };
 
     [
+        ("Persons", selection.directory_info, "", directory),
         ("My Drive", selection.my_drive, "my-drive", my_drive),
-        (
-            "Shared Drives",
-            selection.shared_drives,
-            "shared-drives",
-            shared_drives,
-        ),
         (
             "Shared with me",
             selection.shared_with_me,
             "shared-with-me",
             shared_with_me,
         ),
-        ("Persons", selection.directory_info, "", directory),
+        (
+            "Shared Drives",
+            selection.shared_drives,
+            "shared-drives",
+            shared_drives,
+        ),
     ]
     .into_iter()
     .map(
