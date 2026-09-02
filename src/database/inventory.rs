@@ -1251,6 +1251,33 @@ pub fn synchronize_drive(
     items: &[DriveItem],
     include_permissions: bool,
 ) -> Result<InventorySummary, DatabaseError> {
+    synchronize_drive_inner(
+        database,
+        inventory_scope,
+        scan_id,
+        items,
+        include_permissions,
+        true,
+    )
+}
+
+pub fn refresh_drive_items(
+    database: &Database,
+    inventory_scope: &str,
+    scan_id: i64,
+    items: &[DriveItem],
+) -> Result<InventorySummary, DatabaseError> {
+    synchronize_drive_inner(database, inventory_scope, scan_id, items, true, false)
+}
+
+fn synchronize_drive_inner(
+    database: &Database,
+    inventory_scope: &str,
+    scan_id: i64,
+    items: &[DriveItem],
+    include_permissions: bool,
+    authoritative: bool,
+) -> Result<InventorySummary, DatabaseError> {
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
     let remote = inventory_scope;
@@ -1373,15 +1400,17 @@ pub fn synchronize_drive(
             params![remote, folder_path, size as i64],
         )?;
     }
-    summary.deleted_items = transaction.execute(
-        "UPDATE drive_items
-         SET is_deleted = 1,
-             deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP)
-         WHERE remote_name = ?1
-           AND last_seen_scan_id <> ?2
-           AND is_deleted = 0",
-        params![remote, scan_id],
-    )? as u64;
+    if authoritative {
+        summary.deleted_items = transaction.execute(
+            "UPDATE drive_items
+             SET is_deleted = 1,
+                 deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP)
+             WHERE remote_name = ?1
+               AND last_seen_scan_id <> ?2
+               AND is_deleted = 0",
+            params![remote, scan_id],
+        )? as u64;
+    }
 
     transaction.execute(
         "UPDATE scan_runs SET

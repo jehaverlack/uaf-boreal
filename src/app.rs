@@ -1030,6 +1030,122 @@ impl AppState {
         Ok(())
     }
 
+    pub fn start_selected_metadata_update(
+        state: Arc<Self>,
+        inventory_scope: String,
+        item_ids: Vec<String>,
+        drive_ids: Vec<String>,
+    ) -> Result<(), String> {
+        if item_ids.is_empty() && drive_ids.is_empty() {
+            return Err("Select at least one Drive item or Shared Drive".to_string());
+        }
+        {
+            let mut active = state
+                .metadata_job_active
+                .lock()
+                .map_err(|error| format!("Unable to start metadata update: {error}"))?;
+            if *active {
+                return Err("A metadata update is already running".to_string());
+            }
+            *active = true;
+        }
+        let database = state.database().map_err(|error| {
+            state.finish_metadata_job();
+            error
+        })?;
+        let executable = match state.rclone_state() {
+            RcloneState::Ready(status) => status.path,
+            _ => {
+                state.finish_metadata_job();
+                return Err("Rclone is not ready".to_string());
+            }
+        };
+        if !matches!(state.google_remotes_state().ro, RemoteState::Ready) {
+            state.finish_metadata_job();
+            return Err("My Drive RO is not ready".to_string());
+        }
+        let previous_state = state.metadata_state();
+        let selection = MetadataUpdateSelection {
+            my_drive: inventory_scope == database::inventory::MY_DRIVE_SCOPE,
+            shared_drives: !drive_ids.is_empty()
+                || inventory_scope.starts_with(database::inventory::SHARED_DRIVE_SCOPE_PREFIX),
+            shared_with_me: inventory_scope == database::inventory::SHARED_WITH_ME_SCOPE,
+            directory_info: false,
+        };
+        state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+            selection,
+            phase: "Refreshing selected metadata".to_string(),
+            files_scanned: 0,
+            folders_scanned: 0,
+            permissions_scanned: 0,
+            bytes_discovered: 0,
+            errors: 0,
+        }));
+        tokio::spawn(async move {
+            let worker_state = Arc::clone(&state);
+            let result = tokio::task::spawn_blocking(move || -> Result<(), String> {
+                for drive_id in drive_ids {
+                    let scope = database::inventory::shared_drive_scope(&drive_id);
+                    let scan_id = database
+                        .start_scan_run(&format!("partial:{scope}"))
+                        .map_err(|error| error.to_string())?;
+                    let items = rclone::inventory::fetch_shared_drive(
+                        &worker_state.runtime,
+                        &executable,
+                        scan_id,
+                        &drive_id,
+                        true,
+                    )
+                    .map_err(|error| error.to_string())?;
+                    let summary = database::inventory::synchronize_drive(
+                        &database, &scope, scan_id, &items, true,
+                    )
+                    .map_err(|error| error.to_string())?;
+                    database::inventory::record_shared_drive_scan(&database, &drive_id, &summary)
+                        .map_err(|error| error.to_string())?;
+                }
+                for item_id in item_ids {
+                    let item = database::inventory::get_drive_download_item(
+                        &database,
+                        &inventory_scope,
+                        &item_id,
+                    )
+                    .map_err(|error| error.to_string())?
+                    .ok_or_else(|| format!("Unknown selected Drive item: {item_id}"))?;
+                    let scan_id = database
+                        .start_scan_run(&format!("partial:{inventory_scope}"))
+                        .map_err(|error| error.to_string())?;
+                    let items = rclone::inventory::fetch_selected_path(
+                        &worker_state.runtime,
+                        &executable,
+                        &inventory_scope,
+                        &item.relative_path,
+                        item.is_directory,
+                    )
+                    .map_err(|error| error.to_string())?;
+                    database::inventory::refresh_drive_items(
+                        &database,
+                        &inventory_scope,
+                        scan_id,
+                        &items,
+                    )
+                    .map_err(|error| error.to_string())?;
+                }
+                Ok(())
+            })
+            .await;
+            match result {
+                Ok(Ok(())) => state.set_metadata_state(previous_state),
+                Ok(Err(message)) => state.set_metadata_state(MetadataState::Error(message)),
+                Err(error) => state.set_metadata_state(MetadataState::Error(format!(
+                    "Selected metadata update task failed: {error}"
+                ))),
+            }
+            state.finish_metadata_job();
+        });
+        Ok(())
+    }
+
     fn set_metadata_state(&self, new_state: MetadataState) {
         if let Ok(mut state) = self.metadata.write() {
             *state = new_state;

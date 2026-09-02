@@ -725,6 +725,25 @@ mod tests {
         .expect("explorer root should be readable");
         assert_eq!(root_items.len(), 1);
         assert_eq!(root_items[0].size_bytes, Some(42));
+        let partial_scan = database
+            .start_scan_run("partial:my-drive")
+            .expect("partial scan should start");
+        inventory::refresh_drive_items(
+            &database,
+            inventory::MY_DRIVE_SCOPE,
+            partial_scan,
+            std::slice::from_ref(&item),
+        )
+        .expect("selected item should refresh");
+        assert_eq!(
+            inventory::list_my_drive_directory(
+                &database, None, "", "", "", "", "", "", false, "", "", "", false, "name", false,
+            )
+            .expect("partial refresh must preserve unselected items")
+            .len(),
+            1,
+            "partial refresh must not mark an unselected folder deleted",
+        );
         let shared_scan = database
             .start_scan_run("shared-with-me")
             .expect("scan should start");

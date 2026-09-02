@@ -45,6 +45,7 @@
             <select id="shared-drive-apply-tag" class="form-select form-select-sm w-auto" name="tag" required>{% for tag in tags %}<option value="{{ tag.slug }}" title="{{ tag.description }}">{{ tag.name }}</option>{% endfor %}</select>
             <button id="shared-drive-apply-tag-button" class="btn btn-sm btn-outline-primary" type="submit" disabled><i class="bi bi-tag me-1"></i>Apply</button>
             <button id="shared-drive-remove-tag-button" class="btn btn-sm btn-outline-danger" type="submit" formaction="/shared-drives/manage-tags/remove" disabled><i class="bi bi-tag-fill me-1"></i>Remove</button>
+            <button id="shared-drive-update-metadata-button" class="btn btn-sm btn-outline-primary" type="submit" formaction="/metadata/update-selected" disabled><i class="bi bi-arrow-clockwise me-1"></i>Update metadata</button>
             <span id="shared-drive-selection-count" class="small text-body-secondary">0 selected</span><a class="btn btn-sm btn-link ms-auto" href="/tags"><i class="bi bi-gear me-1"></i>Manage tags</a>
         </div>
 
@@ -112,6 +113,7 @@
         const checkboxes = Array.from(document.querySelectorAll(".shared-drive-select"));
         const applyButton = document.getElementById("shared-drive-apply-tag-button");
         const removeButton = document.getElementById("shared-drive-remove-tag-button");
+        const updateMetadataButton = document.getElementById("shared-drive-update-metadata-button");
         const selectionCount = document.getElementById("shared-drive-selection-count");
         const selectedIds = document.getElementById("shared-drive-selected-ids");
         if (!selectAll) return;
@@ -121,6 +123,7 @@
             selectAll.indeterminate = selected.length > 0 && selected.length < checkboxes.length;
             applyButton.disabled = selected.length === 0;
             removeButton.disabled = selected.length === 0;
+            updateMetadataButton.disabled = selected.length === 0;
             selectionCount.textContent = `${selected.length} selected`;
             selectedIds.value = selected.map((checkbox) => checkbox.value).join(",");
         }

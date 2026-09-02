@@ -839,6 +839,18 @@ struct MetadataUpdateForm {
 }
 
 #[derive(serde::Deserialize)]
+struct SelectedMetadataUpdateForm {
+    #[serde(default)]
+    inventory_scope: String,
+    #[serde(default)]
+    selected_item_ids: String,
+    #[serde(default)]
+    selected_drive_ids: String,
+    #[serde(default)]
+    drive: String,
+}
+
+#[derive(serde::Deserialize)]
 struct NewMigrationForm {
     #[serde(default)]
     selected_item_ids: String,
@@ -993,6 +1005,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/setup/directory", post(save_setup_directory))
         .route("/setup/metadata/skip", post(skip_setup_metadata))
         .route("/metadata/update", post(start_metadata_update))
+        .route(
+            "/metadata/update-selected",
+            post(start_selected_metadata_update),
+        )
         .route("/app/quit", post(quit))
 }
 
@@ -4836,6 +4852,43 @@ async fn start_metadata_update(
     })?;
 
     Ok(Redirect::to("/"))
+}
+
+async fn start_selected_metadata_update(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<SelectedMetadataUpdateForm>,
+) -> Result<Redirect, StatusCode> {
+    let item_ids = comma_separated_values(&form.selected_item_ids);
+    let drive_ids = comma_separated_values(&form.selected_drive_ids);
+    let redirect = if !drive_ids.is_empty() {
+        "/shared-drives".to_string()
+    } else if form.inventory_scope == database::inventory::MY_DRIVE_SCOPE {
+        "/my-drive".to_string()
+    } else if form.inventory_scope == database::inventory::SHARED_WITH_ME_SCOPE {
+        "/shared-with-me".to_string()
+    } else if form
+        .inventory_scope
+        .starts_with(database::inventory::SHARED_DRIVE_SCOPE_PREFIX)
+    {
+        format!("/shared-drives?drive={}", encode_query_value(&form.drive))
+    } else {
+        return Err(StatusCode::BAD_REQUEST);
+    };
+    AppState::start_selected_metadata_update(state, form.inventory_scope, item_ids, drive_ids)
+        .map_err(|error| {
+            log::warn!("Unable to update selected metadata: {error}");
+            StatusCode::CONFLICT
+        })?;
+    Ok(Redirect::to(&redirect))
+}
+
+fn comma_separated_values(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 async fn skip_setup_metadata(State(state): State<Arc<AppState>>) -> Result<Redirect, StatusCode> {
