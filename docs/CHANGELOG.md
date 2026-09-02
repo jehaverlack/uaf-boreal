@@ -6,11 +6,24 @@
 | **Author** | John Haverlack |
 | **License** | MIT |
 | **Version** | 1.0.0 |
-| **Maturity** | RC1 |
+| **Maturity** | STABLE |
 | **Date** | 2026-09-01 |
 
-## v1.0.0 - 2026-09-01 (RC1)
+## v1.0.0 - 2026-09-01 (STABLE)
 
+**Summary**
+Stable Release
+
+**Notes**
+Version Updates
+
+- Shared Drive View Updates
+- Shared Drive View Updates
+- Clost Tab Button
+- Adding Issues Link
+- Search on Delete Tag
+- Clean up Logging
+- Fixing Update for removed items
 - Adding App Updates
 - Start v1.0.0
 
@@ -218,6 +231,13 @@ Added Migration Assitant and Polished Interfaces
 **Summary**
 Project Initialization
 
+- Shared Drive View Updates
+- Shared Drive View Updates
+- Clost Tab Button
+- Adding Issues Link
+- Search on Delete Tag
+- Clean up Logging
+- Fixing Update for removed items
 - Adding App Updates
 - Start v1.0.0
 
