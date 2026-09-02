@@ -94,6 +94,16 @@ const MIGRATIONS: &[Migration] = &[
         name: "builtin_tag_descriptions",
         sql: include_str!("migrations/0017_builtin_tag_descriptions.sql"),
     },
+    Migration {
+        version: 18,
+        name: "default_tag_workflow",
+        sql: include_str!("migrations/0018_default_tag_workflow.sql"),
+    },
+    Migration {
+        version: 19,
+        name: "remove_my_permissions_tag",
+        sql: include_str!("migrations/0019_remove_my_permissions_tag.sql"),
+    },
 ];
 
 pub fn apply(connection: &mut Connection) -> Result<(), DatabaseError> {

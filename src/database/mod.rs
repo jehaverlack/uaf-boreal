@@ -186,7 +186,7 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 17,);
+        assert_eq!(migration_count, 19,);
 
         let safe_to_delete_scope_count: i64 = connection
             .query_row(
@@ -201,8 +201,15 @@ mod tests {
 
         for (slug, expected_scope_count) in [
             ("data-loss-risk", 1_i64),
+            ("access-review", 1_i64),
+            ("needs-review", 3_i64),
+            ("permission-review", 3_i64),
+            ("needs-handoff", 3_i64),
+            ("retain", 3_i64),
             ("to-delete", 3_i64),
             ("to-migrate", 2_i64),
+            ("migration-complete", 3_i64),
+            ("remove-my-permissions", 3_i64),
         ] {
             let scope_count: i64 = connection
                 .query_row(
@@ -226,15 +233,22 @@ mod tests {
         assert_eq!(safe_to_delete_tag.0, "Safe to Delete");
         assert_eq!(
             safe_to_delete_tag.1,
-            "Content confirmed as migrated or backed up and ready to be deleted manually from Google Drive."
+            "Content the user has reviewed and marked as ready for manual deletion from Google Drive."
         );
         assert_eq!(safe_to_delete_tag.2, "#198754");
 
         for slug in [
             "data-loss-risk",
-            "safe-to-delete",
-            "to-delete",
+            "access-review",
+            "needs-review",
+            "permission-review",
+            "needs-handoff",
+            "retain",
             "to-migrate",
+            "migration-complete",
+            "remove-my-permissions",
+            "to-delete",
+            "safe-to-delete",
         ] {
             let description: String = connection
                 .query_row(
@@ -900,7 +914,7 @@ mod tests {
             .expect("recursive tag should reapply");
         inventory::create_tag_with_description_and_scopes(
             &database,
-            "Needs Review",
+            "Custom Review",
             "Content that needs an initial review",
             "#abcdef",
             &[inventory::TagScope::Directory],
@@ -908,7 +922,7 @@ mod tests {
         .expect("custom tag should be created");
         inventory::update_tag_with_description_and_scopes(
             &database,
-            "needs-review",
+            "custom-review",
             "Review Soon",
             "Review this content before migration",
             "#159",
@@ -918,7 +932,7 @@ mod tests {
         let custom_tag = inventory::list_tags(&database)
             .expect("tags should be readable")
             .into_iter()
-            .find(|tag| tag.slug == "needs-review")
+            .find(|tag| tag.slug == "custom-review")
             .expect("custom tag should remain available");
         assert_eq!(custom_tag.name, "Review Soon");
         assert_eq!(
@@ -932,13 +946,13 @@ mod tests {
             inventory::list_tags_for_scope(&database, inventory::TagScope::MyDrive)
                 .expect("My Drive tags should be readable")
                 .iter()
-                .all(|tag| tag.slug != "needs-review")
+                .all(|tag| tag.slug != "custom-review")
         );
         assert!(
             inventory::apply_tag_recursively(
                 &database,
                 &["folder-id-1".to_string()],
-                "needs-review",
+                "custom-review",
             )
             .is_err(),
             "a Directory-only tag should not be applicable to My Drive",
@@ -975,14 +989,14 @@ mod tests {
             .expect("known owner state should be readable")[0]
                 .owner_known
         );
-        directory::apply_principal_tag(&database, &[owner.id], "needs-review")
+        directory::apply_principal_tag(&database, &[owner.id], "custom-review")
             .expect("identity tag should apply");
         assert_eq!(
-            directory::remove_principal_tag(&database, &[owner.id], "needs-review")
+            directory::remove_principal_tag(&database, &[owner.id], "custom-review")
                 .expect("identity tag should be removable"),
             1,
         );
-        directory::apply_principal_tag(&database, &[owner.id], "needs-review")
+        directory::apply_principal_tag(&database, &[owner.id], "custom-review")
             .expect("identity tag should reapply");
         assert_eq!(
             inventory::list_my_drive_directory(
@@ -996,7 +1010,7 @@ mod tests {
                 "",
                 false,
                 "",
-                "needs-review",
+                "custom-review",
                 "",
                 false,
                 "name",
