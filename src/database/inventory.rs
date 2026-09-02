@@ -10,6 +10,7 @@ use super::{Database, DatabaseError};
 pub const MY_DRIVE_SCOPE: &str = "my-drive-ro";
 pub const SHARED_WITH_ME_SCOPE: &str = "shared-with-me";
 pub const SHARED_DRIVE_SCOPE_PREFIX: &str = "shared-drive:";
+pub const DELETED_TAG_FILTER: &str = "__deleted__";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TagScope {
@@ -59,6 +60,8 @@ pub struct SharedDriveRow {
 pub struct SharedDrivePermissionIdentity {
     pub label: String,
     pub roles: Vec<String>,
+    pub known: bool,
+    pub tags: Vec<Tag>,
 }
 
 #[derive(Debug, Clone)]
@@ -238,7 +241,7 @@ pub fn list_shared_drives_filtered(
            ))
          ORDER BY is_accessible DESC, name COLLATE NOCASE, drive_id",
     )?;
-    statement
+    let mut drives = statement
         .query_map(
             params![
                 search.trim(),
@@ -302,7 +305,12 @@ pub fn list_shared_drives_filtered(
                                 .into_iter()
                                 .map(|(label, mut roles)| {
                                     roles.sort_by_key(|role| role.to_ascii_lowercase());
-                                    SharedDrivePermissionIdentity { label, roles }
+                                    SharedDrivePermissionIdentity {
+                                        label,
+                                        roles,
+                                        known: false,
+                                        tags: Vec::new(),
+                                    }
                                 })
                                 .collect::<Vec<_>>();
                             identities.sort_by_key(|identity| identity.label.to_ascii_lowercase());
@@ -312,8 +320,50 @@ pub fn list_shared_drives_filtered(
                 })
             },
         )?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(Into::into)
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(statement);
+
+    let known_identities = connection
+        .prepare(
+            "SELECT lower(email) FROM principal_emails
+             UNION SELECT lower(primary_email) FROM principals WHERE primary_email IS NOT NULL",
+        )?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<HashSet<_>, _>>()?;
+    let mut identity_tags: HashMap<String, Vec<Tag>> = HashMap::new();
+    let mut tag_statement = connection.prepare(
+        "SELECT lower(pe.email), t.slug, t.name, t.color, t.description
+         FROM principal_emails pe
+         JOIN principal_tags pt ON pt.principal_id = pe.principal_id
+         JOIN tags t ON t.id = pt.tag_id
+         ORDER BY t.name COLLATE NOCASE",
+    )?;
+    for row in tag_statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            Tag {
+                slug: row.get(1)?,
+                name: row.get(2)?,
+                color: row.get(3)?,
+                description: row.get(4)?,
+                directory: false,
+                my_drive: false,
+                shared_drives: false,
+                shared_with_me: false,
+            },
+        ))
+    })? {
+        let (email, tag) = row?;
+        identity_tags.entry(email).or_default().push(tag);
+    }
+    for drive in &mut drives {
+        for identity in &mut drive.permission_identities {
+            let label = identity.label.to_ascii_lowercase();
+            identity.known = known_identities.contains(&label);
+            identity.tags = identity_tags.get(&label).cloned().unwrap_or_default();
+        }
+    }
+    Ok(drives)
 }
 
 pub fn change_shared_drive_tags(
@@ -645,11 +695,12 @@ pub fn list_drive_directory(
            AND (?13 = 1 OR is_deleted = 0)
            AND ((?2 IS NULL AND parent_path IS NULL) OR parent_path = ?2)
            AND (?3 = '' OR instr(lower(name), lower(?3)) > 0)
-           AND (?4 = '' OR EXISTS (
+           AND (?4 = '' OR (?4 = '__deleted__' AND is_deleted = 1) OR
+                (?4 <> '__deleted__' AND EXISTS (
                 SELECT 1 FROM drive_item_tags dit JOIN tags t ON t.id = dit.tag_id
                 WHERE dit.remote_name = drive_items.remote_name
                   AND dit.item_id = drive_items.item_id AND t.slug = ?4
-           ))
+           )))
            AND (?5 = '' OR instr(lower(
                 CASE WHEN is_directory THEN 'folder' ELSE COALESCE(mime_type, '') END
            ), lower(?5)) > 0)
@@ -1173,7 +1224,7 @@ pub fn apply_tag_recursively_for_scope(
              FROM drive_items selected
              JOIN drive_items descendant
                ON descendant.remote_name = selected.remote_name
-              AND descendant.is_deleted = 0
+              AND descendant.is_deleted = selected.is_deleted
               AND (
                    descendant.item_id = selected.item_id
                    OR (selected.is_directory = 1 AND
@@ -1181,8 +1232,7 @@ pub fn apply_tag_recursively_for_scope(
                            = selected.relative_path || '/')
               )
              WHERE selected.remote_name = ?1
-               AND selected.item_id = ?2
-               AND selected.is_deleted = 0",
+               AND selected.item_id = ?2",
             params![remote, item_id, tag_id],
         )?;
     }
@@ -1216,6 +1266,7 @@ pub fn remove_tag_recursively_for_scope(
                 FROM drive_items selected
                 JOIN drive_items descendant
                   ON descendant.remote_name = selected.remote_name
+                 AND descendant.is_deleted = selected.is_deleted
                  AND (descendant.item_id = selected.item_id
                       OR (selected.is_directory = 1 AND
                           substr(descendant.relative_path, 1, length(selected.relative_path) + 1)
@@ -1268,6 +1319,79 @@ pub fn refresh_drive_items(
     items: &[DriveItem],
 ) -> Result<InventorySummary, DatabaseError> {
     synchronize_drive_inner(database, inventory_scope, scan_id, items, true, false)
+}
+
+pub fn mark_drive_item_missing(
+    database: &Database,
+    inventory_scope: &str,
+    scan_id: i64,
+    item_id: &str,
+) -> Result<InventorySummary, DatabaseError> {
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    let (relative_path, is_directory): (String, bool) = transaction.query_row(
+        "SELECT relative_path, is_directory FROM drive_items
+         WHERE remote_name = ?1 AND item_id = ?2 AND is_deleted = 0",
+        params![inventory_scope, item_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    let child_prefix = format!("{relative_path}/%");
+    let deleted_items = transaction.execute(
+        "UPDATE drive_items
+         SET is_deleted = 1, deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP)
+         WHERE remote_name = ?1 AND is_deleted = 0
+           AND (item_id = ?2 OR (?3 = 1 AND relative_path LIKE ?4))",
+        params![inventory_scope, item_id, is_directory, child_prefix],
+    )? as u64;
+
+    let mut folder_sizes: HashMap<String, u64> = HashMap::new();
+    {
+        let mut statement = transaction.prepare(
+            "SELECT relative_path, COALESCE(size_bytes, 0) FROM drive_items
+             WHERE remote_name = ?1 AND is_deleted = 0 AND is_directory = 0",
+        )?;
+        let rows = statement.query_map([inventory_scope], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        for row in rows {
+            let (path, size) = row?;
+            let mut ancestor = path.rsplit_once('/').map(|(parent, _)| parent);
+            while let Some(folder_path) = ancestor {
+                let total = folder_sizes.entry(folder_path.to_string()).or_default();
+                *total = total.saturating_add(size.max(0) as u64);
+                ancestor = folder_path.rsplit_once('/').map(|(parent, _)| parent);
+            }
+        }
+    }
+    transaction.execute(
+        "UPDATE drive_items SET cumulative_size_bytes = 0
+         WHERE remote_name = ?1 AND is_directory = 1",
+        [inventory_scope],
+    )?;
+    for (folder_path, size) in folder_sizes {
+        transaction.execute(
+            "UPDATE drive_items SET cumulative_size_bytes = ?3
+             WHERE remote_name = ?1 AND relative_path = ?2 AND is_directory = 1",
+            params![inventory_scope, folder_path, size as i64],
+        )?;
+    }
+
+    transaction.execute(
+        "UPDATE scan_runs SET status = 'complete', completed_at = CURRENT_TIMESTAMP,
+             error_message = NULL, deleted_items = ?2 WHERE id = ?1",
+        params![scan_id, deleted_items as i64],
+    )?;
+    let completed_at = transaction.query_row(
+        "SELECT completed_at FROM scan_runs WHERE id = ?1",
+        [scan_id],
+        |row| row.get(0),
+    )?;
+    transaction.commit()?;
+    Ok(InventorySummary {
+        deleted_items,
+        completed_at,
+        ..InventorySummary::default()
+    })
 }
 
 fn synchronize_drive_inner(

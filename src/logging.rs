@@ -11,7 +11,7 @@ use log::{Level, LevelFilter, Log, Metadata, Record};
 
 pub type LoggingError = Box<dyn Error>;
 
-/// Initialize console and local-calendar-day file logging.
+/// Initialize verbose local-calendar-day file logging.
 ///
 /// Files are named `YYYY-MM-DD.boreal.log`. The local date is checked for
 /// every event so a running process rolls over at local midnight.
@@ -27,7 +27,7 @@ pub fn initialize(runtime: &Runtime) -> Result<(), LoggingError> {
 
     log::set_logger(logger)
         .map_err(|_| io::Error::other("BOREAL logger is already initialized"))?;
-    log::set_max_level(LevelFilter::Info);
+    log::set_max_level(LevelFilter::Debug);
 
     Ok(())
 }
@@ -59,7 +59,7 @@ impl BorealLogger {
 
 impl Log for BorealLogger {
     fn enabled(&self, metadata: &Metadata<'_>) -> bool {
-        metadata.level() <= Level::Info
+        metadata.level() <= Level::Debug
     }
 
     fn log(&self, record: &Record<'_>) {
@@ -70,9 +70,10 @@ impl Log for BorealLogger {
         let now = local_now();
         let date = format_date(now);
         let line = format!(
-            "{} {:<5} {}\n",
+            "{} {:<5} [{}] {}\n",
             format_timestamp(now),
             record.level(),
+            record.target(),
             record.args(),
         );
         let mut state = match self.state.lock() {
@@ -98,12 +99,6 @@ impl Log for BorealLogger {
         if let Err(error) = state.file.write_all(line.as_bytes()) {
             std::eprintln!("BOREAL logging error: {error}");
         }
-
-        let output: &mut dyn Write = match record.level() {
-            Level::Error | Level::Warn => &mut std::io::stderr(),
-            _ => &mut std::io::stdout(),
-        };
-        let _ = output.write_all(line.as_bytes());
     }
 
     fn flush(&self) {

@@ -5,9 +5,27 @@
 | **Name** | boreal |
 | **Author** | John Haverlack |
 | **License** | MIT |
-| **Version** | 0.1.4 |
-| **Maturity** | RC1 |
+| **Version** | 1.0.0 |
+| **Maturity** | STABLE |
 | **Date** | 2026-09-01 |
+
+## v1.0.0 - 2026-09-01 (STABLE)
+
+**Summary**
+Stable Release
+
+**Notes**
+Version Updates
+
+- Shared Drive View Updates
+- Shared Drive View Updates
+- Clost Tab Button
+- Adding Issues Link
+- Search on Delete Tag
+- Clean up Logging
+- Fixing Update for removed items
+- Adding App Updates
+- Start v1.0.0
 
 ## v0.1.4 - 2026-09-01 (RC1)
 
@@ -17,6 +35,8 @@ Release Candidate
 **Notes**
 Added Migration Assitant and Polished Interfaces
 
+- v0.1.4
+- v0.1.4
 - v0.1.4
 - Migrated tag
 - Partial Metadata Updates
@@ -211,29 +231,13 @@ Added Migration Assitant and Polished Interfaces
 **Summary**
 Project Initialization
 
-- v0.1.4
-- Migrated tag
-- Partial Metadata Updates
-- Indexing on Migration
-- Migration Source links
-- Migration Source links
-- Shared with me to My Drives
-- Menu Cleanup
-- Migraion view updates
-- Migration View Changes
-- Migration Assstant
-- Migration Assistant
-- Adding rw Remote
-- Adding Migration edits and search
-- WIP: Migration Assistant
-- Default Tag Updates
-- Adding Docs and Help
-- Bookmarks Alert
-- Tag Filter Clean up for Explorers
-- Clean up of MyDrive Explorer
-- Added XLS Exporter
-- Tag Editor Updates
-- Simplifying Tag Editor
-- fixed Close Button again
-- Start v0.1.4
+- Shared Drive View Updates
+- Shared Drive View Updates
+- Clost Tab Button
+- Adding Issues Link
+- Search on Delete Tag
+- Clean up Logging
+- Fixing Update for removed items
+- Adding App Updates
+- Start v1.0.0
 

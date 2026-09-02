@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-xl-8">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+            <div>
+                <h1 class="h3 mb-1">Update BOREAL</h1>
+                <p class="text-body-secondary mb-0">Check the authoritative BOREAL changelog for a newer version.</p>
+            </div>
+            <form method="post" action="/update">
+                <button class="btn btn-outline-primary" type="submit" {% if checking %}disabled{% endif %}>
+                    <i class="bi bi-arrow-clockwise me-1"></i>Check for updates
+                </button>
+            </form>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6"><div class="small text-body-secondary">Installed version</div><div class="fs-5 fw-semibold">v{{ current_version }} ({{ current_maturity }})</div></div>
+                    {% if latest_version.len() > 0 %}<div class="col-md-6"><div class="small text-body-secondary">Latest listed version</div><div class="fs-5 fw-semibold">v{{ latest_version }}{% if latest_maturity.len() > 0 %} ({{ latest_maturity }}){% endif %}</div>{% if latest_date.len() > 0 %}<div class="small text-body-secondary">{{ latest_date }}</div>{% endif %}</div>{% endif %}
+                </div>
+            </div>
+        </div>
+
+        {% if checking %}
+        <div class="alert alert-primary" role="status"><span class="spinner-border spinner-border-sm me-2"></span>Checking GitHub for the latest BOREAL version…</div>
+        <script>window.setTimeout(() => window.location.reload(), 1500);</script>
+        {% else if update_available %}
+        <div class="alert alert-warning"><i class="bi bi-arrow-up-circle-fill me-2"></i><strong>BOREAL v{{ latest_version }} is available.</strong></div>
+        {% if summary.len() > 0 %}<h2 class="h5">{{ summary }}</h2>{% endif %}
+        {% if notes.len() > 0 %}<p>{{ notes }}</p>{% endif %}
+        <div class="d-flex flex-wrap gap-2 mb-4">
+            {% if download_url.len() > 0 %}<a class="btn btn-primary" href="{{ download_url }}"><i class="bi bi-download me-1"></i>Download for this system</a>{% endif %}
+            <a class="btn btn-outline-secondary" href="{{ release_url }}" target="_blank" rel="noopener noreferrer"><i class="bi bi-github me-1"></i>View release</a>
+        </div>
+        <div class="alert alert-light border small">BOREAL will not replace the running executable automatically. Download the new binary and follow the installation instructions for your operating system.</div>
+        {% else if error.len() > 0 %}
+        <div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>
+        {% else %}
+        <div class="alert alert-success"><i class="bi bi-check-circle-fill me-2"></i>You are running the latest BOREAL version listed in the changelog.</div>
+        {% if summary.len() > 0 %}<h2 class="h5">{{ summary }}</h2>{% endif %}
+        {% if notes.len() > 0 %}<p>{{ notes }}</p>{% endif %}
+        {% endif %}
+
+        <div class="border-top pt-3 mt-4 d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <p class="small text-body-secondary mb-0">Version information comes from <a href="{{ changelog_url }}" target="_blank" rel="noopener noreferrer">BOREAL changelog.json</a>.</p>
+            <a class="btn btn-sm btn-outline-secondary" href="https://github.com/jehaverlack/uaf-boreal/issues" target="_blank" rel="noopener noreferrer">
+                <i class="bi bi-bug me-1"></i>Report an update problem or request a feature
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -3,8 +3,8 @@
 | **Name** | boreal |
 | **Author** | John Haverlack |
 | **License** | MIT |
-| **Version** | 0.1.4 |
-| **Maturity** | RC1 |
+| **Version** | 1.0.0 |
+| **Maturity** | STABLE |
 | **Date** | 2026-09-01 |
 
 # BOREAL design

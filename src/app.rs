@@ -33,9 +33,13 @@ pub struct AppState {
 
     pub download: RwLock<DownloadState>,
 
+    pub update: RwLock<crate::update::UpdateState>,
+
     metadata_job_active: Mutex<bool>,
 
     remote_setup_active: Mutex<bool>,
+
+    update_check_active: Mutex<bool>,
 
     rclone_gui: Mutex<Option<Child>>,
 
@@ -203,9 +207,13 @@ impl AppState {
 
             download: RwLock::new(DownloadState::Idle),
 
+            update: RwLock::new(crate::update::UpdateState::Checking),
+
             metadata_job_active: Mutex::new(false),
 
             remote_setup_active: Mutex::new(false),
+
+            update_check_active: Mutex::new(false),
 
             rclone_gui: Mutex::new(None),
 
@@ -288,6 +296,83 @@ impl AppState {
                 }
             }
         });
+    }
+
+    pub fn start_update_monitor(state: Arc<Self>) {
+        log::info!(
+            "BOREAL update monitor started: interval_hours=6, source={}",
+            crate::update::CHANGELOG_URL,
+        );
+        tokio::spawn(async move {
+            loop {
+                Self::check_for_updates(Arc::clone(&state));
+                tokio::time::sleep(crate::update::CHECK_INTERVAL).await;
+            }
+        });
+    }
+
+    pub fn check_for_updates(state: Arc<Self>) {
+        let mut active = match state.update_check_active.lock() {
+            Ok(active) => active,
+            Err(error) => {
+                log::error!("Unable to start BOREAL update check: {error}");
+                return;
+            }
+        };
+        if *active {
+            log::debug!("BOREAL update check skipped because another check is active");
+            return;
+        }
+        *active = true;
+        drop(active);
+        log::info!(
+            "BOREAL update check started: source={}",
+            crate::update::CHANGELOG_URL
+        );
+        if let Ok(mut update) = state.update.write() {
+            *update = crate::update::UpdateState::Checking;
+        }
+        tokio::spawn(async move {
+            let result = tokio::task::spawn_blocking(crate::update::check).await;
+            let new_state = match result {
+                Ok(state) => state,
+                Err(error) => crate::update::UpdateState::Error(format!(
+                    "BOREAL update check task failed: {error}"
+                )),
+            };
+            if let Ok(mut update) = state.update.write() {
+                *update = new_state;
+            }
+            match state.update_state() {
+                crate::update::UpdateState::Available { release } => log::info!(
+                    "BOREAL update available: current={}, latest={}, maturity={}",
+                    env!("CARGO_PKG_VERSION"),
+                    release.version,
+                    release.maturity,
+                ),
+                crate::update::UpdateState::Current { latest } => log::info!(
+                    "BOREAL update check completed: current={}, latest={}",
+                    env!("CARGO_PKG_VERSION"),
+                    latest.version,
+                ),
+                crate::update::UpdateState::Error(error) => {
+                    log::warn!("BOREAL update check failed: {error}")
+                }
+                crate::update::UpdateState::Checking => {}
+            }
+            if let Ok(mut active) = state.update_check_active.lock() {
+                *active = false;
+            }
+        });
+    }
+
+    pub fn update_state(&self) -> crate::update::UpdateState {
+        self.update
+            .read()
+            .map(|state| state.clone())
+            .unwrap_or_else(|error| {
+                crate::update::UpdateState::Error(format!("Unable to read update state: {error}"))
+            })
     }
 
     pub fn rclone_state(&self) -> RcloneState {
@@ -383,6 +468,7 @@ impl AppState {
     }
 
     pub fn configure_google_remote(state: Arc<Self>, kind: RemoteKind) -> Result<(), String> {
+        log::info!("Google remote setup requested: remote={}", kind.name());
         {
             let mut active = state
                 .remote_setup_active
@@ -429,6 +515,16 @@ impl AppState {
             if let Ok(mut remotes) = state.google_remotes.write() {
                 *remote_state_mut(&mut remotes, kind) = new_remote_state;
             }
+            match state.google_remotes_state() {
+                remotes if matches!(remote_state(&remotes, kind), RemoteState::Ready) => {
+                    log::info!("Google remote setup completed: remote={}", kind.name())
+                }
+                remotes => log::warn!(
+                    "Google remote setup did not complete: remote={}, state={:?}",
+                    kind.name(),
+                    remote_state(&remotes, kind),
+                ),
+            }
             state.finish_remote_setup();
         });
 
@@ -462,6 +558,13 @@ impl AppState {
         }
         database::migration::begin_copy(&database, migration_id)
             .map_err(|error| error.to_string())?;
+        log::info!(
+            "Migration copy requested: migration_id={migration_id}, source_kind={}, sources={}, destination_drive_id={}, destination_folder_id={}",
+            job.source_kind,
+            job.sources.len(),
+            job.destination_drive_id,
+            job.destination_folder_id,
+        );
 
         tokio::spawn(async move {
             let failure_database = database.clone();
@@ -479,7 +582,13 @@ impl AppState {
                 }
                 database::migration::confirm_copy_started(&database, migration_id)
                     .map_err(|error| error.to_string())?;
+                log::info!("Migration preflight completed: migration_id={migration_id}");
                 for source in &job.sources {
+                    log::info!(
+                        "Migration source copy started: migration_id={migration_id}, item_id={}, name={}",
+                        source.item_id,
+                        source.name,
+                    );
                     database::migration::start_source(&database, migration_id, &source.item_id)
                         .map_err(|error| error.to_string())?;
                     if let Err(error) = rclone::migration::copy_source(
@@ -501,9 +610,15 @@ impl AppState {
                     }
                     database::migration::complete_source(&database, migration_id, &source.item_id)
                         .map_err(|error| error.to_string())?;
+                    log::info!(
+                        "Migration source copy completed: migration_id={migration_id}, item_id={}",
+                        source.item_id,
+                    );
                 }
                 database::migration::complete_copy(&database, migration_id)
-                    .map_err(|error| error.to_string())
+                    .map_err(|error| error.to_string())?;
+                log::info!("Migration copy completed: migration_id={migration_id}");
+                Ok(())
             })
             .await;
             let task_error = match result {
@@ -512,6 +627,7 @@ impl AppState {
                 Err(error) => Some(format!("Migration copy task failed: {error}")),
             };
             if let Some(message) = task_error {
+                log::error!("Migration copy failed: migration_id={migration_id}, error={message}");
                 let preflight_failed = database::migration::get(&failure_database, migration_id)
                     .ok()
                     .flatten()
@@ -1039,6 +1155,11 @@ impl AppState {
         if item_ids.is_empty() && drive_ids.is_empty() {
             return Err("Select at least one Drive item or Shared Drive".to_string());
         }
+        log::info!(
+            "Selected metadata update requested: scope={inventory_scope}, items={}, shared_drives={}",
+            item_ids.len(),
+            drive_ids.len(),
+        );
         {
             let mut active = state
                 .metadata_job_active
@@ -1123,23 +1244,40 @@ impl AppState {
                         item.is_directory,
                     )
                     .map_err(|error| error.to_string())?;
-                    database::inventory::refresh_drive_items(
-                        &database,
-                        &inventory_scope,
-                        scan_id,
-                        &items,
-                    )
+                    match items {
+                        Some(items) => database::inventory::refresh_drive_items(
+                            &database,
+                            &inventory_scope,
+                            scan_id,
+                            &items,
+                        ),
+                        None => database::inventory::mark_drive_item_missing(
+                            &database,
+                            &inventory_scope,
+                            scan_id,
+                            &item_id,
+                        ),
+                    }
                     .map_err(|error| error.to_string())?;
                 }
                 Ok(())
             })
             .await;
             match result {
-                Ok(Ok(())) => state.set_metadata_state(previous_state),
-                Ok(Err(message)) => state.set_metadata_state(MetadataState::Error(message)),
-                Err(error) => state.set_metadata_state(MetadataState::Error(format!(
-                    "Selected metadata update task failed: {error}"
-                ))),
+                Ok(Ok(())) => {
+                    log::info!("Selected metadata update completed");
+                    state.set_metadata_state(previous_state);
+                }
+                Ok(Err(message)) => {
+                    log::error!("Selected metadata update failed: {message}");
+                    state.set_metadata_state(MetadataState::Error(message));
+                }
+                Err(error) => {
+                    log::error!("Selected metadata update task failed: {error}");
+                    state.set_metadata_state(MetadataState::Error(format!(
+                        "Selected metadata update task failed: {error}"
+                    )));
+                }
             }
             state.finish_metadata_job();
         });
@@ -1189,5 +1327,12 @@ fn remote_state_mut(remotes: &mut GoogleRemotesState, kind: RemoteKind) -> &mut 
     match kind {
         RemoteKind::MyDriveRw => &mut remotes.rw,
         RemoteKind::MyDriveRo => &mut remotes.ro,
+    }
+}
+
+fn remote_state(remotes: &GoogleRemotesState, kind: RemoteKind) -> &RemoteState {
+    match kind {
+        RemoteKind::MyDriveRw => &remotes.rw,
+        RemoteKind::MyDriveRo => &remotes.ro,
     }
 }

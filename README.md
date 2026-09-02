@@ -8,8 +8,8 @@
 | **Description** | Browser-based Organizer for Rclone Exploration, Audit and Lookup |
 | **Author** | John Haverlack |
 | **License** | MIT |
-| **Version** | 0.1.4 |
-| **Maturity** | RC1 |
+| **Version** | 1.0.0 |
+| **Maturity** | STABLE |
 | **Date** | 2026-09-01 |
 
 > AI Attestation: Generative AI was used in the development of this codebase.
@@ -51,19 +51,19 @@ BOREAL manages its own private Rclone installation, does not modify the user's
 ## Install BOREAL
 
 Download the binary matching your operating system and processor from the
-[BOREAL v0.1.4 release](https://github.com/jehaverlack/uaf-boreal/releases/tag/v0.1.4).
+[BOREAL v1.0.0 release](https://github.com/jehaverlack/uaf-boreal/releases/tag/v1.0.0).
 
 | System | Processor | Download | Instructions |
 | --- | --- | --- | --- |
-| Linux | x86_64 / AMD64 | [Download](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.4/dist/boreal-v0.1.4-linux-x86_64) | [Install on Linux](docs/Install-Linux.md) |
-| Linux | ARM64 / AArch64 | [Download](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.4/dist/boreal-v0.1.4-linux-aarch64) | [Install on Linux](docs/Install-Linux.md) |
-| Linux | ARMv7 32-bit | [Download](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.4/dist/boreal-v0.1.4-linux-armv7) | [Install on Linux](docs/Install-Linux.md) |
-| Windows | x86_64 / AMD64 | [Download](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.4/dist/boreal-v0.1.4-windows-x86_64.exe) | [Install on Windows](docs/Install-Windows.md) |
-| macOS | Apple Silicon / ARM64 | [Download](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.4/dist/boreal-v0.1.4-macos-aarch64) | [Install on macOS](docs/Install-MACOS.md) |
-| macOS | Intel x86_64 | [Download](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.4/dist/boreal-v0.1.4-macos-x86_64) | [Install on macOS](docs/Install-MACOS.md) |
+| Linux | x86_64 / AMD64 | [Download](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v1.0.0/dist/boreal-v1.0.0-linux-x86_64) | [Install on Linux](docs/Install-Linux.md) |
+| Linux | ARM64 / AArch64 | [Download](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v1.0.0/dist/boreal-v1.0.0-linux-aarch64) | [Install on Linux](docs/Install-Linux.md) |
+| Linux | ARMv7 32-bit | [Download](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v1.0.0/dist/boreal-v1.0.0-linux-armv7) | [Install on Linux](docs/Install-Linux.md) |
+| Windows | x86_64 / AMD64 | [Download](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v1.0.0/dist/boreal-v1.0.0-windows-x86_64.exe) | [Install on Windows](docs/Install-Windows.md) |
+| macOS | Apple Silicon / ARM64 | [Download](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v1.0.0/dist/boreal-v1.0.0-macos-aarch64) | [Install on macOS](docs/Install-MACOS.md) |
+| macOS | Intel x86_64 | [Download](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v1.0.0/dist/boreal-v1.0.0-macos-x86_64) | [Install on macOS](docs/Install-MACOS.md) |
 
 Use the release
-[SHA256SUMS](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v0.1.4/dist/SHA256SUMS)
+[SHA256SUMS](https://github.com/jehaverlack/uaf-boreal/raw/refs/tags/v1.0.0/dist/SHA256SUMS)
 file to verify your download.
 
 ## Configure BOREAL

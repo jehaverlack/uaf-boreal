@@ -126,7 +126,7 @@ pub fn fetch_selected_path(
     inventory_scope: &str,
     relative_path: &str,
     is_directory: bool,
-) -> Result<Vec<DriveItem>, RcloneError> {
+) -> Result<Option<Vec<DriveItem>>, RcloneError> {
     let config_path = config::path(runtime)?;
     let remote = if inventory_scope == crate::database::inventory::SHARED_WITH_ME_SCOPE {
         format!(
@@ -163,11 +163,11 @@ pub fn fetch_selected_path(
         .output()
         .map_err(|error| format!("Unable to refresh selected Drive item: {error}"))?;
     if !stat.status.success() {
-        return Err(format!(
-            "Selected Drive item refresh failed: {}",
-            String::from_utf8_lossy(&stat.stderr).trim()
-        )
-        .into());
+        let stderr = String::from_utf8_lossy(&stat.stderr);
+        if selected_item_not_found(&stderr) {
+            return Ok(None);
+        }
+        return Err(format!("Selected Drive item refresh failed: {}", stderr.trim()).into());
     }
     let mut root: DriveItem = serde_json::from_slice(&stat.stdout)
         .map_err(|error| format!("Unable to parse selected Drive item: {error}"))?;
@@ -180,11 +180,11 @@ pub fn fetch_selected_path(
             .output()
             .map_err(|error| format!("Unable to refresh selected Drive folder: {error}"))?;
         if !output.status.success() {
-            return Err(format!(
-                "Selected Drive folder refresh failed: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            )
-            .into());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if selected_item_not_found(&stderr) {
+                return Ok(None);
+            }
+            return Err(format!("Selected Drive folder refresh failed: {}", stderr.trim()).into());
         }
         let mut descendants: Vec<DriveItem> = serde_json::from_slice(&output.stdout)
             .map_err(|error| format!("Unable to parse selected Drive folder: {error}"))?;
@@ -193,7 +193,14 @@ pub fn fetch_selected_path(
         }
         items.extend(descendants);
     }
-    Ok(items)
+    Ok(Some(items))
+}
+
+fn selected_item_not_found(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("directory not found")
+        || message.contains("object not found")
+        || message.contains("file not found")
 }
 
 fn fetch_drive_with_options(
@@ -280,7 +287,17 @@ fn parse(path: &PathBuf) -> Result<Vec<DriveItem>, RcloneError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DriveItem, SharedDrive};
+    use super::{DriveItem, SharedDrive, selected_item_not_found};
+
+    #[test]
+    fn recognizes_only_explicit_not_found_responses() {
+        assert!(selected_item_not_found(
+            "NOTICE: Failed to lsjson: directory not found"
+        ));
+        assert!(selected_item_not_found("File not found"));
+        assert!(!selected_item_not_found("permission denied"));
+        assert!(!selected_item_not_found("connection timed out"));
+    }
 
     #[test]
     fn parses_rclone_uppercase_drive_id() {

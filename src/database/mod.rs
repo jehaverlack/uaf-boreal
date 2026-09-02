@@ -1212,6 +1212,101 @@ mod tests {
         assert_eq!(retained_tags, 4);
 
         drop(connection);
+        let deleted_items = inventory::list_my_drive_directory(
+            &database,
+            None,
+            "",
+            inventory::DELETED_TAG_FILTER,
+            "",
+            "",
+            "",
+            "",
+            false,
+            "",
+            "",
+            "",
+            true,
+            "name",
+            false,
+        )
+        .expect("deleted state filter should be readable");
+        assert_eq!(deleted_items.len(), 1);
+        assert!(deleted_items[0].is_deleted);
+        let changed = inventory::apply_tag_recursively(
+            &database,
+            &["folder-id-1".to_string()],
+            "needs-review",
+        )
+        .expect("deleted folder tags should be editable");
+        assert_eq!(changed, 2);
+        let retained_tags: i64 = database
+            .connect()
+            .expect("database should connect")
+            .query_row("SELECT COUNT(*) FROM drive_item_tags", [], |row| row.get(0))
+            .expect("deleted item tags should remain queryable");
+        assert_eq!(retained_tags, 6);
+
+        fs::remove_dir_all(root).expect("temporary database directory should be removable");
+    }
+
+    #[test]
+    fn selected_missing_folder_soft_deletes_only_its_subtree() {
+        let root = temporary_directory();
+        let database = Database::initialize(&runtime(&root)).expect("database should initialize");
+        let items = [
+            DriveItem {
+                id: "missing-folder".to_string(),
+                name: "Missing".to_string(),
+                path: "Missing".to_string(),
+                is_dir: true,
+                size: -1,
+                mime_type: "inode/directory".to_string(),
+                mod_time: String::new(),
+                metadata: BTreeMap::new(),
+            },
+            DriveItem {
+                id: "missing-child".to_string(),
+                name: "Child.txt".to_string(),
+                path: "Missing/Child.txt".to_string(),
+                is_dir: false,
+                size: 10,
+                mime_type: "text/plain".to_string(),
+                mod_time: String::new(),
+                metadata: BTreeMap::new(),
+            },
+            DriveItem {
+                id: "retained-folder".to_string(),
+                name: "Retained".to_string(),
+                path: "Retained".to_string(),
+                is_dir: true,
+                size: -1,
+                mime_type: "inode/directory".to_string(),
+                mod_time: String::new(),
+                metadata: BTreeMap::new(),
+            },
+        ];
+        let initial_scan = database
+            .start_scan_run("my-drive")
+            .expect("scan should start");
+        inventory::synchronize_my_drive(&database, initial_scan, &items, true)
+            .expect("inventory should synchronize");
+        let partial_scan = database
+            .start_scan_run("partial:my-drive-ro")
+            .expect("partial scan should start");
+        let summary = inventory::mark_drive_item_missing(
+            &database,
+            inventory::MY_DRIVE_SCOPE,
+            partial_scan,
+            "missing-folder",
+        )
+        .expect("missing folder should be recorded");
+        assert_eq!(summary.deleted_items, 2);
+        let visible = inventory::list_my_drive_directory(
+            &database, None, "", "", "", "", "", "", false, "", "", "", false, "name", false,
+        )
+        .expect("remaining root items should be readable");
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].item_id, "retained-folder");
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
 

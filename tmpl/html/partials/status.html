@@ -1,11 +1,13 @@
 <footer
     id="boreal-status"
     class="border-top bg-body-tertiary"
-    {% if poll_rclone %}
     hx-get="/ui/status"
+    {% if poll_rclone %}
     hx-trigger="every 1s"
-    hx-swap="outerHTML"
+    {% else %}
+    hx-trigger="every 30s"
     {% endif %}
+    hx-swap="outerHTML"
 >
 
     <div
@@ -60,12 +62,16 @@
             <a
                 class="{{ item.value_class }}"
                 href="{{ item.value_url }}"
+                title="{{ item.title }}"
+                {% if item.label != "BOREAL" %}
                 target="_blank"
                 rel="noopener noreferrer"
-                title="Open Rclone WebGUI"
+                {% endif %}
             >
                 {{ item.value }}
+                {% if item.label != "BOREAL" %}
                 <i class="bi bi-box-arrow-up-right ms-1"></i>
+                {% endif %}
             </a>
 
             {% endif %}

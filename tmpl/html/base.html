@@ -90,12 +90,19 @@
         .boreal-col-modified { width: 12rem; }
         .boreal-col-owner { width: 11rem; }
         .boreal-col-permissions { width: 14rem; }
-        .boreal-shared-name { width: 22%; }
+        .boreal-shared-name { width: 30%; }
         .boreal-shared-tags { width: 9rem; }
         .boreal-shared-count { width: 5.5rem; }
         .boreal-shared-size { width: 7rem; }
         .boreal-shared-managers { width: 14rem; }
         .boreal-shared-permissions { width: 22rem; }
+
+        .boreal-explorer-table thead th,
+        .boreal-explorer-table thead a,
+        .boreal-explorer-table thead .btn {
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
 
         .boreal-name-cell {
             overflow: hidden;
@@ -318,7 +325,7 @@
                     <li class="nav-item dropdown">
 
                         <a
-                            class="nav-link dropdown-toggle{% if active_page == "about" || active_page == "settings" || active_page == "tags" || active_page == "docs" || active_page == "help" %} active{% endif %}"
+                            class="nav-link dropdown-toggle{% if active_page == "about" || active_page == "settings" || active_page == "tags" || active_page == "docs" || active_page == "help" || active_page == "update" %} active{% endif %}"
                             href="#"
                             role="button"
                             data-bs-toggle="dropdown"
@@ -331,6 +338,18 @@
                         <ul
                             class="dropdown-menu dropdown-menu-end"
                         >
+
+                            <li>
+
+                                <a
+                                    class="dropdown-item{% if active_page == "update" %} active{% endif %}"
+                                    href="/update"
+                                >
+                                    <i class="bi bi-arrow-up-circle me-2"></i>
+                                    Update
+                                </a>
+
+                            </li>
 
                             <li>
 
@@ -376,6 +395,20 @@
                                 >
                                     <i class="bi bi-question-circle me-2"></i>
                                     Help
+                                </a>
+
+                            </li>
+
+                            <li>
+
+                                <a
+                                    class="dropdown-item"
+                                    href="https://github.com/jehaverlack/uaf-boreal/issues"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                >
+                                    <i class="bi bi-bug me-2"></i>
+                                    Report an Issue
                                 </a>
 
                             </li>
@@ -781,39 +814,43 @@
 
             let heartbeatFailures = 0;
             let stopped = false;
+            let closeRequested = false;
 
             if (closeTabButton) {
                 closeTabButton.addEventListener("click", () => {
+                    if (closeRequested) return;
+                    closeRequested = true;
+                    closeTabButton.disabled = true;
+                    closeTabButton.innerHTML =
+                        '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Closing…';
                     closeTabBlocked?.classList.add("d-none");
 
-                    // Browsers only permit script-opened tabs to close
-                    // themselves. Try the standards-based call first while
-                    // this user gesture is still active.
+                    // Keep every close attempt inside the original user
+                    // gesture. The _self handle is accepted by some browsers
+                    // that decline a direct close on externally opened tabs.
+                    try {
+                        const currentTab = window.open("", "_self");
+                        currentTab?.close();
+                    } catch (_error) {
+                        // Continue to the standards-based close attempt.
+                    }
                     window.close();
 
-                    // Compatibility fallback for browsers that allow a tab
-                    // to adopt itself as its opener before closing.
-                    try {
-                        window.opener = window;
-                    } catch (_error) {
-                        // Some browsers do not allow the opener to be changed.
-                    }
-
-                    const currentTab = window.open("", "_self", "");
-                    currentTab?.close();
-
                     // A rejected window.close() does not throw an exception.
-                    // If this callback still runs, tell the user what the
-                    // browser requires instead of leaving a dead button.
+                    // If the page remains, restore the close control and
+                    // explain the browser-level restriction.
                     window.setTimeout(() => {
+                        closeRequested = false;
                         const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
                         const shortcut = isMac ? "Command-W (⌘W)" : "Ctrl-W";
                         if (closeTabBlockedMessage) {
                             closeTabBlockedMessage.textContent =
-                                `The browser prevented this tab from closing itself. Press ${shortcut} to close it.`;
+                                `This browser does not permit websites to close externally opened tabs. Press ${shortcut}, or try the button again.`;
                         }
                         closeTabBlocked?.classList.remove("d-none");
-                        closeTabButton.textContent = "Try Closing Again";
+                        closeTabButton.disabled = false;
+                        closeTabButton.innerHTML =
+                            '<i class="bi bi-x-lg me-1" aria-hidden="true"></i>Try Closing Again';
                     }, 200);
                 });
             }
