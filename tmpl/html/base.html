@@ -165,6 +165,16 @@
         .navbar .boreal-person-nav:focus {
             color: #087990 !important;
         }
+
+        .navbar .boreal-purple-nav,
+        .navbar .boreal-purple-nav.active {
+            color: #6f42c1 !important;
+        }
+
+        .navbar .boreal-purple-nav:hover,
+        .navbar .boreal-purple-nav:focus {
+            color: #59359a !important;
+        }
     </style>
 
 </head>
@@ -232,12 +242,6 @@
                     </li>
 
                     <li class="nav-item">
-                        <a class="nav-link{% if active_page == "migrations" %} active{% endif %}"
-                           {% if active_page == "migrations" %}aria-current="page"{% endif %}
-                           href="/migrations" title="Migration plans and history">Migrations</a>
-                    </li>
-
-                    <li class="nav-item">
                         <a
                             class="nav-link boreal-drive-nav{% if active_page == "my-drive" %} active{% endif %}"
                             {% if active_page == "my-drive" %}aria-current="page"{% endif %}
@@ -277,8 +281,14 @@
                     </li>
 
                     <li class="nav-item">
+                        <a class="nav-link boreal-purple-nav{% if active_page == "migrations" %} active{% endif %}"
+                           {% if active_page == "migrations" %}aria-current="page"{% endif %}
+                           href="/migrations" title="Migration plans and history">Migrations</a>
+                    </li>
+
+                    <li class="nav-item">
                         <a
-                            class="nav-link{% if active_page == "remotes" %} active{% endif %}"
+                            class="nav-link boreal-purple-nav{% if active_page == "remotes" %} active{% endif %}"
                             {% if active_page == "remotes" %}aria-current="page"{% endif %}
                             href="/remotes"
                             title="View Remotes"
