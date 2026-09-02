@@ -312,11 +312,11 @@ pub fn archive(database: &Database, id: i64) -> Result<(), DatabaseError> {
     let connection = database.connect()?;
     let changed = connection.execute(
         "UPDATE migration_jobs SET archived_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?1 AND status = 'completed' AND archived_at IS NULL",
+         WHERE id = ?1 AND status NOT IN ('preflight', 'running') AND archived_at IS NULL",
         [id],
     )?;
     if changed == 0 {
-        return Err("Only completed, unarchived migrations can be archived".into());
+        return Err("Only inactive, unarchived migrations can be archived".into());
     }
     Ok(())
 }

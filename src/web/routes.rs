@@ -1762,7 +1762,7 @@ async fn migrations_page(
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let sort = match query.sort.as_str() {
         "id" | "source" | "status" | "destination" | "files" | "folders" | "capacity"
-        | "created" | "completed" => query.sort.as_str(),
+        | "created" => query.sort.as_str(),
         _ => "created",
     };
     let descending = if query.dir.is_empty() {
@@ -1786,7 +1786,6 @@ async fn migrations_page(
         ("Folders", "folders"),
         ("Capacity", "capacity"),
         ("Created", "created"),
-        ("Completed", "completed"),
     ]
     .into_iter()
     .map(|(label, column)| {
@@ -2029,7 +2028,8 @@ fn render_migration_wizard(
 
 fn migration_view(job: database::migration::MigrationJob) -> MigrationView {
     let can_cancel = job.started_at.is_empty() && matches!(job.status.as_str(), "draft" | "ready");
-    let can_archive = job.status == "completed" && job.archived_at.is_empty();
+    let can_archive =
+        !matches!(job.status.as_str(), "preflight" | "running") && job.archived_at.is_empty();
     let can_start = job.status == "ready" && job.started_at.is_empty();
     let running = matches!(job.status.as_str(), "preflight" | "running");
     MigrationView {
