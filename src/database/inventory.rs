@@ -60,6 +60,8 @@ pub struct SharedDriveRow {
 pub struct SharedDrivePermissionIdentity {
     pub label: String,
     pub roles: Vec<String>,
+    pub known: bool,
+    pub tags: Vec<Tag>,
 }
 
 #[derive(Debug, Clone)]
@@ -239,7 +241,7 @@ pub fn list_shared_drives_filtered(
            ))
          ORDER BY is_accessible DESC, name COLLATE NOCASE, drive_id",
     )?;
-    statement
+    let mut drives = statement
         .query_map(
             params![
                 search.trim(),
@@ -303,7 +305,12 @@ pub fn list_shared_drives_filtered(
                                 .into_iter()
                                 .map(|(label, mut roles)| {
                                     roles.sort_by_key(|role| role.to_ascii_lowercase());
-                                    SharedDrivePermissionIdentity { label, roles }
+                                    SharedDrivePermissionIdentity {
+                                        label,
+                                        roles,
+                                        known: false,
+                                        tags: Vec::new(),
+                                    }
                                 })
                                 .collect::<Vec<_>>();
                             identities.sort_by_key(|identity| identity.label.to_ascii_lowercase());
@@ -313,8 +320,50 @@ pub fn list_shared_drives_filtered(
                 })
             },
         )?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(Into::into)
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(statement);
+
+    let known_identities = connection
+        .prepare(
+            "SELECT lower(email) FROM principal_emails
+             UNION SELECT lower(primary_email) FROM principals WHERE primary_email IS NOT NULL",
+        )?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<HashSet<_>, _>>()?;
+    let mut identity_tags: HashMap<String, Vec<Tag>> = HashMap::new();
+    let mut tag_statement = connection.prepare(
+        "SELECT lower(pe.email), t.slug, t.name, t.color, t.description
+         FROM principal_emails pe
+         JOIN principal_tags pt ON pt.principal_id = pe.principal_id
+         JOIN tags t ON t.id = pt.tag_id
+         ORDER BY t.name COLLATE NOCASE",
+    )?;
+    for row in tag_statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            Tag {
+                slug: row.get(1)?,
+                name: row.get(2)?,
+                color: row.get(3)?,
+                description: row.get(4)?,
+                directory: false,
+                my_drive: false,
+                shared_drives: false,
+                shared_with_me: false,
+            },
+        ))
+    })? {
+        let (email, tag) = row?;
+        identity_tags.entry(email).or_default().push(tag);
+    }
+    for drive in &mut drives {
+        for identity in &mut drive.permission_identities {
+            let label = identity.label.to_ascii_lowercase();
+            identity.known = known_identities.contains(&label);
+            identity.tags = identity_tags.get(&label).cloned().unwrap_or_default();
+        }
+    }
+    Ok(drives)
 }
 
 pub fn change_shared_drive_tags(

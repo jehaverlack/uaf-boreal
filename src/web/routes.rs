@@ -477,6 +477,12 @@ pub struct SharedDriveView {
 pub struct SharedDriveIdentityView {
     pub label: String,
     pub roles_label: String,
+    pub tagged: bool,
+    pub unknown: bool,
+    pub color: String,
+    pub text_color: &'static str,
+    pub tag_details: String,
+    pub directory_url: String,
 }
 
 #[derive(Template)]
@@ -3053,6 +3059,7 @@ fn shared_drive_manager_sort_key(drive: &database::inventory::SharedDriveRow) ->
 fn shared_drive_identity_view(
     identity: &database::inventory::SharedDrivePermissionIdentity,
 ) -> SharedDriveIdentityView {
+    let display = identity_display(identity.label.clone(), identity.known, &identity.tags);
     let roles_label = identity
         .roles
         .iter()
@@ -3068,8 +3075,14 @@ fn shared_drive_identity_view(
         .collect::<Vec<_>>()
         .join(", ");
     SharedDriveIdentityView {
-        label: identity.label.clone(),
+        label: display.label,
         roles_label,
+        tagged: display.tagged,
+        unknown: display.unknown,
+        color: display.color,
+        text_color: display.text_color,
+        tag_details: display.tag_details,
+        directory_url: display.directory_url,
     }
 }
 
