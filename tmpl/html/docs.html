@@ -17,6 +17,8 @@
                 <a class="nav-link" href="#tags">Tags</a>
                 <a class="nav-link" href="#persons">Persons</a>
                 <a class="nav-link" href="#reports">Reports and downloads</a>
+                <a class="nav-link" href="#migrations">Migrations</a>
+                <a class="nav-link" href="#upgrading">Upgrading</a>
                 <a class="nav-link" href="#application">Application controls</a>
             </nav>
             <a class="btn btn-sm btn-outline-primary mt-3" href="/help"><i class="bi bi-question-circle me-1"></i>Troubleshooting help</a>
@@ -35,7 +37,7 @@
                     <li>Upload a Google OAuth <strong>Desktop app</strong> client JSON file. If you need to create one, open <strong>App → Create Google Client ID</strong>.</li>
                     <li>Set up and authorize the read-only <code>my-drive-ro</code> remote.</li>
                     <li>Optionally link a Persons Google Sheet in <strong>App → Settings</strong>.</li>
-                    <li>Open <strong>Updates</strong> and import the Google Drive metadata you want to explore.</li>
+                    <li>Open <strong>Update</strong> and import the Google Drive metadata you want to explore.</li>
                 </ol>
             </div></div>
         </section>
@@ -43,14 +45,14 @@
         <section id="metadata" class="mb-4" data-doc-entry>
             <h2 class="h4">Update the local metadata inventory</h2>
             <div class="card"><div class="card-body">
-                <p>BOREAL searches its local SQLite inventory. Use <strong>Updates</strong> to refresh that inventory from Google Drive.</p>
+                <p>BOREAL searches its local SQLite inventory. Use <strong>Update</strong> to refresh that inventory from Google Drive.</p>
                 <ul class="mb-0">
-                    <li><strong>Persons</strong> imports the configured directory spreadsheet.</li>
-                    <li><strong>My Drive</strong> inventories content owned by or visible in My Drive.</li>
-                    <li><strong>Shared with Me</strong> inventories content shared with the authenticated account.</li>
-                    <li><strong>Shared Drives</strong> discovers and inventories accessible Shared Drives. This can take several hours.</li>
+                    <li><strong>Persons (~10 seconds)</strong> imports the configured directory spreadsheet.</li>
+                    <li><strong>My Drive (2–20 minutes)</strong> inventories content owned by or visible in My Drive.</li>
+                    <li><strong>Shared with me (2–20 minutes)</strong> inventories content shared with the authenticated account.</li>
+                    <li><strong>Shared Drives (1–6 hours)</strong> discovers and inventories accessible Shared Drives.</li>
                 </ul>
-                <p class="mt-3 mb-0">You may close the update modal while a job runs. Progress remains available from the Updates page and status bar.</p>
+                <p class="mt-3 mb-0">Times are approximate and depend on inventory size, permissions, and network speed. You may close the update modal while a job runs; progress remains available from the Update control and status bar.</p>
             </div></div>
         </section>
 
@@ -103,7 +105,38 @@
                 <h3 class="h6">Excel reports</h3>
                 <p>Apply explorer filters and click <strong>Export Excel</strong>. The workbook contains a Report Context sheet describing the filters and a Results sheet with clickable Google Drive links.</p>
                 <h3 class="h6">Local downloads</h3>
-                <p class="mb-0">Click the download icon beside an inventory item, choose a local destination folder, and let BOREAL copy it with Rclone. Closing the modal does not cancel the copy; use the Download status item to check completion.</p>
+                <p class="mb-0">Click the download icon beside an inventory item or accessible Shared Drive, choose a local destination folder, and start the copy. Downloads are retained in <strong>Migrations</strong>, can be resumed after interruption, and never delete the source. Use the Download status item to check the active copy.</p>
+            </div></div>
+        </section>
+
+        <section id="migrations" class="mb-4" data-doc-entry>
+            <h2 class="h4">Migrate Drive content</h2>
+            <div class="card"><div class="card-body">
+                <p>Select one or more active items in <strong>My Drive</strong> or <strong>Shared with me</strong>, then click <strong>Migrate</strong>. The Migration Assistant records the source inventory and guides destination selection and copying.</p>
+                <ol>
+                    <li>Review the selected files, folders, and estimated size.</li>
+                    <li>Select a local folder, or paste and validate an allowed Google Drive destination folder URL.</li>
+                    <li>For a Google destination, add and authorize <code>my-drive-rw</code> from <strong>Remotes</strong> using an account that can write to that destination.</li>
+                    <li>Start the transfer. The first copy rejects destination name collisions; <strong>Resume / Synchronize</strong> updates missing or changed destination files while retaining destination-only files.</li>
+                    <li>Verify the completed content at the destination before taking any action on the source.</li>
+                </ol>
+                <div class="alert alert-warning mb-0"><strong>Safety boundary:</strong> BOREAL never deletes migration sources. A completed copy is not yet an automated checksum or permission verification; source removal remains a manual decision in Google Drive.</div>
+            </div></div>
+        </section>
+
+        <section id="upgrading" class="mb-4" data-doc-entry>
+            <h2 class="h4">Upgrade BOREAL</h2>
+            <div class="card"><div class="card-body">
+                <p>BOREAL detects available releases but does not automatically replace the running executable.</p>
+                <ol>
+                    <li>Open <strong>App → Update</strong> and click <strong>Check for updates</strong>.</li>
+                    <li>Download the binary for this system and verify it against the release <code>SHA256SUMS</code>.</li>
+                    <li>Finish active metadata updates, migrations, and downloads, then quit BOREAL.</li>
+                    <li>Make the new binary executable on Linux or macOS, if necessary, and start it. On Windows, close BOREAL before replacing or renaming the old executable.</li>
+                    <li>Return to <strong>App → Update</strong> to confirm the installed version.</li>
+                </ol>
+                <p>Configuration, credentials, inventory, tags, migration history, and logs remain in the user-specific BOREAL home and are reused by the new executable. BOREAL applies required forward-only database migrations at startup.</p>
+                <p class="mb-0">For important inventories or annotations, back up the BOREAL home before a major upgrade. Keep the old executable temporarily if you want a rollback option, but do not replace a newer database with an older copy.</p>
             </div></div>
         </section>
 
@@ -112,12 +145,12 @@
             <div class="card"><div class="card-body">
                 <ul class="mb-0">
                     <li>BOREAL remains available from its desktop tray or menu-bar icon when the browser tab is closed.</li>
-                    <li>Use the desktop menu to reopen BOREAL, open Google Drive, open the Rclone WebGUI, or quit BOREAL gracefully.</li>
+                    <li>Use the desktop tray or menu-bar menu to reopen or quit BOREAL. Google Drive and the Rclone WebGUI are available from icons in the WebUI navigation bar.</li>
                     <li>If BOREAL is already running, launching it again opens the existing WebUI instead of starting a second server.</li>
-                    <li>You can also use <strong>App → Quit BOREAL</strong> or Ctrl-C in the terminal to stop the application gracefully.</li>
+                    <li>You can also use <strong>App → Quit BOREAL</strong> or Ctrl-C in the terminal to stop the application gracefully. Interactive quit actions warn when active work would be interrupted.</li>
                     <li><strong>Remotes</strong> shows BOREAL’s Rclone configuration status.</li>
                     <li>BOREAL binds only to the local computer and stores its database, configuration, credentials, and logs under the user-specific BOREAL directory.</li>
-                    <li>Current inventory operations are read-only. Local tagging and reporting do not alter Google Drive content.</li>
+                    <li>Inventory operations use the read-only remote. Google migrations require the separate read/write remote; local tagging and reporting do not alter Google Drive content.</li>
                 </ul>
             </div></div>
         </section>

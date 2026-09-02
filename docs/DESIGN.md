@@ -34,7 +34,7 @@ BOREAL is an audit and decision-support tool. It is not a Google Drive replaceme
 - Metadata collection must never modify Google Drive content or permissions.
 - Local tags change only SQLite records; they do not modify Google Drive labels or metadata.
 - Deletion remains a manual action in Google Drive.
-- A future migration workflow may write only to an explicitly selected Shared Drive destination. It must not automatically delete a source.
+- Migration copies may write only through the separately authorized `my-drive-rw` remote to an explicitly selected Google Drive destination. Local downloads write only to a user-selected directory. Neither operation deletes a source.
 - A future automated workflow may apply `Safe for removal` only after a completed migration comparison satisfies the defined verification policy. The current manually applied tag is advisory and is not proof that verification occurred.
 
 ### Local operation and privacy
@@ -113,7 +113,7 @@ BOREAL is distributed as a standalone Rust executable. It installs or reuses a B
 10. The rclone GUI/remote-control process is started.
 11. Configured Google remotes are inspected without displaying credentials.
 12. Axum binds the local-only web interface and opens the dashboard.
-13. Ctrl-C, the WebUI quit action, or the desktop Quit menu triggers graceful shutdown and stops the managed rclone process.
+13. Ctrl-C, the WebUI quit action, or the desktop Quit menu triggers graceful shutdown and stops the managed rclone process. Interactive quit actions request confirmation when metadata updates, migrations, or downloads are active.
 
 ### Application state
 
@@ -123,8 +123,9 @@ BOREAL is distributed as a standalone Rust executable. It installs or reuses a B
 - SQLite availability.
 - Rclone installation/process state.
 - Google OAuth client state.
-- Read-only and legacy read/write remote states.
+- Read-only inventory and read/write migration remote states.
 - Metadata synchronization and progress state.
+- Local download status and persistent migration job state.
 - Mutual-exclusion guards for metadata and remote-setup jobs.
 - A shutdown notification channel.
 
@@ -173,7 +174,7 @@ The user supplies a Google OAuth desktop client configuration. BOREAL imports an
 | Remote | Scope | Current role |
 | --- | --- | --- |
 | `my-drive-ro` | `drive.readonly` | Required inventory and identity source |
-| `my-drive-rw` | `drive` | Recognized by legacy code but not created during initial setup and not used by current workflows |
+| `my-drive-rw` | `drive` | Optional, separately authorized destination access for Google Drive migrations |
 
 All metadata queries must use `my-drive-ro`. Shared with me and Shared Drive inventories are views reached through rclone flags on that same authenticated remote; they are not separate OAuth remotes.
 
@@ -198,11 +199,11 @@ The Update dialog permits any combination of:
 - My Drive
 - Shared Drives
 - Shared with me
-- Directory Info
+- Persons directory
 
-At least one source is required. Directory Info is selectable only when an enabled spreadsheet source URL exists. Unselected inventories and timestamps remain unchanged.
+At least one source is required. Persons is selectable only when an enabled spreadsheet source URL exists. Unselected inventories and timestamps remain unchanged.
 
-The current job performs selected work sequentially in a background worker. The modal displays a separate progress row for each source, marks unselected sources as not requested, and uses phase progress plus recent scan-duration history for approximate estimates. Rclone does not provide an exact total-item download progress value, so displayed percentages are estimates.
+The current job performs selected work sequentially in a background worker. The modal displays a separate progress row for each source, marks unselected sources as not requested, and shows typical duration guidance. Rclone does not provide an exact total-item download progress value, so displayed percentages and completion times are estimates.
 
 Only one metadata update may run at once. Failures are logged and represented in scan/import state. Successful completion causes dashboard/status fragments to refresh without requiring a full page reload.
 
@@ -237,13 +238,14 @@ SQLite is the local system of record for indexed metadata and user annotations. 
 | --- | --- | --- |
 | Configuration | `settings`, `schema_migrations` | Runtime preferences and schema versioning |
 | Scan history | `scan_runs` | Scope status, timing, counts, and errors |
-| Drive inventory | `drive_items`, `drive_permissions`, `shared_drives` | Current and retained historical Drive state |
+| Drive inventory | `drive_items`, `drive_permissions`, `shared_drives`, `shared_drive_permissions` | Current and retained historical Drive state |
 | Content classification | `tags`, `drive_item_tags`, `shared_drive_tags` | Local item and Shared Drive tags, including recursive folder tagging |
 | Identity directory | `principals`, `principal_emails`, `organizations` | People, groups, department accounts, service accounts, and organizations |
 | Relationships | `organization_memberships`, `principal_memberships` | Principal-to-organization and group membership relationships |
 | Identity classification | `principal_tags` | Local tags applied to directory identities |
 | Directory ingestion | `directory_sources`, `directory_import_runs` | CSV/Google Sheet source configuration and import history |
 | Authentication identity | `remote_accounts` | Detected account associated with an rclone remote |
+| Migration history | `migration_jobs`, `migration_sources` | Persistent migration/download plans, destinations, progress, retries, and errors |
 
 ### Storage considerations
 
@@ -290,6 +292,7 @@ Primary views are:
 - My Drive Explorer.
 - Shared Drives list and per-Drive Explorer.
 - Shared with me Explorer.
+- Migration and local-download planning, progress, resume, and history views.
 - Directory list, detail, add, and edit pages.
 - Tag management.
 - Remotes status.
@@ -325,42 +328,43 @@ External data must be parsed, validated, escaped by Askama, and written using SQ
 
 Loopback binding prevents network exposure but does not provide browser authentication or CSRF protection. The current model assumes a single trusted user and workstation. If BOREAL ever binds beyond loopback or becomes multi-user, authentication, authorization, CSRF protection, session isolation, and stronger secret storage become mandatory architectural requirements.
 
-## Migration design scope
+## Migration and download scope
 
 ### Current status
 
-Migration execution is not implemented. BOREAL currently provides inventory, risk analysis, selection, and local tagging only. The presence of migration-oriented tags does not imply that content has been copied or verified.
+BOREAL can create persistent jobs from selected My Drive or Shared with me items. A job can copy to a user-selected local directory or, after the optional `my-drive-rw` remote is authorized, to a validated Google Drive folder. Entire accessible Shared Drives can also be downloaded locally.
 
-### Agreed migration boundary
+The first copy rejects destination name collisions. An interrupted or failed job can be resumed as a one-way synchronization: missing and changed destination files are updated, destination-only files are retained, and source content is never modified or deleted. Job records retain source totals, destination, progress, status, errors, and resume count.
 
-The initial migration workflow will not create Shared Drives. The user creates and configures the destination Shared Drive in Google Drive and supplies its URL to BOREAL.
+Destination inventory comparison, checksum-based verification, permission comparison, and automatic `Safe for removal` classification are not yet implemented. Users must verify completed copies themselves; a `copied` job status records transfer completion, not policy-grade verification.
 
-The intended workflow is:
+### Migration boundary
+
+The migration workflow does not create Shared Drives or destination folders. The user creates and configures the destination in Google Drive and supplies its URL to BOREAL, or selects an existing local directory for a download.
+
+The implemented workflow is:
 
 1. Select a My Drive or Shared with me file/folder.
 2. Supply an existing destination Shared Drive or folder URL.
-3. Validate source readability and destination identity/access.
-4. Produce a preflight inventory and exception list.
-5. Obtain narrowly scoped, on-demand destination write authorization.
-6. Copy the source without changing it.
-7. Inventory the destination.
-8. Compare source and destination files, folders, paths, logical size, types, and available checksums.
-9. Compare source and destination permissions and report inherited, missing, additional, or policy-blocked access.
-10. Mark the source `Safe for removal` only if required verification criteria pass.
-11. Leave source removal to the user in Google Drive.
+3. Validate the destination URL and access, or select a local directory.
+4. Record the source inventory totals in a persistent job.
+5. For Google copies, use the separately authorized read/write remote.
+6. Preflight the destination and copy the source without changing it.
+7. Retain progress and errors so interrupted work can be resumed.
+8. Require the user to verify the destination and leave source removal to the user in Google Drive.
 
 For Shared with me content, BOREAL copies readable content but does not attempt to delete an owner’s original. The original owner and source availability remain part of the migration report.
 
-### Migration non-goals for the first implementation
+### Current non-goals
 
 - Creating or deleting Shared Drives.
 - Automatically deleting, trashing, or moving My Drive sources.
 - Permanently deleting any Google Drive item.
 - Guaranteeing exact replication of permissions that conflict with Shared Drive policy.
 - Treating path/name equality alone as proof of a correct copy.
-- Granting broad or persistent write access during ordinary audit operation.
+- Treating a completed copy status as proof of structural or permission equivalence.
 
-### Verification criteria
+### Planned verification criteria
 
 A migration may be considered structurally verified when:
 
@@ -382,11 +386,10 @@ Near-term work should proceed in this order:
 1. Improve Explorer responsiveness through pagination, batched permission/tag loading, and query timing.
 2. Separate discovery from inventory selection and permit updates of selected Shared Drives.
 3. Make per-source update timing persist at actual source start/finish boundaries.
-4. Add a read-only migration preflight and destination URL parser.
-5. Define persistent migration jobs, item mappings, comparisons, and exception records.
-6. Add explicit destination-only write authorization and copy execution.
-7. Add destination refresh and structural comparison.
-8. Add permission comparison and policy review.
-9. Apply `Safe for removal` automatically only after verified completion.
+4. Add destination refresh and structural comparison records to existing migration jobs.
+5. Add checksum-aware comparison and explicit exception handling.
+6. Add permission comparison and policy review.
+7. Apply `Safe for removal` automatically only after verified completion.
+8. Add signed, staged application updates through a stable per-user launcher.
 
 Any feature that expands Google permissions, changes remote content, or communicates outside the local machine requires an explicit design and safety review before implementation.

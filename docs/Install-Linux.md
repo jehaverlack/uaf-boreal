@@ -43,3 +43,8 @@ sha256sum boreal-v1.0.1-linux-x86_64
 ```
 
 Compare the result with the release `SHA256SUMS` file.
+
+## Upgrading
+
+See [Upgrading BOREAL](UPGRADING.md). Quit the running version before starting
+the new binary; existing data under `~/.boreal` is retained.

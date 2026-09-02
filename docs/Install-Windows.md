@@ -28,3 +28,9 @@ Get-FileHash .\boreal-v1.0.1-windows-x86_64.exe -Algorithm SHA256
 ```
 
 Compare the result with the release `SHA256SUMS` file.
+
+## Upgrading
+
+See [Upgrading BOREAL](UPGRADING.md). Quit the running version before replacing
+or renaming its executable. BOREAL retains its existing data under the user's
+Local App Data directory.
