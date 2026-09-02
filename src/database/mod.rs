@@ -187,7 +187,7 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 24,);
+        assert_eq!(migration_count, 25,);
 
         let safe_to_delete_scope_count: i64 = connection
             .query_row(
@@ -209,7 +209,7 @@ mod tests {
             ("retain", 3_i64),
             ("to-delete", 3_i64),
             ("to-migrate", 2_i64),
-            ("migration-complete", 3_i64),
+            ("migrated", 2_i64),
             ("remove-my-permissions", 3_i64),
         ] {
             let scope_count: i64 = connection
@@ -246,7 +246,7 @@ mod tests {
             "needs-handoff",
             "retain",
             "to-migrate",
-            "migration-complete",
+            "migrated",
             "remove-my-permissions",
             "to-delete",
             "safe-to-delete",
@@ -744,6 +744,42 @@ mod tests {
             1,
             "partial refresh must not mark an unselected folder deleted",
         );
+        let connection = database.connect().expect("database should connect");
+        connection
+            .execute(
+                "INSERT INTO migration_jobs
+                 (source_scope, source_kind, status, phase)
+                 VALUES ('my-drive-ro', 'my-drive', 'running', 'Copying selected items')",
+                [],
+            )
+            .expect("running migration should insert");
+        let migration_id = connection.last_insert_rowid();
+        connection
+            .execute(
+                "INSERT INTO migration_sources
+                 (migration_id, item_id, name, relative_path, is_directory, status)
+                 VALUES (?1, 'folder-id-1', 'Reports', 'Reports', 1, 'completed')",
+                [migration_id],
+            )
+            .expect("completed migration source should insert");
+        drop(connection);
+        migration::complete_copy(&database, migration_id)
+            .expect("completed copy should tag its source");
+        let migrated_items: i64 = database
+            .connect()
+            .expect("database should connect")
+            .query_row(
+                "SELECT COUNT(*) FROM drive_item_tags assignments
+                 JOIN tags tag ON tag.id = assignments.tag_id
+                 WHERE assignments.remote_name = 'my-drive-ro' AND tag.slug = 'migrated'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("migrated assignments should be readable");
+        assert_eq!(
+            migrated_items, 2,
+            "a migrated folder and its indexed descendants should be tagged",
+        );
         let shared_scan = database
             .start_scan_run("shared-with-me")
             .expect("scan should start");
@@ -1173,7 +1209,7 @@ mod tests {
         let retained_tags: i64 = connection
             .query_row("SELECT COUNT(*) FROM drive_item_tags", [], |row| row.get(0))
             .expect("tags should remain queryable");
-        assert_eq!(retained_tags, 2);
+        assert_eq!(retained_tags, 4);
 
         drop(connection);
         fs::remove_dir_all(root).expect("temporary database directory should be removable");

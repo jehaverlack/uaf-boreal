@@ -310,13 +310,46 @@ pub fn fail_copy(
 }
 
 pub fn complete_copy(database: &Database, id: i64) -> Result<(), DatabaseError> {
-    database.connect()?.execute(
+    let mut connection = database.connect()?;
+    let transaction = connection.transaction()?;
+    let changed = transaction.execute(
         "UPDATE migration_jobs SET status = 'copied', phase = 'Copy complete; verification pending',
              files_copied = files_total, bytes_copied = bytes_total,
              copy_completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?1 AND status = 'running'",
         [id],
     )?;
+    if changed == 0 {
+        return Err("Only a running migration can complete its copy".into());
+    }
+    transaction.execute(
+        "INSERT OR IGNORE INTO drive_item_tags (remote_name, item_id, tag_id)
+         SELECT descendant.remote_name, descendant.item_id, tag.id
+         FROM migration_jobs job
+         JOIN migration_sources source ON source.migration_id = job.id
+         JOIN drive_items selected
+           ON selected.remote_name = job.source_scope
+          AND selected.item_id = source.item_id
+         JOIN drive_items descendant
+           ON descendant.remote_name = selected.remote_name
+          AND descendant.is_deleted = 0
+          AND (
+               descendant.item_id = selected.item_id
+               OR (selected.is_directory = 1 AND
+                   substr(descendant.relative_path, 1, length(selected.relative_path) + 1)
+                       = selected.relative_path || '/')
+          )
+         JOIN tags tag ON tag.slug = 'migrated'
+         JOIN tag_scopes scope
+           ON scope.tag_id = tag.id
+          AND scope.scope = CASE job.source_kind
+              WHEN 'my-drive' THEN 'my-drive'
+              WHEN 'shared-with-me' THEN 'shared-with-me'
+          END
+         WHERE job.id = ?1 AND source.status = 'completed'",
+        [id],
+    )?;
+    transaction.commit()?;
     Ok(())
 }
 
