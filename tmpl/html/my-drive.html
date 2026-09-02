@@ -218,15 +218,15 @@
                             <i class="bi bi-download" aria-hidden="true"></i>
                         </button>{% endif %}
                     </td>
-                    <td class="text-center"><i class="bi {{ row.type_icon }} fs-5 text-primary" title="{{ row.mime_type }}" aria-label="{{ row.mime_type }}"></i></td>
-                    <th scope="row" class="boreal-name-cell">
+                    <td class="text-center small"><i class="bi {{ row.type_icon }} fs-6 text-primary" title="{{ row.mime_type }}" aria-label="{{ row.mime_type }}"></i></td>
+                    <th scope="row" class="boreal-name-cell small">
                         <a href="{{ row.name_url }}" {% if row.name_new_tab %}target="_blank" rel="noopener noreferrer"{% endif %} class="text-decoration-none boreal-name-link" title="{% if row.is_directory %}Browse folder in BOREAL{% else %}Open in Google Drive{% endif %}">
                             {{ row.name }}
                         </a>
                         <span class="boreal-item-tags">{% for tag in row.tags %}<span class="badge rounded-pill ms-1" style="background-color: {{ tag.color }}; color: {{ tag.text_color }};" title="{{ tag.description }}">{{ tag.name }}</span>{% endfor %}</span>
                         {% if row.is_deleted %}<span class="badge rounded-pill text-bg-secondary ms-1">Deleted</span>{% endif %}
                     </th>
-                    <td class="text-nowrap">{{ row.size }}</td>
+                    <td class="text-nowrap small">{{ row.size }}</td>
                     <td class="text-nowrap small">{{ row.modified_at }}</td>
                     <td class="small">
                         {% if row.owner.directory_url.len() > 0 %}<a href="{{ row.owner.directory_url }}" class="badge rounded-pill boreal-unknown-identity text-decoration-none"
