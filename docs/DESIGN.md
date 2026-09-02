@@ -95,7 +95,7 @@ Google Drive / Google Workspace
   User's local web browser
 ```
 
-BOREAL is distributed as a standalone Rust executable. It installs or reuses a BOREAL-managed rclone binary, starts the rclone WebGUI/remote-control process, starts its own local web server, and opens the dashboard in the default browser after initialization checks complete.
+BOREAL is distributed as a standalone Rust executable. It installs or reuses a BOREAL-managed rclone binary, starts the rclone WebGUI/remote-control process, starts its own local web server, opens the dashboard in the default browser, and remains available through a native desktop tray or menu-bar icon.
 
 ## Runtime architecture
 
@@ -105,13 +105,15 @@ BOREAL is distributed as a standalone Rust executable. It installs or reuses a B
 2. Embedded configuration templates are created only when files do not already exist.
 3. Configured directories are resolved and created.
 4. Daily file logging is initialized.
-5. SQLite is opened and pending migrations are applied.
-6. The configured Google OAuth client is detected.
-7. The managed rclone binary is installed or validated.
-8. The rclone GUI/remote-control process is started.
-9. Configured Google remotes are inspected without displaying credentials.
-10. After initialization settles, Axum binds the local-only web interface and opens the dashboard.
-11. Ctrl-C or the WebUI quit action triggers graceful shutdown and stops the managed rclone process.
+5. BOREAL probes its configured local endpoint. A second launch opens the existing WebUI and exits without starting another server.
+6. SQLite is opened and pending migrations are applied.
+7. The configured Google OAuth client is detected.
+8. The native desktop tray or menu-bar controller is registered.
+9. The managed rclone binary is installed or validated.
+10. The rclone GUI/remote-control process is started.
+11. Configured Google remotes are inspected without displaying credentials.
+12. Axum binds the local-only web interface and opens the dashboard.
+13. Ctrl-C, the WebUI quit action, or the desktop Quit menu triggers graceful shutdown and stops the managed rclone process.
 
 ### Application state
 
@@ -388,4 +390,3 @@ Near-term work should proceed in this order:
 9. Apply `Safe for removal` automatically only after verified completion.
 
 Any feature that expands Google permissions, changes remote content, or communicates outside the local machine requires an explicit design and safety review before implementation.
-

@@ -1049,6 +1049,7 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/settings/directory/test", post(test_directory_sheet))
         .route("/status", get(status))
+        .route("/app/instance", get(instance_identity))
         .route("/rclone-gui", get(open_rclone_gui))
         .route("/ui/alerts", get(ui_alerts))
         .route("/ui/status", get(ui_status))
@@ -2254,9 +2255,7 @@ async fn save_local_migration_destination(
     State(state): State<Arc<AppState>>,
     Path(migration_id): Path<i64>,
 ) -> Result<axum::response::Response, StatusCode> {
-    let selected = rfd::FileDialog::new()
-        .set_title("Choose BOREAL migration destination")
-        .pick_folder();
+    let selected = crate::desktop::pick_folder("Choose BOREAL migration destination");
     let Some(selected) = selected else {
         return render_migration_wizard(
             &state,
@@ -2535,6 +2534,10 @@ fn google_drive_folder_id(url: &str) -> Result<String, String> {
 
 async fn status() -> StatusCode {
     StatusCode::NO_CONTENT
+}
+
+async fn instance_identity() -> &'static str {
+    "BOREAL"
 }
 
 async fn remotes_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {

@@ -79,9 +79,9 @@ Start BOREAL and follow the Setup Progress checklist in the browser:
 The initial Rclone installation and metadata update require internet access.
 Large Drive inventories, especially Shared Drives, may take several hours.
 
-Use **App → Quit BOREAL** in the browser interface or press **Ctrl-C** in the
-terminal to stop BOREAL. Closing only the browser tab does not stop the
-application.
+Closing the browser tab does not stop BOREAL. Use the BOREAL desktop tray or
+menu-bar icon to reopen the WebUI, open Google Drive or Rclone, or quit BOREAL.
+You can also use **App → Quit BOREAL** or press **Ctrl-C** in the terminal.
 
 Architecture and security details are available in
 [DESIGN.md](docs/DESIGN.md). BOREAL is distributed under the
