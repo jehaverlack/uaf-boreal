@@ -318,7 +318,7 @@
                     <li class="nav-item dropdown">
 
                         <a
-                            class="nav-link dropdown-toggle{% if active_page == "about" || active_page == "settings" || active_page == "tags" || active_page == "docs" || active_page == "help" %} active{% endif %}"
+                            class="nav-link dropdown-toggle{% if active_page == "about" || active_page == "settings" || active_page == "tags" || active_page == "docs" || active_page == "help" || active_page == "update" %} active{% endif %}"
                             href="#"
                             role="button"
                             data-bs-toggle="dropdown"
@@ -331,6 +331,18 @@
                         <ul
                             class="dropdown-menu dropdown-menu-end"
                         >
+
+                            <li>
+
+                                <a
+                                    class="dropdown-item{% if active_page == "update" %} active{% endif %}"
+                                    href="/update"
+                                >
+                                    <i class="bi bi-arrow-up-circle me-2"></i>
+                                    Update
+                                </a>
+
+                            </li>
 
                             <li>
 

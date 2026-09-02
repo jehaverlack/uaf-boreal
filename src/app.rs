@@ -33,6 +33,8 @@ pub struct AppState {
 
     pub download: RwLock<DownloadState>,
 
+    pub update: RwLock<crate::update::UpdateState>,
+
     metadata_job_active: Mutex<bool>,
 
     remote_setup_active: Mutex<bool>,
@@ -203,6 +205,8 @@ impl AppState {
 
             download: RwLock::new(DownloadState::Idle),
 
+            update: RwLock::new(crate::update::UpdateState::Checking),
+
             metadata_job_active: Mutex::new(false),
 
             remote_setup_active: Mutex::new(false),
@@ -288,6 +292,33 @@ impl AppState {
                 }
             }
         });
+    }
+
+    pub fn check_for_updates(state: Arc<Self>) {
+        if let Ok(mut update) = state.update.write() {
+            *update = crate::update::UpdateState::Checking;
+        }
+        tokio::spawn(async move {
+            let result = tokio::task::spawn_blocking(crate::update::check).await;
+            let new_state = match result {
+                Ok(state) => state,
+                Err(error) => crate::update::UpdateState::Error(format!(
+                    "BOREAL update check task failed: {error}"
+                )),
+            };
+            if let Ok(mut update) = state.update.write() {
+                *update = new_state;
+            }
+        });
+    }
+
+    pub fn update_state(&self) -> crate::update::UpdateState {
+        self.update
+            .read()
+            .map(|state| state.clone())
+            .unwrap_or_else(|error| {
+                crate::update::UpdateState::Error(format!("Unable to read update state: {error}"))
+            })
     }
 
     pub fn rclone_state(&self) -> RcloneState {

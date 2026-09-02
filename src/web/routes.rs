@@ -78,6 +78,7 @@ pub struct StatusItem {
     pub value_url: String,
     pub spinner: bool,
     pub age_timestamp: String,
+    pub title: String,
 }
 
 #[allow(dead_code)]
@@ -171,6 +172,30 @@ struct AboutTemplate {
     alerts: Vec<AlertItem>,
     status_items: Vec<StatusItem>,
     poll_rclone: bool,
+}
+
+#[allow(dead_code)]
+#[derive(Template)]
+#[template(path = "update.html", config = "askama.toml")]
+struct UpdateTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+    current_version: String,
+    current_maturity: String,
+    checking: bool,
+    update_available: bool,
+    error: String,
+    latest_version: String,
+    latest_maturity: String,
+    latest_date: String,
+    summary: String,
+    notes: String,
+    release_url: String,
+    download_url: String,
+    changelog_url: &'static str,
 }
 
 #[allow(dead_code)]
@@ -884,6 +909,7 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(index))
         .route("/about", get(about))
+        .route("/update", get(update_page).post(check_for_updates))
         .route("/docs", get(docs_page))
         .route("/help", get(help_page))
         .route("/assets/uaf-logo.png", get(uaf_logo))
@@ -1108,6 +1134,7 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         &metadata_state,
         configured_remote_count(&state.runtime, &rclone_state),
         authenticated_google_email(&state),
+        &state.update_state(),
     );
 
     let setup_settings = state
@@ -1660,6 +1687,7 @@ fn render_settings(
             &metadata_state,
             configured_remote_count(&state.runtime, &rclone_state),
             authenticated_google_email(&state),
+            &state.update_state(),
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
         settings: inventory_settings,
@@ -1717,6 +1745,7 @@ async fn about(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         &metadata_state,
         configured_remote_count(&state.runtime, &rclone_state),
         authenticated_google_email(&state),
+        &state.update_state(),
     );
 
     let poll_rclone = should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state);
@@ -1730,6 +1759,79 @@ async fn about(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
     };
 
     render_template(&template)
+}
+
+async fn update_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    let update_state = state.update_state();
+    let (checking, update_available, error, release) = match &update_state {
+        crate::update::UpdateState::Checking => (true, false, String::new(), None),
+        crate::update::UpdateState::Current { latest } => {
+            (false, false, String::new(), Some(latest))
+        }
+        crate::update::UpdateState::Available { release } => {
+            (false, true, String::new(), Some(release))
+        }
+        crate::update::UpdateState::Error(error) => (false, false, error.clone(), None),
+    };
+    let latest_version = release
+        .map(|release| release.version.clone())
+        .unwrap_or_default();
+    render_template(&UpdateTemplate {
+        title: "Update BOREAL",
+        active_page: "update",
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
+        status_items: build_status_items(
+            &state.download_state(),
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(&state),
+            &update_state,
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state)
+            || checking,
+        current_version: env!("CARGO_PKG_VERSION").to_string(),
+        current_maturity: boreal_maturity().to_string(),
+        checking,
+        update_available,
+        error,
+        latest_version: latest_version.clone(),
+        latest_maturity: release
+            .map(|release| release.maturity.clone())
+            .unwrap_or_default(),
+        latest_date: release
+            .map(|release| release.date.clone())
+            .unwrap_or_default(),
+        summary: release
+            .map(|release| release.summary.clone())
+            .unwrap_or_default(),
+        notes: release
+            .map(|release| release.notes.clone())
+            .unwrap_or_default(),
+        release_url: (!latest_version.is_empty())
+            .then(|| crate::update::release_url(&latest_version))
+            .unwrap_or_default(),
+        download_url: (!latest_version.is_empty())
+            .then(|| crate::update::download_url(&latest_version))
+            .flatten()
+            .unwrap_or_default(),
+        changelog_url: crate::update::CHANGELOG_URL,
+    })
+}
+
+async fn check_for_updates(State(state): State<Arc<AppState>>) -> Redirect {
+    AppState::check_for_updates(state);
+    Redirect::to("/update")
 }
 
 async fn docs_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
@@ -1753,6 +1855,7 @@ async fn docs_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, S
             &metadata_state,
             configured_remote_count(&state.runtime, &rclone_state),
             authenticated_google_email(&state),
+            &state.update_state(),
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
     })
@@ -1779,6 +1882,7 @@ async fn help_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, S
             &metadata_state,
             configured_remote_count(&state.runtime, &rclone_state),
             authenticated_google_email(&state),
+            &state.update_state(),
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
     })
@@ -1850,6 +1954,7 @@ async fn migrations_page(
             &metadata_state,
             configured_remote_count(&state.runtime, &rclone_state),
             authenticated_google_email(&state),
+            &state.update_state(),
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
         migrations,
@@ -2081,6 +2186,7 @@ fn render_migration_wizard(
             &metadata_state,
             configured_remote_count(&state.runtime, &rclone_state),
             authenticated_google_email(state),
+            &state.update_state(),
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
         migration: migration_view(migration),
@@ -2260,6 +2366,7 @@ async fn remotes_page(State(state): State<Arc<AppState>>) -> Result<Html<String>
             &metadata_state,
             remotes.len(),
             authenticated_google_email(&state),
+            &state.update_state(),
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
         remotes,
@@ -2850,6 +2957,7 @@ async fn shared_drives_page(
                 &metadata_state,
                 configured_remote_count(&state.runtime, &rclone_state),
                 authenticated_google_email(&state),
+                &state.update_state(),
             ),
             poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
             drives,
@@ -3131,6 +3239,7 @@ fn render_drive_explorer(
             &metadata_state,
             configured_remote_count(&state.runtime, &rclone_state),
             authenticated_google_email(&state),
+            &state.update_state(),
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
         current_path: if query.path.is_empty() {
@@ -3790,6 +3899,7 @@ async fn tags_page(
             &metadata_state,
             configured_remote_count(&state.runtime, &rclone_state),
             authenticated_google_email(&state),
+            &state.update_state(),
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
         tags,
@@ -3855,6 +3965,7 @@ async fn directory_page(
             &metadata_state,
             configured_remote_count(&state.runtime, &rclone_state),
             authenticated_google_email(&state),
+            &state.update_state(),
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
         summary,
@@ -4139,6 +4250,7 @@ fn render_principal_editor(
             &metadata_state,
             configured_remote_count(&state.runtime, &rclone_state),
             authenticated_google_email(state),
+            &state.update_state(),
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
         heading: if is_new { "Add person" } else { "Edit person" },
@@ -4253,6 +4365,7 @@ async fn principal_page(
             &metadata_state,
             configured_remote_count(&state.runtime, &rclone_state),
             authenticated_google_email(&state),
+            &state.update_state(),
         ),
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
         principal,
@@ -4404,6 +4517,7 @@ async fn ui_status(State(state): State<Arc<AppState>>) -> Result<Html<String>, S
             &metadata_state,
             configured_remote_count(&state.runtime, &rclone_state),
             authenticated_google_email(&state),
+            &state.update_state(),
         ),
 
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
@@ -5014,6 +5128,7 @@ fn build_status_items(
     metadata_state: &MetadataState,
     configured_remote_count: usize,
     google_account_email: String,
+    update_state: &crate::update::UpdateState,
 ) -> Vec<StatusItem> {
     let (rclone_value, rclone_value_class) = match rclone_state {
         RcloneState::Initializing => ("Initializing...".to_string(), "text-warning"),
@@ -5073,6 +5188,7 @@ fn build_status_items(
             value_url: rclone_gui_url(rclone_state),
             spinner: false,
             age_timestamp: String::new(),
+            title: "Open Rclone WebGUI".to_string(),
         },
         StatusItem {
             icon: "bi-google",
@@ -5082,6 +5198,7 @@ fn build_status_items(
             value_url: String::new(),
             spinner: false,
             age_timestamp: String::new(),
+            title: String::new(),
         },
         StatusItem {
             icon: "bi-key",
@@ -5091,6 +5208,7 @@ fn build_status_items(
             value_url: String::new(),
             spinner: false,
             age_timestamp: String::new(),
+            title: String::new(),
         },
         StatusItem {
             icon: "bi-cloud",
@@ -5100,6 +5218,7 @@ fn build_status_items(
             value_url: String::new(),
             spinner: false,
             age_timestamp: String::new(),
+            title: String::new(),
         },
         StatusItem {
             icon: "bi-database",
@@ -5112,21 +5231,42 @@ fn build_status_items(
                 MetadataState::Synchronized(summary) => summary.completed_at.clone(),
                 _ => String::new(),
             },
+            title: String::new(),
         },
         build_download_status_item(download_state),
         StatusItem {
             icon: "bi-info-circle",
             label: "BOREAL",
             value: boreal_version_label(),
-            value_class: "text-success",
-            value_url: String::new(),
+            value_class: if matches!(update_state, crate::update::UpdateState::Available { .. }) {
+                "text-warning fw-semibold"
+            } else {
+                "text-success"
+            },
+            value_url: "/update".to_string(),
             spinner: false,
             age_timestamp: String::new(),
+            title: match update_state {
+                crate::update::UpdateState::Available { release } => {
+                    format!("BOREAL v{} is available", release.version)
+                }
+                crate::update::UpdateState::Checking => "Checking for BOREAL updates".to_string(),
+                crate::update::UpdateState::Current { .. } => {
+                    "BOREAL is up to date. Open Update page.".to_string()
+                }
+                crate::update::UpdateState::Error(_) => {
+                    "Open the Update page to retry the version check".to_string()
+                }
+            },
         },
     ]
 }
 
 fn boreal_version_label() -> String {
+    format!("v{} ({})", env!("CARGO_PKG_VERSION"), boreal_maturity())
+}
+
+fn boreal_maturity() -> &'static str {
     static MATURITY: OnceLock<String> = OnceLock::new();
 
     let maturity = MATURITY.get_or_init(|| {
@@ -5139,7 +5279,7 @@ fn boreal_version_label() -> String {
             .to_string()
     });
 
-    format!("v{} ({maturity})", env!("CARGO_PKG_VERSION"))
+    maturity
 }
 
 fn build_download_status_item(download_state: &DownloadState) -> StatusItem {
@@ -5169,6 +5309,7 @@ fn build_download_status_item(download_state: &DownloadState) -> StatusItem {
         value_url: String::new(),
         spinner,
         age_timestamp: String::new(),
+        title: String::new(),
     }
 }
 

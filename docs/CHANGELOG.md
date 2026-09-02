@@ -6,7 +6,7 @@
 | **Author** | John Haverlack |
 | **License** | MIT |
 | **Version** | 0.1.4 |
-| **Maturity** | RC1 |
+| **Maturity** | STABLE |
 | **Date** | 2026-09-01 |
 
 ## v0.1.4 - 2026-09-01 (RC1)
