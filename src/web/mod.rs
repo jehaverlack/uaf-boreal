@@ -69,7 +69,7 @@ pub async fn run(state: Arc<AppState>) -> Result<(), Box<dyn Error>> {
         .with_graceful_shutdown(shutdown_signal(Arc::clone(&state), shutdown_rx))
         .await?;
 
-    println!("BOREAL stopped.");
+    println!("BOREAL WebUI stopped.");
 
     Ok(())
 }

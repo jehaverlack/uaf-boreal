@@ -120,6 +120,10 @@ async fn run_boreal() -> Result<(), Box<dyn Error>> {
         desktop_tray.shutdown().await;
     }
 
+    std::println!();
+    std::println!("BOREAL has stopped. The application has exited.");
+    log::info!("BOREAL shutdown cleanup complete; application exiting");
+
     web_result?;
 
     Ok(())
