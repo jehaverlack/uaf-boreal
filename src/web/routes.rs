@@ -276,6 +276,11 @@ struct RemotesTemplate {
     poll_rclone: bool,
     remotes: Vec<RemoteView>,
     error: String,
+    my_drive_ro_configured: bool,
+    my_drive_rw_configured: bool,
+    remote_setup_busy: bool,
+    google_client_ready: bool,
+    rclone_ready: bool,
 }
 
 #[allow(dead_code)]
@@ -824,6 +829,11 @@ struct MigrationDestinationForm {
     destination_url: String,
 }
 
+#[derive(serde::Deserialize)]
+struct AddRemoteForm {
+    remote_kind: String,
+}
+
 #[derive(Default, serde::Deserialize)]
 struct MigrationListQuery {
     #[serde(default)]
@@ -861,6 +871,7 @@ pub fn router() -> Router<Arc<AppState>> {
             get(google_cloud_oauth_json),
         )
         .route("/remotes", get(remotes_page))
+        .route("/remotes/add", post(add_remote))
         .route("/my-drive", get(my_drive_page))
         .route("/my-drive/export.xlsx", get(export_my_drive))
         .route("/my-drive/tags", post(apply_my_drive_tag))
@@ -2071,43 +2082,55 @@ async fn remotes_page(State(state): State<Arc<AppState>>) -> Result<Html<String>
         }
         _ => Err("Rclone is not ready".into()),
     };
-    let (remotes, error) = match listed {
-        Ok(remotes) => (
-            remotes
-                .into_iter()
-                .map(|remote| {
-                    let (access, purpose, status, status_class) = match remote.name.as_str() {
-                        "my-drive-ro" => (
-                            "Read only",
-                            "Metadata inventory",
-                            remote_state_label(&google_remotes_state.ro),
-                            remote_state_class(&google_remotes_state.ro),
-                        ),
-                        "my-drive-rw" => (
-                            "Read/write",
-                            "Migration operations",
-                            remote_state_label(&google_remotes_state.rw),
-                            remote_state_class(&google_remotes_state.rw),
-                        ),
-                        _ => ("Remote-defined", "General", "Configured", "text-bg-success"),
-                    };
-                    RemoteView {
-                        name: remote.name,
-                        backend: remote.backend,
-                        access,
-                        purpose,
-                        status,
-                        status_class,
-                    }
-                })
-                .collect(),
-            String::new(),
-        ),
+    let (remotes, error, my_drive_ro_configured, my_drive_rw_configured) = match listed {
+        Ok(configured_remotes) => {
+            let my_drive_ro_configured = configured_remotes
+                .iter()
+                .any(|remote| remote.name == RemoteKind::MyDriveRo.name());
+            let my_drive_rw_configured = configured_remotes
+                .iter()
+                .any(|remote| remote.name == RemoteKind::MyDriveRw.name());
+            (
+                configured_remotes
+                    .into_iter()
+                    .map(|remote| {
+                        let (access, purpose, status, status_class) = match remote.name.as_str() {
+                            "my-drive-ro" => (
+                                "Read only",
+                                "Metadata inventory",
+                                remote_state_label(&google_remotes_state.ro),
+                                remote_state_class(&google_remotes_state.ro),
+                            ),
+                            "my-drive-rw" => (
+                                "Read/write",
+                                "Migration operations",
+                                remote_state_label(&google_remotes_state.rw),
+                                remote_state_class(&google_remotes_state.rw),
+                            ),
+                            _ => ("Remote-defined", "General", "Configured", "text-bg-success"),
+                        };
+                        RemoteView {
+                            name: remote.name,
+                            backend: remote.backend,
+                            access,
+                            purpose,
+                            status,
+                            status_class,
+                        }
+                    })
+                    .collect(),
+                String::new(),
+                my_drive_ro_configured,
+                my_drive_rw_configured,
+            )
+        }
         Err(error) => {
             eprintln!("Unable to render remotes page: {error}");
-            (Vec::new(), error.to_string())
+            (Vec::new(), error.to_string(), false, false)
         }
     };
+    let remote_setup_busy = matches!(google_remotes_state.ro, RemoteState::Configuring)
+        || matches!(google_remotes_state.rw, RemoteState::Configuring);
 
     let template = RemotesTemplate {
         title: "Remotes - BOREAL",
@@ -2129,8 +2152,29 @@ async fn remotes_page(State(state): State<Arc<AppState>>) -> Result<Html<String>
         poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
         remotes,
         error,
+        my_drive_ro_configured,
+        my_drive_rw_configured,
+        remote_setup_busy,
+        google_client_ready: matches!(google_client_state, GoogleClientState::Ready(_)),
+        rclone_ready: matches!(rclone_state, RcloneState::Ready(_)),
     };
     render_template(&template)
+}
+
+async fn add_remote(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<AddRemoteForm>,
+) -> Result<Redirect, StatusCode> {
+    let kind = match form.remote_kind.as_str() {
+        "my-drive-ro" => RemoteKind::MyDriveRo,
+        "my-drive-rw" => RemoteKind::MyDriveRw,
+        _ => return Err(StatusCode::BAD_REQUEST),
+    };
+    AppState::configure_google_remote(state, kind).map_err(|error| {
+        log::warn!("Unable to add {}: {error}", kind.label());
+        StatusCode::CONFLICT
+    })?;
+    Ok(Redirect::to("/remotes"))
 }
 
 async fn my_drive_page(
