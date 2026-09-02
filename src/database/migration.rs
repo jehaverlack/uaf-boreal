@@ -198,8 +198,7 @@ pub fn get(database: &Database, id: i64) -> Result<Option<MigrationJob>, Databas
 pub fn cancel(database: &Database, id: i64) -> Result<(), DatabaseError> {
     let connection = database.connect()?;
     let changed = connection.execute(
-        "UPDATE migration_jobs
-         SET status = 'canceled', phase = 'Canceled before copy', updated_at = CURRENT_TIMESTAMP
+        "DELETE FROM migration_jobs
          WHERE id = ?1 AND started_at IS NULL AND status IN ('draft', 'ready')",
         [id],
     )?;

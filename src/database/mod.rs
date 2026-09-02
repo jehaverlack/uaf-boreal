@@ -187,7 +187,7 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 23,);
+        assert_eq!(migration_count, 24,);
 
         let safe_to_delete_scope_count: i64 = connection
             .query_row(
@@ -1173,13 +1173,18 @@ mod tests {
 
         migration::cancel(&database, draft_id).expect("unstarted migration should cancel");
         assert!(migration::cancel(&database, completed_id).is_err());
+        assert!(
+            migration::get(&database, draft_id)
+                .expect("canceled migration lookup should succeed")
+                .is_none(),
+            "canceling should remove the migration and its history"
+        );
         migration::archive(&database, completed_id).expect("completed migration should archive");
         assert!(migration::archive(&database, draft_id).is_err());
 
         let active = migration::list(&database, "", false, "created", true)
             .expect("active migrations should list");
-        assert_eq!(active.len(), 1);
-        assert_eq!(active[0].status, "canceled");
+        assert!(active.is_empty());
         let archived = migration::list(&database, "complete", true, "status", false)
             .expect("archived migrations should be searchable");
         assert_eq!(archived.len(), 1);
