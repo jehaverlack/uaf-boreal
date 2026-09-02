@@ -13,6 +13,7 @@
 
 - v1.0.1
 - v1.0.1
+- v1.0.1
 - Cleaning up Modals
 - Planning service feature
 - Cleaning up App Menu
@@ -253,6 +254,7 @@ Added Migration Assitant and Polished Interfaces
 **Summary**
 Project Initialization
 
+- v1.0.1
 - v1.0.1
 - v1.0.1
 - Cleaning up Modals
