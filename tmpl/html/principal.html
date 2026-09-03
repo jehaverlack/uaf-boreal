@@ -19,7 +19,7 @@
 
 <form method="post" action="/directory/principals/{{ principal.id }}/tags" class="d-flex align-items-center gap-2 mb-4">
     <input type="hidden" name="selected_principal_ids" value="{{ principal.id }}">
-    <label class="small fw-semibold" for="principal-apply-tag">Apply identity tag:</label>
+    <label class="small fw-semibold" for="principal-apply-tag">Apply Person tag:</label>
     <select id="principal-apply-tag" class="form-select form-select-sm w-auto" name="tag" required>
         {% for tag in tags %}<option value="{{ tag.slug }}" title="{{ tag.description }}">{{ tag.name }}</option>{% endfor %}
     </select>

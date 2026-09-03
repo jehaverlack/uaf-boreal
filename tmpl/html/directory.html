@@ -129,7 +129,7 @@
     </div>
     <form id="directory-tag-form" method="post" action="/directory/tags" class="d-flex align-items-center gap-2 mb-2 boreal-report-hide">
         <input type="hidden" id="directory-selected-principal-ids" name="selected_principal_ids" value="">
-        <label class="small fw-semibold" for="directory-apply-tag">Apply tag to selected:</label>
+        <label class="small fw-semibold" for="directory-apply-tag">Apply Person tag:</label>
         <select id="directory-apply-tag" class="form-select form-select-sm w-auto" name="tag" required>
             {% for tag in tags %}<option value="{{ tag.slug }}" title="{{ tag.description }}">{{ tag.name }}</option>{% endfor %}
         </select>

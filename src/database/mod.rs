@@ -1562,4 +1562,95 @@ mod tests {
 
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
+
+    #[test]
+    fn tag_application_enforces_each_configured_scope() {
+        let root = temporary_directory();
+        let database = Database::initialize(&runtime(&root)).expect("database should initialize");
+
+        let scopes = [
+            ("Person Only", inventory::TagScope::Directory),
+            ("My Drive Only", inventory::TagScope::MyDrive),
+            ("Shared Drive Only", inventory::TagScope::SharedDrives),
+            ("Shared With Me Only", inventory::TagScope::SharedWithMe),
+        ];
+        for (name, scope) in scopes {
+            inventory::create_tag_with_description_and_scopes(
+                &database,
+                name,
+                "Scope enforcement test",
+                "#123456",
+                &[scope],
+            )
+            .expect("scoped tag should be created");
+        }
+
+        assert!(directory::apply_principal_tag(&database, &[1], "person-only").is_ok());
+        assert!(
+            directory::apply_principal_tag(&database, &[1], "my-drive-only").is_err(),
+            "Persons must reject a My Drive-only tag"
+        );
+
+        assert!(
+            inventory::apply_tag_recursively_for_scope(
+                &database,
+                inventory::MY_DRIVE_SCOPE,
+                &["missing-item".to_string()],
+                "my-drive-only",
+            )
+            .is_ok()
+        );
+        assert!(
+            inventory::apply_tag_recursively_for_scope(
+                &database,
+                inventory::MY_DRIVE_SCOPE,
+                &["missing-item".to_string()],
+                "shared-with-me-only",
+            )
+            .is_err(),
+            "My Drive must reject a Shared with me-only tag"
+        );
+
+        assert!(
+            inventory::apply_tag_recursively_for_scope(
+                &database,
+                inventory::SHARED_WITH_ME_SCOPE,
+                &["missing-item".to_string()],
+                "shared-with-me-only",
+            )
+            .is_ok()
+        );
+        assert!(
+            inventory::apply_tag_recursively_for_scope(
+                &database,
+                inventory::SHARED_WITH_ME_SCOPE,
+                &["missing-item".to_string()],
+                "shared-drive-only",
+            )
+            .is_err(),
+            "Shared with me must reject a Shared Drive-only tag"
+        );
+
+        assert!(
+            inventory::change_shared_drive_tags(
+                &database,
+                &["missing-drive".to_string()],
+                "shared-drive-only",
+                false,
+            )
+            .is_ok()
+        );
+        assert!(
+            inventory::change_shared_drive_tags(
+                &database,
+                &["missing-drive".to_string()],
+                "my-drive-only",
+                false,
+            )
+            .is_err(),
+            "Shared Drives must reject a My Drive-only tag"
+        );
+
+        fs::remove_dir_all(root).expect("temporary database directory should be removable");
+    }
 }

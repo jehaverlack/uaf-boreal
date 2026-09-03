@@ -154,7 +154,7 @@
     <input type="hidden" name="inventory_scope" value="{{ inventory_scope }}">
     <input type="hidden" id="my-drive-selected-item-ids" name="selected_item_ids" value="">
     <div class="d-flex align-items-center gap-2 mb-2 boreal-report-hide">
-        <label class="small fw-semibold" for="my-drive-apply-tag">Apply tag to selected:</label>
+        <label class="small fw-semibold" for="my-drive-apply-tag">Apply {% if active_page == "my-drive" %}My Drive{% else if active_page == "shared-with-me" %}Shared with me{% else %}Shared Drive{% endif %} tag:</label>
         <select id="my-drive-apply-tag" class="form-select form-select-sm w-auto" name="tag" required>
             {% for tag in tags %}<option value="{{ tag.slug }}" title="{{ tag.description }}">{{ tag.name }}</option>{% endfor %}
         </select>
