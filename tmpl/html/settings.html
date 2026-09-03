@@ -64,11 +64,6 @@
                         </a>
                     </div>
                     {% endif %}
-                    <div class="alert alert-light border small mt-3 mb-0" role="note">
-                        The worksheet must contain an <code>email</code> column. Supported identity types are
-                        <code>person</code>, <code>group</code>, <code>service_acct</code>,
-                        <code>dept_acct</code>, and <code>other</code>.
-                    </div>
                     {% if directory_source.configured %}
                     <div class="small mt-3">
                         {% if directory_source.last_error.len() > 0 %}
