@@ -144,6 +144,13 @@
             line-height: 1.25;
         }
 
+        .boreal-tag-filter-pill-excluded {
+            background-color: #f8d7da !important;
+            border-color: #dc3545 !important;
+            border-style: dashed;
+            color: #842029 !important;
+        }
+
         .navbar .boreal-update-nav {
             color: var(--bs-primary) !important;
         }
@@ -181,6 +188,74 @@
         .navbar .boreal-purple-nav:hover,
         .navbar .boreal-purple-nav:focus {
             color: #59359a !important;
+        }
+
+        body.boreal-print-report {
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+
+        .boreal-print-only {
+            display: none !important;
+        }
+
+        body.boreal-print-report .boreal-print-only {
+            display: inline !important;
+        }
+
+        body.boreal-print-report > nav,
+        body.boreal-print-report > #boreal-alerts,
+        body.boreal-print-report > #boreal-status,
+        body.boreal-print-report .boreal-report-hide {
+            display: none !important;
+        }
+
+        body.boreal-print-report main,
+        body.boreal-print-report .boreal-print-expand,
+        body.boreal-print-report .boreal-explorer-card,
+        body.boreal-print-report .boreal-explorer-table,
+        body.boreal-print-report .table-responsive,
+        body.boreal-print-report .h-100 {
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+        }
+
+        body.boreal-print-report .overflow-hidden {
+            overflow: visible !important;
+        }
+
+        body.boreal-print-report .boreal-explorer-table thead th {
+            position: static;
+        }
+
+        @page {
+            size: legal landscape;
+            margin: 0.4in;
+        }
+
+        @media print {
+            body.boreal-print-report,
+            body.boreal-print-report * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+
+            body.boreal-print-report .badge {
+                forced-color-adjust: none;
+            }
+
+            .boreal-print-actions {
+                display: none !important;
+            }
+
+            a[href] {
+                color: inherit;
+                text-decoration: underline;
+            }
         }
     </style>
 

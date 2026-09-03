@@ -187,7 +187,7 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 26,);
+        assert_eq!(migration_count, 27,);
 
         let safe_to_delete_scope_count: i64 = connection
             .query_row(
@@ -237,6 +237,16 @@ mod tests {
             "Content the user has reviewed and marked as ready for manual deletion from Google Drive."
         );
         assert_eq!(safe_to_delete_tag.2, "#198754");
+
+        let keep_tag: (String, String) = connection
+            .query_row(
+                "SELECT name, color FROM tags WHERE slug = 'retain'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("Keep tag should exist");
+        assert_eq!(keep_tag.0, "Keep");
+        assert_eq!(keep_tag.1, "#00d149");
 
         for slug in [
             "data-loss-risk",
@@ -457,6 +467,33 @@ mod tests {
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].primary_email, "former@example.edu");
 
+        let excluded = directory::list_principals_filtered(
+            &database,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "!data-loss-risk",
+        )
+        .expect("directory should exclude a tag");
+        assert_eq!(excluded.len(), 1);
+        assert_eq!(excluded[0].primary_email, "active@example.edu");
+        let untagged = directory::list_principals_filtered(
+            &database,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            inventory::UNTAGGED_TAG_FILTER,
+        )
+        .expect("directory should filter identities without tags");
+        assert_eq!(untagged.len(), 1);
+        assert_eq!(untagged[0].primary_email, "active@example.edu");
+
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
 
@@ -640,6 +677,36 @@ mod tests {
         assert_eq!(tagged_drives.len(), 1);
         assert_eq!(tagged_drives[0].drive_id, "drive-a");
         assert_eq!(tagged_drives[0].tags[0].slug, "to-delete");
+        let untagged_drives = inventory::list_shared_drives_filtered(
+            &database,
+            "",
+            "!to-delete",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+        )
+        .expect("Shared Drives should support negated tag filters");
+        assert_eq!(untagged_drives.len(), 1);
+        assert_eq!(untagged_drives[0].drive_id, "drive-b");
+        assert_eq!(
+            inventory::list_shared_drives_filtered(
+                &database,
+                "",
+                inventory::UNTAGGED_TAG_FILTER,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            )
+            .expect("Shared Drives should filter drives without tags")
+            .len(),
+            1,
+        );
         let manager_filtered = inventory::list_shared_drives_filtered(
             &database,
             "",
@@ -797,8 +864,10 @@ mod tests {
         connection
             .execute(
                 "INSERT INTO migration_jobs
-                 (source_scope, source_kind, status, phase)
-                 VALUES ('my-drive-ro', 'my-drive', 'running', 'Copying selected items')",
+                 (source_scope, source_kind, status, phase, files_total, files_copied,
+                  bytes_total, bytes_copied)
+                 VALUES ('my-drive-ro', 'my-drive', 'running', 'Copying selected items',
+                         4, 2, 100, 50)",
                 [],
             )
             .expect("running migration should insert");
@@ -806,6 +875,17 @@ mod tests {
         assert_eq!(
             migration::active_count(&database).expect("active migrations should be countable"),
             1,
+        );
+        assert_eq!(
+            migration::active_summary(&database)
+                .expect("active migration progress should be readable"),
+            migration::ActiveMigrationSummary {
+                count: 1,
+                files_total: 4,
+                files_copied: 2,
+                bytes_total: 100,
+                bytes_copied: 50,
+            },
         );
         connection
             .execute(
@@ -1011,6 +1091,27 @@ mod tests {
         );
         assert!(
             inventory::list_my_drive_directory(
+                &database,
+                None,
+                "",
+                inventory::UNTAGGED_TAG_FILTER,
+                "",
+                "",
+                "",
+                "",
+                false,
+                "",
+                "",
+                "",
+                false,
+                "name",
+                false,
+            )
+            .expect("My Drive should filter items without tags")
+            .is_empty(),
+        );
+        assert!(
+            inventory::list_my_drive_directory(
                 &database, None, "missing", "", "", "", "", "", false, "", "", "", false, "name",
                 false,
             )
@@ -1024,6 +1125,27 @@ mod tests {
                 "to-migrate",
             ).expect("recursive tag should apply"),
             2,
+        );
+        assert!(
+            inventory::list_my_drive_directory(
+                &database,
+                None,
+                "",
+                "!to-migrate",
+                "",
+                "",
+                "",
+                "",
+                false,
+                "",
+                "",
+                "",
+                false,
+                "name",
+                false,
+            )
+            .expect("My Drive should support negated tag filters")
+            .is_empty(),
         );
         assert_eq!(
             inventory::remove_tag_recursively_for_scope(
@@ -1450,6 +1572,97 @@ mod tests {
             .expect("migration should exist");
         assert_eq!(resumed.status, "preflight");
         assert_eq!(resumed.resume_count, 1);
+
+        fs::remove_dir_all(root).expect("temporary database directory should be removable");
+    }
+
+    #[test]
+    fn tag_application_enforces_each_configured_scope() {
+        let root = temporary_directory();
+        let database = Database::initialize(&runtime(&root)).expect("database should initialize");
+
+        let scopes = [
+            ("Person Only", inventory::TagScope::Directory),
+            ("My Drive Only", inventory::TagScope::MyDrive),
+            ("Shared Drive Only", inventory::TagScope::SharedDrives),
+            ("Shared With Me Only", inventory::TagScope::SharedWithMe),
+        ];
+        for (name, scope) in scopes {
+            inventory::create_tag_with_description_and_scopes(
+                &database,
+                name,
+                "Scope enforcement test",
+                "#123456",
+                &[scope],
+            )
+            .expect("scoped tag should be created");
+        }
+
+        assert!(directory::apply_principal_tag(&database, &[1], "person-only").is_ok());
+        assert!(
+            directory::apply_principal_tag(&database, &[1], "my-drive-only").is_err(),
+            "Persons must reject a My Drive-only tag"
+        );
+
+        assert!(
+            inventory::apply_tag_recursively_for_scope(
+                &database,
+                inventory::MY_DRIVE_SCOPE,
+                &["missing-item".to_string()],
+                "my-drive-only",
+            )
+            .is_ok()
+        );
+        assert!(
+            inventory::apply_tag_recursively_for_scope(
+                &database,
+                inventory::MY_DRIVE_SCOPE,
+                &["missing-item".to_string()],
+                "shared-with-me-only",
+            )
+            .is_err(),
+            "My Drive must reject a Shared with me-only tag"
+        );
+
+        assert!(
+            inventory::apply_tag_recursively_for_scope(
+                &database,
+                inventory::SHARED_WITH_ME_SCOPE,
+                &["missing-item".to_string()],
+                "shared-with-me-only",
+            )
+            .is_ok()
+        );
+        assert!(
+            inventory::apply_tag_recursively_for_scope(
+                &database,
+                inventory::SHARED_WITH_ME_SCOPE,
+                &["missing-item".to_string()],
+                "shared-drive-only",
+            )
+            .is_err(),
+            "Shared with me must reject a Shared Drive-only tag"
+        );
+
+        assert!(
+            inventory::change_shared_drive_tags(
+                &database,
+                &["missing-drive".to_string()],
+                "shared-drive-only",
+                false,
+            )
+            .is_ok()
+        );
+        assert!(
+            inventory::change_shared_drive_tags(
+                &database,
+                &["missing-drive".to_string()],
+                "my-drive-only",
+                false,
+            )
+            .is_err(),
+            "Shared Drives must reject a My Drive-only tag"
+        );
 
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }

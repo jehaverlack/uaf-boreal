@@ -2,13 +2,21 @@
 
 {% block content %}
 
-<div class="d-flex flex-column h-100 overflow-hidden">
+<div class="d-flex flex-column h-100 overflow-hidden boreal-print-expand">
+
+{% if print_view %}
+<script>document.body.classList.add("boreal-print-report");</script>
+<div class="boreal-print-actions d-flex justify-content-end gap-2 mb-3">
+    <button class="btn btn-primary" type="button" onclick="window.print()"><i class="bi bi-printer me-1"></i>Print / Save PDF</button>
+    <button class="btn btn-outline-secondary" type="button" onclick="window.close()">Close report</button>
+</div>
+{% endif %}
 
 <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
     <div>
         <h1 class="h3 mb-1"><i class="bi bi-folder2-open text-primary me-2"></i>{{ heading }}</h1>
     </div>
-    <div class="d-flex gap-2">
+    <div class="d-flex gap-2 boreal-report-hide">
         {% if drive_id.len() > 0 %}<a class="btn btn-sm btn-outline-secondary" href="/shared-drives"><i class="bi bi-arrow-left me-1"></i>All Shared Drives</a>{% endif %}
         <a class="btn btn-sm btn-outline-primary" href="{{ explorer_path }}"><i class="bi bi-house-door me-1"></i>{{ root_label }} root</a>
     </div>
@@ -41,7 +49,7 @@
 </div>
 {% endif %}
 
-<form id="my-drive-filter-form" method="get" action="{{ explorer_path }}" class="row g-2 mb-3" role="search">
+<form id="my-drive-filter-form" method="get" action="{{ explorer_path }}" class="row g-2 mb-3 boreal-report-hide" role="search">
     <input type="hidden" name="drive" value="{{ drive_id }}">
     <input type="hidden" name="path" value="{% if has_parent %}{{ current_path }}{% endif %}">
     <input type="hidden" name="sort" value="{{ sort }}">
@@ -54,11 +62,11 @@
             {% if tag_filter.len() == 0 %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% endif %}All tags
         </button>
         {% for tag in filter_tags %}
-        <button class="btn btn-sm rounded-pill boreal-tag-filter-pill"
-                type="button" data-filter-input="my-drive-tag-filter" data-tag-value="{{ tag.slug }}" aria-pressed="{% if tag.selected %}true{% else %}false{% endif %}"
+        <button class="btn btn-sm rounded-pill boreal-tag-filter-pill{% if tag.excluded %} boreal-tag-filter-pill-excluded{% endif %}"
+                type="button" data-filter-input="my-drive-tag-filter" data-tag-value="{{ tag.slug }}" data-negatable="true" aria-pressed="{% if tag.selected || tag.excluded %}true{% else %}false{% endif %}"
                 title="{{ tag.description }}"
                 style="border-color: {{ tag.color }}; background-color: {% if tag.selected %}{{ tag.color }}{% else %}transparent{% endif %}; color: {% if tag.selected %}{{ tag.text_color }}{% else %}{{ tag.color }}{% endif %};">
-            {% if tag.selected %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% endif %}{{ tag.name }}
+            {% if tag.selected %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% else if tag.excluded %}<i class="bi bi-slash-circle me-1" aria-hidden="true"></i>Not {% endif %}{{ tag.name }}
         </button>
         {% endfor %}
     </div>
@@ -97,6 +105,7 @@
     <div class="col-auto"><button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-funnel me-1"></i>Apply filters</button></div>
     <div class="col-auto"><a class="btn btn-sm btn-outline-secondary" href="{{ clear_search_url }}">Clear filters</a></div>
     <div class="col-auto"><button class="btn btn-sm btn-outline-success" type="submit" formaction="{{ export_path }}"><i class="bi bi-file-earmark-excel me-1"></i>Export Excel</button></div>
+    <div class="col-auto"><button class="btn btn-sm btn-outline-danger" type="submit" name="print" value="true" formtarget="_blank"><i class="bi bi-file-earmark-pdf me-1"></i>Print to PDF</button></div>
     <div class="col-auto form-check align-self-center ms-1">
         <input class="form-check-input" type="checkbox" id="my-drive-include-deleted" name="include_deleted" value="true" {% if include_deleted %}checked{% endif %}>
         <label class="form-check-label small" for="my-drive-include-deleted">Include deleted items</label>
@@ -144,8 +153,8 @@
     <input type="hidden" name="include_deleted" value="{{ include_deleted }}">
     <input type="hidden" name="inventory_scope" value="{{ inventory_scope }}">
     <input type="hidden" id="my-drive-selected-item-ids" name="selected_item_ids" value="">
-    <div class="d-flex align-items-center gap-2 mb-2">
-        <label class="small fw-semibold" for="my-drive-apply-tag">Apply tag to selected:</label>
+    <div class="d-flex align-items-center gap-2 mb-2 boreal-report-hide">
+        <label class="small fw-semibold" for="my-drive-apply-tag">Apply {% if active_page == "my-drive" %}My Drive{% else if active_page == "shared-with-me" %}Shared with me{% else %}Shared Drive{% endif %} tag:</label>
         <select id="my-drive-apply-tag" class="form-select form-select-sm w-auto" name="tag" required>
             {% for tag in tags %}<option value="{{ tag.slug }}" title="{{ tag.description }}">{{ tag.name }}</option>{% endfor %}
         </select>
@@ -222,6 +231,7 @@
                         <a href="{{ row.name_url }}" {% if row.name_new_tab %}target="_blank" rel="noopener noreferrer"{% endif %} class="text-decoration-none boreal-name-link" title="{% if row.is_directory %}Browse folder in BOREAL{% else %}Open in Google Drive{% endif %}">
                             {{ row.name }}
                         </a>
+                        <a class="boreal-print-only small ms-1" href="{{ row.drive_url }}" title="Open {{ row.name }} in Google Drive">Open in Google Drive</a>
                         <span class="boreal-item-tags">{% for tag in row.tags %}<span class="badge rounded-pill ms-1" style="background-color: {{ tag.color }}; color: {{ tag.text_color }};" title="{{ tag.description }}">{{ tag.name }}</span>{% endfor %}</span>
                         {% if row.is_deleted %}<span class="badge rounded-pill text-bg-secondary ms-1">Deleted</span>{% endif %}
                     </th>
@@ -270,7 +280,13 @@
             button.addEventListener("click", () => {
                 const tagFilterInput = document.getElementById(button.dataset.filterInput);
                 const requestedTag = button.dataset.tagValue;
-                tagFilterInput.value = requestedTag === tagFilterInput.value ? "" : requestedTag;
+                if (button.dataset.negatable === "true" && requestedTag !== "") {
+                    tagFilterInput.value = tagFilterInput.value === requestedTag
+                        ? `!${requestedTag}`
+                        : tagFilterInput.value === `!${requestedTag}` ? "" : requestedTag;
+                } else {
+                    tagFilterInput.value = requestedTag === tagFilterInput.value ? "" : requestedTag;
+                }
                 tagFilterForm.requestSubmit();
             });
         });
@@ -333,6 +349,22 @@
             }
             return `${bytes} B`;
         }
+
+        let lastClickedCheckbox = null;
+        itemCheckboxes.forEach((checkbox) => {
+            checkbox.addEventListener("click", (event) => {
+                if (event.shiftKey && lastClickedCheckbox) {
+                    const start = itemCheckboxes.indexOf(lastClickedCheckbox);
+                    const end = itemCheckboxes.indexOf(checkbox);
+                    const [first, last] = start < end ? [start, end] : [end, start];
+                    itemCheckboxes.slice(first, last + 1).forEach((item) => {
+                        item.checked = checkbox.checked;
+                    });
+                    updateSelectAll();
+                }
+                lastClickedCheckbox = checkbox;
+            });
+        });
 
         selectAll.addEventListener("change", () => {
             for (const checkbox of itemCheckboxes) {

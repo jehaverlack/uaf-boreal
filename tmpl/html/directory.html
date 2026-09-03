@@ -2,7 +2,15 @@
 
 {% block content %}
 
-<div class="d-flex flex-column h-100 overflow-hidden">
+<div class="d-flex flex-column h-100 overflow-hidden boreal-print-expand">
+
+{% if print_view %}
+<script>document.body.classList.add("boreal-print-report");</script>
+<div class="boreal-print-actions d-flex justify-content-end gap-2 mb-3">
+    <button class="btn btn-primary" type="button" onclick="window.print()"><i class="bi bi-printer me-1"></i>Print / Save PDF</button>
+    <button class="btn btn-outline-secondary" type="button" onclick="window.close()">Close report</button>
+</div>
+{% endif %}
 
 <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
     <div>
@@ -15,7 +23,7 @@
             Overview
         </button>
     </div>
-    <div class="d-flex flex-wrap gap-2 align-items-center">
+    <div class="d-flex flex-wrap gap-2 align-items-center boreal-report-hide">
     <a class="btn btn-sm btn-outline-primary text-nowrap" href="/directory/new"><i class="bi bi-person-plus me-1"></i>Add entry</a>
     <form id="directory-import-form" method="post" action="/directory/import/csv" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
         <label class="visually-hidden" for="directory-csv">Persons CSV</label>
@@ -25,7 +33,7 @@
     </div>
 </div>
 
-<div class="collapse show" id="directory-overview">
+<div class="collapse show boreal-report-hide" id="directory-overview">
 
 {% if import_complete %}
 <div class="alert alert-success" role="status">
@@ -97,30 +105,31 @@
 <section class="d-flex flex-column flex-grow-1 overflow-hidden" aria-labelledby="principals-heading">
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
         <h2 class="h5 mb-0" id="principals-heading">People, groups, and accounts</h2>
-        <form id="directory-filter-form" method="get" action="/directory" class="d-flex gap-2">
+        <form id="directory-filter-form" method="get" action="/directory" class="d-flex gap-2 boreal-report-hide">
             <button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-funnel me-1"></i>Apply filters</button>
             <a class="btn btn-sm btn-outline-secondary" href="/directory">Clear filters</a>
+            <button class="btn btn-sm btn-outline-danger" type="submit" name="print" value="true" formtarget="_blank"><i class="bi bi-file-earmark-pdf me-1"></i>Print to PDF</button>
         </form>
     </div>
-    <div class="d-flex flex-wrap align-items-center gap-2 mb-2" role="group" aria-label="Filter people by tag">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2 boreal-report-hide" role="group" aria-label="Filter people by tag">
         <span class="small fw-semibold text-body-secondary me-1">Tags:</span>
         <input id="directory-tag-filter" type="hidden" form="directory-filter-form" name="tag_filter" value="{{ tag_filter }}">
         <button class="btn btn-sm rounded-pill boreal-tag-filter-pill {% if tag_filter.len() == 0 %}btn-secondary{% else %}btn-outline-secondary{% endif %}"
                 type="button" data-tag-value="" aria-pressed="{% if tag_filter.len() == 0 %}true{% else %}false{% endif %}">
             {% if tag_filter.len() == 0 %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% endif %}All tags
         </button>
-        {% for tag in tags %}
-        <button class="btn btn-sm rounded-pill boreal-tag-filter-pill" type="button"
-                data-tag-value="{{ tag.slug }}" aria-pressed="{% if tag_filter == tag.slug %}true{% else %}false{% endif %}"
+        {% for tag in filter_tags %}
+        <button class="btn btn-sm rounded-pill boreal-tag-filter-pill{% if tag.excluded %} boreal-tag-filter-pill-excluded{% endif %}" type="button"
+                data-tag-value="{{ tag.slug }}" aria-pressed="{% if tag.selected || tag.excluded %}true{% else %}false{% endif %}"
                 title="{{ tag.description }}"
-                style="border-color: {{ tag.color }}; background-color: {% if tag_filter == tag.slug %}{{ tag.color }}{% else %}transparent{% endif %}; color: {% if tag_filter == tag.slug %}#fff{% else %}{{ tag.color }}{% endif %};">
-            {% if tag_filter == tag.slug %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% endif %}{{ tag.name }}
+                style="border-color: {{ tag.color }}; background-color: {% if tag.selected %}{{ tag.color }}{% else %}transparent{% endif %}; color: {% if tag.selected %}{{ tag.text_color }}{% else %}{{ tag.color }}{% endif %};">
+            {% if tag.selected %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% else if tag.excluded %}<i class="bi bi-slash-circle me-1" aria-hidden="true"></i>Not {% endif %}{{ tag.name }}
         </button>
         {% endfor %}
     </div>
-    <form id="directory-tag-form" method="post" action="/directory/tags" class="d-flex align-items-center gap-2 mb-2">
+    <form id="directory-tag-form" method="post" action="/directory/tags" class="d-flex align-items-center gap-2 mb-2 boreal-report-hide">
         <input type="hidden" id="directory-selected-principal-ids" name="selected_principal_ids" value="">
-        <label class="small fw-semibold" for="directory-apply-tag">Apply tag to selected:</label>
+        <label class="small fw-semibold" for="directory-apply-tag">Apply Person tag:</label>
         <select id="directory-apply-tag" class="form-select form-select-sm w-auto" name="tag" required>
             {% for tag in tags %}<option value="{{ tag.slug }}" title="{{ tag.description }}">{{ tag.name }}</option>{% endfor %}
         </select>
@@ -230,7 +239,9 @@
         document.querySelectorAll(".boreal-tag-filter-pill").forEach((button) => {
             button.addEventListener("click", () => {
                 const requestedTag = button.dataset.tagValue;
-                tagFilterInput.value = requestedTag === tagFilterInput.value ? "" : requestedTag;
+                tagFilterInput.value = tagFilterInput.value === requestedTag
+                    ? `!${requestedTag}`
+                    : tagFilterInput.value === `!${requestedTag}` ? "" : requestedTag;
                 tagFilterForm.requestSubmit();
             });
         });
@@ -249,6 +260,21 @@
             selectedIds.value = selected.map((checkbox) => checkbox.value).join(",");
             selectionCount.textContent = `${selected.length} selected`;
         };
+        let lastClickedCheckbox = null;
+        identityCheckboxes.forEach((checkbox) => {
+            checkbox.addEventListener("click", (event) => {
+                if (event.shiftKey && lastClickedCheckbox) {
+                    const start = identityCheckboxes.indexOf(lastClickedCheckbox);
+                    const end = identityCheckboxes.indexOf(checkbox);
+                    const [first, last] = start < end ? [start, end] : [end, start];
+                    identityCheckboxes.slice(first, last + 1).forEach((identity) => {
+                        identity.checked = checkbox.checked;
+                    });
+                    updateIdentitySelection();
+                }
+                lastClickedCheckbox = checkbox;
+            });
+        });
         if (selectAll) {
             selectAll.addEventListener("change", () => {
                 identityCheckboxes.forEach((checkbox) => { checkbox.checked = selectAll.checked; });

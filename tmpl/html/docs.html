@@ -64,7 +64,8 @@
                     <li>Click a folder name to browse it inside BOREAL.</li>
                     <li>Click the Google Drive icon or a file name to open the item in Google Drive.</li>
                     <li>Use column fields to filter by name, type, size, date, owner, or permission.</li>
-                    <li>Click a hollow tag pill to apply that filter. A solid pill with a checkmark is active; click it again to clear it.</li>
+                    <li>Click a hollow tag pill to require that tag. Click the solid pill again to exclude that tag; click the red “Not” pill to clear it.</li>
+                    <li>Use <strong>No tags</strong> to find records with no assigned tags.</li>
                     <li>Prefix an Owner value with <code>!</code> to exclude matching owners.</li>
                     <li>Enable <strong>Include deleted items</strong> to see content retained from an older inventory but missing from the latest completed scan.</li>
                 </ul>
@@ -78,7 +79,7 @@
                 <p>Tags are private BOREAL annotations. They do not change Google Drive labels, permissions, or files.</p>
                 <ol class="mb-0">
                     <li>Open <strong>App → Tags</strong> to add or edit a tag, description, color, and applicable explorer scopes.</li>
-                    <li>In an explorer, select one or more rows.</li>
+                    <li>In an explorer, select one or more rows. Select one row, then hold <strong>Shift</strong> while selecting another to select the entire visible range.</li>
                     <li>Choose a tag and click <strong>Apply</strong> or <strong>Remove</strong>.</li>
                     <li>Use colored tag pills above the explorer to filter the results.</li>
                 </ol>
@@ -104,6 +105,8 @@
             <div class="card"><div class="card-body">
                 <h3 class="h6">Excel reports</h3>
                 <p>Apply explorer filters and click <strong>Export Excel</strong>. The workbook contains a Report Context sheet describing the filters and a Results sheet with clickable Google Drive links.</p>
+                <h3 class="h6">PDF reports</h3>
+                <p>Apply explorer filters and click <strong>Print to PDF</strong>. BOREAL opens the complete filtered report in a new tab without the explorer's scrolling limits. Click <strong>Print / Save PDF</strong> and select your browser's PDF destination. The report requests landscape legal paper and retains clickable links.</p>
                 <h3 class="h6">Local downloads</h3>
                 <p class="mb-0">Click the download icon beside an inventory item or accessible Shared Drive, choose a local destination folder, and start the copy. Downloads are retained in <strong>Migrations</strong>, can be resumed after interruption, and never delete the source. Use the Download status item to check the active copy.</p>
             </div></div>

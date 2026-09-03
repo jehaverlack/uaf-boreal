@@ -11,6 +11,7 @@ pub const MY_DRIVE_SCOPE: &str = "my-drive-ro";
 pub const SHARED_WITH_ME_SCOPE: &str = "shared-with-me";
 pub const SHARED_DRIVE_SCOPE_PREFIX: &str = "shared-drive:";
 pub const DELETED_TAG_FILTER: &str = "__deleted__";
+pub const UNTAGGED_TAG_FILTER: &str = "__untagged__";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TagScope {
@@ -174,6 +175,7 @@ pub fn list_shared_drives_filtered(
     let (folders_comparison, folders_value) = parse_count_filter(folders_filter)?;
     let (size_comparison, size_value) = parse_size_filter(size_filter)?;
     let (modified_comparison, modified_value) = parse_modified_filter(modified_filter)?;
+    let (exclude_tag, tag_slug) = split_tag_filter(tag_filter);
     let connection = database.connect()?;
     let mut statement = connection.prepare(
         "SELECT sd.drive_id, sd.name, sd.inventory_scope, sd.is_accessible,
@@ -201,11 +203,26 @@ pub fn list_shared_drives_filtered(
          FROM shared_drives sd
          WHERE (?1 = '' OR instr(lower(sd.name), lower(?1)) > 0
                     OR instr(lower(sd.drive_id), lower(?1)) > 0)
-           AND (?2 = '' OR EXISTS (
-                SELECT 1 FROM shared_drive_tags filter_sdt
-                JOIN tags filter_tag ON filter_tag.id = filter_sdt.tag_id
-                WHERE filter_sdt.drive_id = sd.drive_id AND filter_tag.slug = ?2
-           ))
+           AND (?2 = '' OR
+                (?2 = '__untagged__' AND
+                    ((?13 = 0 AND NOT EXISTS (
+                        SELECT 1 FROM shared_drive_tags untagged_sdt
+                        WHERE untagged_sdt.drive_id = sd.drive_id
+                    )) OR
+                    (?13 = 1 AND EXISTS (
+                        SELECT 1 FROM shared_drive_tags untagged_sdt
+                        WHERE untagged_sdt.drive_id = sd.drive_id
+                    )))) OR
+                (?2 <> '__untagged__' AND ?13 = 0 AND EXISTS (
+                    SELECT 1 FROM shared_drive_tags filter_sdt
+                    JOIN tags filter_tag ON filter_tag.id = filter_sdt.tag_id
+                    WHERE filter_sdt.drive_id = sd.drive_id AND filter_tag.slug = ?2
+                )) OR
+                (?2 <> '__untagged__' AND ?13 = 1 AND NOT EXISTS (
+                    SELECT 1 FROM shared_drive_tags filter_sdt
+                    JOIN tags filter_tag ON filter_tag.id = filter_sdt.tag_id
+                    WHERE filter_sdt.drive_id = sd.drive_id AND filter_tag.slug = ?2
+                )))
            AND (?3 = 0 OR (?3 = 1 AND files_scanned > ?4) OR (?3 = 2 AND files_scanned >= ?4)
                 OR (?3 = 3 AND files_scanned < ?4) OR (?3 = 4 AND files_scanned <= ?4) OR (?3 = 5 AND files_scanned = ?4))
            AND (?5 = 0 OR (?5 = 1 AND folders_scanned > ?6) OR (?5 = 2 AND folders_scanned >= ?6)
@@ -245,7 +262,7 @@ pub fn list_shared_drives_filtered(
         .query_map(
             params![
                 search.trim(),
-                tag_filter,
+                tag_slug,
                 files_comparison,
                 files_value,
                 folders_comparison,
@@ -256,6 +273,7 @@ pub fn list_shared_drives_filtered(
                 modified_value,
                 manager_filter.trim(),
                 permission_filter.trim(),
+                exclude_tag,
             ],
             |row| {
                 Ok(SharedDriveRow {
@@ -649,6 +667,7 @@ pub fn list_drive_directory(
     let connection = database.connect()?;
     let (size_comparison, size_bytes) = parse_size_filter(size_filter)?;
     let (modified_comparison, modified_value) = parse_modified_filter(modified_filter)?;
+    let (exclude_tag, tag_slug) = split_tag_filter(tag_filter);
     let remote = inventory_scope;
     let sort_expression = match sort {
         "type" => {
@@ -691,12 +710,31 @@ pub fn list_drive_directory(
            AND (?13 = 1 OR is_deleted = 0)
            AND ((?2 IS NULL AND parent_path IS NULL) OR parent_path = ?2)
            AND (?3 = '' OR instr(lower(name), lower(?3)) > 0)
-           AND (?4 = '' OR (?4 = '__deleted__' AND is_deleted = 1) OR
-                (?4 <> '__deleted__' AND EXISTS (
-                SELECT 1 FROM drive_item_tags dit JOIN tags t ON t.id = dit.tag_id
-                WHERE dit.remote_name = drive_items.remote_name
-                  AND dit.item_id = drive_items.item_id AND t.slug = ?4
-           )))
+           AND (?4 = '' OR
+                (?4 = '__deleted__' AND
+                    ((?16 = 0 AND is_deleted = 1) OR (?16 = 1 AND is_deleted = 0))) OR
+                (?4 = '__untagged__' AND
+                    ((?16 = 0 AND NOT EXISTS (
+                        SELECT 1 FROM drive_item_tags untagged_dit
+                        WHERE untagged_dit.remote_name = drive_items.remote_name
+                          AND untagged_dit.item_id = drive_items.item_id
+                    )) OR
+                    (?16 = 1 AND EXISTS (
+                        SELECT 1 FROM drive_item_tags untagged_dit
+                        WHERE untagged_dit.remote_name = drive_items.remote_name
+                          AND untagged_dit.item_id = drive_items.item_id
+                    )))) OR
+                (?4 NOT IN ('__deleted__', '__untagged__') AND
+                    ((?16 = 0 AND EXISTS (
+                        SELECT 1 FROM drive_item_tags dit JOIN tags t ON t.id = dit.tag_id
+                        WHERE dit.remote_name = drive_items.remote_name
+                          AND dit.item_id = drive_items.item_id AND t.slug = ?4
+                    )) OR
+                    (?16 = 1 AND NOT EXISTS (
+                        SELECT 1 FROM drive_item_tags dit JOIN tags t ON t.id = dit.tag_id
+                        WHERE dit.remote_name = drive_items.remote_name
+                          AND dit.item_id = drive_items.item_id AND t.slug = ?4
+                    )))))
            AND (?5 = '' OR instr(lower(
                 CASE WHEN is_directory THEN 'folder' ELSE COALESCE(mime_type, '') END
            ), lower(?5)) > 0)
@@ -758,7 +796,7 @@ pub fn list_drive_directory(
             remote,
             parent_path,
             search.trim(),
-            tag_filter,
+            tag_slug,
             type_filter.trim(),
             size_comparison,
             size_bytes,
@@ -770,6 +808,7 @@ pub fn list_drive_directory(
             include_deleted,
             owner_identity_tag_filter,
             permission_identity_tag_filter,
+            exclude_tag,
         ],
         |row| {
             let size: Option<i64> = row.get(5)?;
@@ -879,6 +918,13 @@ fn comparison_prefix(value: &str) -> (i64, &str) {
         }
     }
     (5, value.trim())
+}
+
+fn split_tag_filter(filter: &str) -> (bool, &str) {
+    match filter.trim().strip_prefix('!') {
+        Some(slug) => (true, slug.trim()),
+        None => (false, filter.trim()),
+    }
 }
 
 fn parse_count_filter(filter: &str) -> Result<(i64, i64), DatabaseError> {

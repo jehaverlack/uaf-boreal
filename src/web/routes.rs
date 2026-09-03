@@ -403,6 +403,7 @@ pub struct TagFilterPill {
     pub color: String,
     pub text_color: &'static str,
     pub selected: bool,
+    pub excluded: bool,
 }
 
 #[allow(dead_code)]
@@ -462,6 +463,7 @@ struct MyDriveTemplate {
     tag_action: &'static str,
     tag_remove_action: &'static str,
     summary: ExplorerSummary,
+    print_view: bool,
 }
 
 #[derive(Template)]
@@ -475,6 +477,12 @@ struct DownloadStatusTemplate {
 #[derive(Template)]
 #[template(path = "partials/download-status-item.html", config = "askama.toml")]
 struct DownloadStatusItemTemplate {
+    item: StatusItem,
+}
+
+#[derive(Template)]
+#[template(path = "partials/migration-status-item.html", config = "askama.toml")]
+struct MigrationStatusItemTemplate {
     item: StatusItem,
 }
 
@@ -531,6 +539,7 @@ struct SharedDrivesTemplate {
     direction: String,
     error: String,
     summary: ExplorerSummary,
+    print_view: bool,
 }
 
 #[allow(dead_code)]
@@ -571,6 +580,8 @@ struct DirectoryTemplate {
     organization_filter: String,
     tag_filter: String,
     tags: Vec<database::inventory::Tag>,
+    filter_tags: Vec<TagFilterPill>,
+    print_view: bool,
 }
 
 #[allow(dead_code)]
@@ -708,6 +719,8 @@ struct DirectoryQuery {
     organization_filter: String,
     #[serde(default)]
     tag_filter: String,
+    #[serde(default)]
+    print: bool,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -754,6 +767,8 @@ struct DrivePathQuery {
     shared_drive_manager_filter: String,
     #[serde(default)]
     shared_drive_permission_filter: String,
+    #[serde(default)]
+    print: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -1021,6 +1036,7 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/ui/download-status", get(ui_download_status))
         .route("/ui/download-status-item", get(ui_download_status_item))
+        .route("/ui/migration-status-item", get(ui_migration_status_item))
         .route("/tags", get(tags_page))
         .route("/directory", get(directory_page))
         .route(
@@ -3203,7 +3219,7 @@ async fn shared_drives_page(
             database::inventory::TagScope::SharedDrives,
         )
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let filter_tags = tags
+        let mut filter_tags = tags
             .iter()
             .map(|tag| TagFilterPill {
                 slug: tag.slug.clone(),
@@ -3212,8 +3228,10 @@ async fn shared_drives_page(
                 color: tag.color.clone(),
                 text_color: tag_text_color(&tag.color),
                 selected: query.tag == tag.slug,
+                excluded: query.tag.strip_prefix('!') == Some(tag.slug.as_str()),
             })
-            .collect();
+            .collect::<Vec<_>>();
+        filter_tags.push(no_tags_filter_pill(&query.tag));
         let rclone_state = state.rclone_state();
         let google_client_state = state.google_client_state();
         let google_remotes_state = state.google_remotes_state();
@@ -3260,6 +3278,7 @@ async fn shared_drives_page(
             },
             error,
             summary,
+            print_view: query.print,
         });
     }
     let drive = database::inventory::get_shared_drive(&database, &query.drive)
@@ -3489,8 +3508,10 @@ fn render_drive_explorer(
             color: tag.color.clone(),
             text_color: tag_text_color(&tag.color),
             selected: query.tag == tag.slug,
+            excluded: query.tag.strip_prefix('!') == Some(tag.slug.as_str()),
         })
         .collect::<Vec<_>>();
+    filter_tags.push(no_tags_filter_pill(&query.tag));
     filter_tags.push(TagFilterPill {
         slug: database::inventory::DELETED_TAG_FILTER.to_string(),
         name: "Deleted".to_string(),
@@ -3500,6 +3521,7 @@ fn render_drive_explorer(
         color: "#6c757d".to_string(),
         text_color: "#ffffff",
         selected: query.tag == database::inventory::DELETED_TAG_FILTER,
+        excluded: query.tag.strip_prefix('!') == Some(database::inventory::DELETED_TAG_FILTER),
     });
     let directory_tags = database::inventory::list_tags_for_scope(
         &database,
@@ -3602,6 +3624,7 @@ fn render_drive_explorer(
         tag_action,
         tag_remove_action,
         summary,
+        print_view: query.print,
     };
     render_template(&template)
 }
@@ -3978,6 +4001,14 @@ async fn ui_download_status_item(
     })
 }
 
+async fn ui_migration_status_item(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
+    render_template(&MigrationStatusItemTemplate {
+        item: build_migration_status_item(&state),
+    })
+}
+
 fn render_download_status(state: &DownloadState) -> Result<Html<String>, StatusCode> {
     match state {
         DownloadState::Idle => render_download_message("idle", String::new(), false),
@@ -4097,6 +4128,19 @@ async fn directory_page(
         database::inventory::TagScope::Directory,
     )
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut filter_tags = tags
+        .iter()
+        .map(|tag| TagFilterPill {
+            slug: tag.slug.clone(),
+            name: tag.name.clone(),
+            description: tag.description.clone(),
+            color: tag.color.clone(),
+            text_color: tag_text_color(&tag.color),
+            selected: query.tag_filter == tag.slug,
+            excluded: query.tag_filter.strip_prefix('!') == Some(tag.slug.as_str()),
+        })
+        .collect::<Vec<_>>();
+    filter_tags.push(no_tags_filter_pill(&query.tag_filter));
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
@@ -4136,6 +4180,8 @@ async fn directory_page(
         organization_filter: query.organization_filter,
         tag_filter: query.tag_filter,
         tags,
+        filter_tags,
+        print_view: query.print,
     })
 }
 
@@ -4604,6 +4650,18 @@ fn tag_form_scopes(form: &TagForm) -> Vec<database::inventory::TagScope> {
         scopes.push(database::inventory::TagScope::SharedWithMe);
     }
     scopes
+}
+
+fn no_tags_filter_pill(filter: &str) -> TagFilterPill {
+    TagFilterPill {
+        slug: database::inventory::UNTAGGED_TAG_FILTER.to_string(),
+        name: "No tags".to_string(),
+        description: "Records that do not have any tags assigned.".to_string(),
+        color: "#6c757d".to_string(),
+        text_color: "#ffffff",
+        selected: filter == database::inventory::UNTAGGED_TAG_FILTER,
+        excluded: filter.strip_prefix('!') == Some(database::inventory::UNTAGGED_TAG_FILTER),
+    }
 }
 
 fn tag_text_color(color: &str) -> &'static str {
@@ -5393,6 +5451,16 @@ fn build_status_items(
         },
         build_download_status_item(download_state),
         StatusItem {
+            icon: "bi-arrow-left-right",
+            label: "Migrations",
+            value: "Checking…".to_string(),
+            value_class: "text-body-secondary",
+            value_url: "/migrations".to_string(),
+            spinner: false,
+            age_timestamp: String::new(),
+            title: "Open migration progress and history".to_string(),
+        },
+        StatusItem {
             icon: "bi-info-circle",
             label: "BOREAL",
             value: boreal_version_label(),
@@ -5468,6 +5536,59 @@ fn build_download_status_item(download_state: &DownloadState) -> StatusItem {
         spinner,
         age_timestamp: String::new(),
         title: String::new(),
+    }
+}
+
+fn build_migration_status_item(state: &AppState) -> StatusItem {
+    let summary = state.database().and_then(|database| {
+        database::migration::active_summary(&database).map_err(|error| error.to_string())
+    });
+    let (value, value_class, spinner, title) = match summary {
+        Ok(summary) if summary.count == 0 => (
+            "Idle".to_string(),
+            "text-body-secondary",
+            false,
+            "No active migrations".to_string(),
+        ),
+        Ok(summary) => {
+            let percent = if summary.bytes_total > 0 {
+                summary.bytes_copied.saturating_mul(100) / summary.bytes_total
+            } else if summary.files_total > 0 {
+                summary.files_copied.saturating_mul(100) / summary.files_total
+            } else {
+                0
+            };
+            (
+                format!(
+                    "{} active · {}% · {}/{} files",
+                    summary.count, percent, summary.files_copied, summary.files_total
+                ),
+                "text-primary",
+                true,
+                format!(
+                    "{} active migration(s); {} of {} copied",
+                    summary.count,
+                    format_bytes(summary.bytes_copied),
+                    format_bytes(summary.bytes_total)
+                ),
+            )
+        }
+        Err(error) => (
+            "Unavailable".to_string(),
+            "text-danger",
+            false,
+            format!("Unable to read migration progress: {error}"),
+        ),
+    };
+    StatusItem {
+        icon: "bi-arrow-left-right",
+        label: "Migrations",
+        value,
+        value_class,
+        value_url: "/migrations".to_string(),
+        spinner,
+        age_timestamp: String::new(),
+        title,
     }
 }
 

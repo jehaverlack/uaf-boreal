@@ -45,6 +45,15 @@ pub struct MigrationSource {
     pub error_message: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActiveMigrationSummary {
+    pub count: usize,
+    pub files_total: u64,
+    pub files_copied: u64,
+    pub bytes_total: u64,
+    pub bytes_copied: u64,
+}
+
 pub fn active_count(database: &Database) -> Result<usize, DatabaseError> {
     let count = database.connect()?.query_row(
         "SELECT COUNT(*) FROM migration_jobs WHERE status IN ('preflight', 'running')",
@@ -52,6 +61,25 @@ pub fn active_count(database: &Database) -> Result<usize, DatabaseError> {
         |row| row.get::<_, i64>(0),
     )?;
     Ok(count as usize)
+}
+
+pub fn active_summary(database: &Database) -> Result<ActiveMigrationSummary, DatabaseError> {
+    let summary = database.connect()?.query_row(
+        "SELECT COUNT(*), COALESCE(SUM(files_total), 0), COALESCE(SUM(files_copied), 0),
+                COALESCE(SUM(bytes_total), 0), COALESCE(SUM(bytes_copied), 0)
+         FROM migration_jobs WHERE status IN ('preflight', 'running')",
+        [],
+        |row| {
+            Ok(ActiveMigrationSummary {
+                count: row.get::<_, i64>(0)? as usize,
+                files_total: row.get::<_, i64>(1)? as u64,
+                files_copied: row.get::<_, i64>(2)? as u64,
+                bytes_total: row.get::<_, i64>(3)? as u64,
+                bytes_copied: row.get::<_, i64>(4)? as u64,
+            })
+        },
+    )?;
+    Ok(summary)
 }
 
 pub fn create(
