@@ -5,12 +5,28 @@
 | **Name** | boreal |
 | **Author** | John Haverlack |
 | **License** | MIT |
-| **Version** | 1.0.2 |
+| **Version** | 1.0.3 |
 | **Maturity** | STABLE |
 | **Date** | 2026-09-03 |
 
+## v1.0.3 - 2026-09-03 (STABLE)
+
+- Fixing PDF Exporter
+- Adding Migration Status Monitoring
+- Fixing Tags Offered
+- Adding PDF Reports
+- Added SHIFT Select
+- tag Searchs
+- Adding No Tags Search
+- Start v1.0.3
+
 ## v1.0.2 - 2026-09-03 (STABLE)
 
+- b1.0.2
+- Fixing Stage Release
+- Fixing Stage Release
+- Refactoring Git Branches to bVERION
+- v1.0.2
 - Setting Cleanup
 - Removing Bookmarking, addign Boreal Persons Template Link
 - Import Person Updates
@@ -265,10 +281,12 @@ Added Migration Assitant and Polished Interfaces
 **Summary**
 Project Initialization
 
-- Setting Cleanup
-- Removing Bookmarking, addign Boreal Persons Template Link
-- Import Person Updates
-- Fixing People Filters
-- Fixing 401 Issue
-- Start v1.0.2
+- Fixing PDF Exporter
+- Adding Migration Status Monitoring
+- Fixing Tags Offered
+- Adding PDF Reports
+- Added SHIFT Select
+- tag Searchs
+- Adding No Tags Search
+- Start v1.0.3
 
