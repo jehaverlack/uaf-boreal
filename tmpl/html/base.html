@@ -194,6 +194,16 @@
             height: auto !important;
             min-height: 0 !important;
             overflow: visible !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+
+        .boreal-print-only {
+            display: none !important;
+        }
+
+        body.boreal-print-report .boreal-print-only {
+            display: inline !important;
         }
 
         body.boreal-print-report > nav,
@@ -228,6 +238,16 @@
         }
 
         @media print {
+            body.boreal-print-report,
+            body.boreal-print-report * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+
+            body.boreal-print-report .badge {
+                forced-color-adjust: none;
+            }
+
             .boreal-print-actions {
                 display: none !important;
             }
