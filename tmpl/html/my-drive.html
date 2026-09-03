@@ -340,6 +340,22 @@
             return `${bytes} B`;
         }
 
+        let lastClickedCheckbox = null;
+        itemCheckboxes.forEach((checkbox) => {
+            checkbox.addEventListener("click", (event) => {
+                if (event.shiftKey && lastClickedCheckbox) {
+                    const start = itemCheckboxes.indexOf(lastClickedCheckbox);
+                    const end = itemCheckboxes.indexOf(checkbox);
+                    const [first, last] = start < end ? [start, end] : [end, start];
+                    itemCheckboxes.slice(first, last + 1).forEach((item) => {
+                        item.checked = checkbox.checked;
+                    });
+                    updateSelectAll();
+                }
+                lastClickedCheckbox = checkbox;
+            });
+        });
+
         selectAll.addEventListener("change", () => {
             for (const checkbox of itemCheckboxes) {
                 checkbox.checked = selectAll.checked;

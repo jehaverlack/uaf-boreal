@@ -136,6 +136,21 @@
             selectionCount.textContent = `${selected.length} selected`;
             selectedIds.value = selected.map((checkbox) => checkbox.value).join(",");
         }
+        let lastClickedCheckbox = null;
+        checkboxes.forEach((checkbox) => {
+            checkbox.addEventListener("click", (event) => {
+                if (event.shiftKey && lastClickedCheckbox) {
+                    const start = checkboxes.indexOf(lastClickedCheckbox);
+                    const end = checkboxes.indexOf(checkbox);
+                    const [first, last] = start < end ? [start, end] : [end, start];
+                    checkboxes.slice(first, last + 1).forEach((item) => {
+                        item.checked = checkbox.checked;
+                    });
+                    updateSelection();
+                }
+                lastClickedCheckbox = checkbox;
+            });
+        });
         selectAll.addEventListener("change", () => { checkboxes.forEach((checkbox) => { checkbox.checked = selectAll.checked; }); updateSelection(); });
         checkboxes.forEach((checkbox) => checkbox.addEventListener("change", updateSelection));
         updateSelection();

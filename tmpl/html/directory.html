@@ -251,6 +251,21 @@
             selectedIds.value = selected.map((checkbox) => checkbox.value).join(",");
             selectionCount.textContent = `${selected.length} selected`;
         };
+        let lastClickedCheckbox = null;
+        identityCheckboxes.forEach((checkbox) => {
+            checkbox.addEventListener("click", (event) => {
+                if (event.shiftKey && lastClickedCheckbox) {
+                    const start = identityCheckboxes.indexOf(lastClickedCheckbox);
+                    const end = identityCheckboxes.indexOf(checkbox);
+                    const [first, last] = start < end ? [start, end] : [end, start];
+                    identityCheckboxes.slice(first, last + 1).forEach((identity) => {
+                        identity.checked = checkbox.checked;
+                    });
+                    updateIdentitySelection();
+                }
+                lastClickedCheckbox = checkbox;
+            });
+        });
         if (selectAll) {
             selectAll.addEventListener("change", () => {
                 identityCheckboxes.forEach((checkbox) => { checkbox.checked = selectAll.checked; });
