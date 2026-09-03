@@ -106,9 +106,11 @@ pub fn summary(database: &Database) -> Result<DirectorySummary, DatabaseError> {
             "SELECT
             (SELECT COUNT(*) FROM principals),
             (SELECT COUNT(*) FROM organizations),
-            (SELECT COUNT(*) FROM principals WHERE principal_type = 'group'),
             (SELECT COUNT(*) FROM principals
-             WHERE principal_type = 'person' AND status IN ('former', 'departing')),
+             WHERE lower(trim(principal_type)) IN ('group', 'google group', 'google_group')),
+            (SELECT COUNT(*) FROM principals
+             WHERE lower(trim(principal_type)) IN ('person', 'user')
+               AND status IN ('former', 'departing')),
             (SELECT COUNT(*) FROM directory_sources WHERE enabled = 1)",
             [],
             |row| {
@@ -870,18 +872,7 @@ pub fn record_linked_sheet_failure(
 }
 
 fn canonical_principal_type(value: &str) -> String {
-    let normalized = normalize_value(value);
-    match normalized.as_str() {
-        "person" | "user" => "person",
-        "group" | "google_group" => "group",
-        "service_acct" | "service_account" => "service_acct",
-        "dept_acct" | "department_account" | "departmental_account" | "departmental_acct" => {
-            "dept_acct"
-        }
-        "other" => "other",
-        _ => value.trim(),
-    }
-    .to_string()
+    value.trim().to_string()
 }
 
 fn parse_csv(text: &str) -> Result<Vec<Vec<String>>, DatabaseError> {
@@ -974,10 +965,16 @@ mod tests {
     }
 
     #[test]
-    fn canonicalizes_supported_principal_types() {
-        assert_eq!(canonical_principal_type("Google Group"), "group");
-        assert_eq!(canonical_principal_type("service account"), "service_acct");
-        assert_eq!(canonical_principal_type("departmental_acct"), "dept_acct");
+    fn preserves_principal_type_spelling_and_capitalization() {
+        assert_eq!(canonical_principal_type("Google Group"), "Google Group");
+        assert_eq!(
+            canonical_principal_type("service account"),
+            "service account"
+        );
+        assert_eq!(
+            canonical_principal_type("departmental_acct"),
+            "departmental_acct"
+        );
         assert_eq!(canonical_principal_type("Staff"), "Staff");
         assert_eq!(
             canonical_principal_type("Affiliate Researcher"),

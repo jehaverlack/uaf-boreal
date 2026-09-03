@@ -476,6 +476,19 @@ mod tests {
             .find(|principal| principal.primary_email == "researcher@example.edu")
             .expect("researcher should exist");
         assert_eq!(principal.principal_type, "Affiliate Researcher");
+
+        directory::import_csv(
+            &database,
+            "directory.csv",
+            b"email,name,type,status\nresearcher@example.edu,Researcher,Senior Researcher,Active\n",
+        )
+        .expect("authoritative CSV type should update");
+        let principal = directory::list_principals(&database)
+            .expect("directory should load")
+            .into_iter()
+            .find(|principal| principal.primary_email == "researcher@example.edu")
+            .expect("researcher should exist");
+        assert_eq!(principal.principal_type, "Senior Researcher");
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
 
