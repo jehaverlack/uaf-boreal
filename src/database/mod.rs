@@ -457,6 +457,33 @@ mod tests {
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].primary_email, "former@example.edu");
 
+        let excluded = directory::list_principals_filtered(
+            &database,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "!data-loss-risk",
+        )
+        .expect("directory should exclude a tag");
+        assert_eq!(excluded.len(), 1);
+        assert_eq!(excluded[0].primary_email, "active@example.edu");
+        let untagged = directory::list_principals_filtered(
+            &database,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            inventory::UNTAGGED_TAG_FILTER,
+        )
+        .expect("directory should filter identities without tags");
+        assert_eq!(untagged.len(), 1);
+        assert_eq!(untagged[0].primary_email, "active@example.edu");
+
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
 
@@ -640,6 +667,36 @@ mod tests {
         assert_eq!(tagged_drives.len(), 1);
         assert_eq!(tagged_drives[0].drive_id, "drive-a");
         assert_eq!(tagged_drives[0].tags[0].slug, "to-delete");
+        let untagged_drives = inventory::list_shared_drives_filtered(
+            &database,
+            "",
+            "!to-delete",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+        )
+        .expect("Shared Drives should support negated tag filters");
+        assert_eq!(untagged_drives.len(), 1);
+        assert_eq!(untagged_drives[0].drive_id, "drive-b");
+        assert_eq!(
+            inventory::list_shared_drives_filtered(
+                &database,
+                "",
+                inventory::UNTAGGED_TAG_FILTER,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            )
+            .expect("Shared Drives should filter drives without tags")
+            .len(),
+            1,
+        );
         let manager_filtered = inventory::list_shared_drives_filtered(
             &database,
             "",
@@ -1011,6 +1068,27 @@ mod tests {
         );
         assert!(
             inventory::list_my_drive_directory(
+                &database,
+                None,
+                "",
+                inventory::UNTAGGED_TAG_FILTER,
+                "",
+                "",
+                "",
+                "",
+                false,
+                "",
+                "",
+                "",
+                false,
+                "name",
+                false,
+            )
+            .expect("My Drive should filter items without tags")
+            .is_empty(),
+        );
+        assert!(
+            inventory::list_my_drive_directory(
                 &database, None, "missing", "", "", "", "", "", false, "", "", "", false, "name",
                 false,
             )
@@ -1024,6 +1102,27 @@ mod tests {
                 "to-migrate",
             ).expect("recursive tag should apply"),
             2,
+        );
+        assert!(
+            inventory::list_my_drive_directory(
+                &database,
+                None,
+                "",
+                "!to-migrate",
+                "",
+                "",
+                "",
+                "",
+                false,
+                "",
+                "",
+                "",
+                false,
+                "name",
+                false,
+            )
+            .expect("My Drive should support negated tag filters")
+            .is_empty(),
         );
         assert_eq!(
             inventory::remove_tag_recursively_for_scope(

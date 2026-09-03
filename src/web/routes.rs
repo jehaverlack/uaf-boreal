@@ -403,6 +403,7 @@ pub struct TagFilterPill {
     pub color: String,
     pub text_color: &'static str,
     pub selected: bool,
+    pub excluded: bool,
 }
 
 #[allow(dead_code)]
@@ -571,6 +572,7 @@ struct DirectoryTemplate {
     organization_filter: String,
     tag_filter: String,
     tags: Vec<database::inventory::Tag>,
+    filter_tags: Vec<TagFilterPill>,
 }
 
 #[allow(dead_code)]
@@ -3203,7 +3205,7 @@ async fn shared_drives_page(
             database::inventory::TagScope::SharedDrives,
         )
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let filter_tags = tags
+        let mut filter_tags = tags
             .iter()
             .map(|tag| TagFilterPill {
                 slug: tag.slug.clone(),
@@ -3212,8 +3214,10 @@ async fn shared_drives_page(
                 color: tag.color.clone(),
                 text_color: tag_text_color(&tag.color),
                 selected: query.tag == tag.slug,
+                excluded: query.tag.strip_prefix('!') == Some(tag.slug.as_str()),
             })
-            .collect();
+            .collect::<Vec<_>>();
+        filter_tags.push(no_tags_filter_pill(&query.tag));
         let rclone_state = state.rclone_state();
         let google_client_state = state.google_client_state();
         let google_remotes_state = state.google_remotes_state();
@@ -3489,8 +3493,10 @@ fn render_drive_explorer(
             color: tag.color.clone(),
             text_color: tag_text_color(&tag.color),
             selected: query.tag == tag.slug,
+            excluded: query.tag.strip_prefix('!') == Some(tag.slug.as_str()),
         })
         .collect::<Vec<_>>();
+    filter_tags.push(no_tags_filter_pill(&query.tag));
     filter_tags.push(TagFilterPill {
         slug: database::inventory::DELETED_TAG_FILTER.to_string(),
         name: "Deleted".to_string(),
@@ -3500,6 +3506,7 @@ fn render_drive_explorer(
         color: "#6c757d".to_string(),
         text_color: "#ffffff",
         selected: query.tag == database::inventory::DELETED_TAG_FILTER,
+        excluded: query.tag.strip_prefix('!') == Some(database::inventory::DELETED_TAG_FILTER),
     });
     let directory_tags = database::inventory::list_tags_for_scope(
         &database,
@@ -4097,6 +4104,19 @@ async fn directory_page(
         database::inventory::TagScope::Directory,
     )
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut filter_tags = tags
+        .iter()
+        .map(|tag| TagFilterPill {
+            slug: tag.slug.clone(),
+            name: tag.name.clone(),
+            description: tag.description.clone(),
+            color: tag.color.clone(),
+            text_color: tag_text_color(&tag.color),
+            selected: query.tag_filter == tag.slug,
+            excluded: query.tag_filter.strip_prefix('!') == Some(tag.slug.as_str()),
+        })
+        .collect::<Vec<_>>();
+    filter_tags.push(no_tags_filter_pill(&query.tag_filter));
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
@@ -4136,6 +4156,7 @@ async fn directory_page(
         organization_filter: query.organization_filter,
         tag_filter: query.tag_filter,
         tags,
+        filter_tags,
     })
 }
 
@@ -4604,6 +4625,18 @@ fn tag_form_scopes(form: &TagForm) -> Vec<database::inventory::TagScope> {
         scopes.push(database::inventory::TagScope::SharedWithMe);
     }
     scopes
+}
+
+fn no_tags_filter_pill(filter: &str) -> TagFilterPill {
+    TagFilterPill {
+        slug: database::inventory::UNTAGGED_TAG_FILTER.to_string(),
+        name: "No tags".to_string(),
+        description: "Records that do not have any tags assigned.".to_string(),
+        color: "#6c757d".to_string(),
+        text_color: "#ffffff",
+        selected: filter == database::inventory::UNTAGGED_TAG_FILTER,
+        excluded: filter.strip_prefix('!') == Some(database::inventory::UNTAGGED_TAG_FILTER),
+    }
 }
 
 fn tag_text_color(color: &str) -> &'static str {

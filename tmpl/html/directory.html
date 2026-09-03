@@ -109,12 +109,12 @@
                 type="button" data-tag-value="" aria-pressed="{% if tag_filter.len() == 0 %}true{% else %}false{% endif %}">
             {% if tag_filter.len() == 0 %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% endif %}All tags
         </button>
-        {% for tag in tags %}
-        <button class="btn btn-sm rounded-pill boreal-tag-filter-pill" type="button"
-                data-tag-value="{{ tag.slug }}" aria-pressed="{% if tag_filter == tag.slug %}true{% else %}false{% endif %}"
+        {% for tag in filter_tags %}
+        <button class="btn btn-sm rounded-pill boreal-tag-filter-pill{% if tag.excluded %} boreal-tag-filter-pill-excluded{% endif %}" type="button"
+                data-tag-value="{{ tag.slug }}" aria-pressed="{% if tag.selected || tag.excluded %}true{% else %}false{% endif %}"
                 title="{{ tag.description }}"
-                style="border-color: {{ tag.color }}; background-color: {% if tag_filter == tag.slug %}{{ tag.color }}{% else %}transparent{% endif %}; color: {% if tag_filter == tag.slug %}#fff{% else %}{{ tag.color }}{% endif %};">
-            {% if tag_filter == tag.slug %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% endif %}{{ tag.name }}
+                style="border-color: {{ tag.color }}; background-color: {% if tag.selected %}{{ tag.color }}{% else %}transparent{% endif %}; color: {% if tag.selected %}{{ tag.text_color }}{% else %}{{ tag.color }}{% endif %};">
+            {% if tag.selected %}<i class="bi bi-check-lg me-1" aria-hidden="true"></i>{% else if tag.excluded %}<i class="bi bi-slash-circle me-1" aria-hidden="true"></i>Not {% endif %}{{ tag.name }}
         </button>
         {% endfor %}
     </div>
@@ -230,7 +230,9 @@
         document.querySelectorAll(".boreal-tag-filter-pill").forEach((button) => {
             button.addEventListener("click", () => {
                 const requestedTag = button.dataset.tagValue;
-                tagFilterInput.value = requestedTag === tagFilterInput.value ? "" : requestedTag;
+                tagFilterInput.value = tagFilterInput.value === requestedTag
+                    ? `!${requestedTag}`
+                    : tagFilterInput.value === `!${requestedTag}` ? "" : requestedTag;
                 tagFilterForm.requestSubmit();
             });
         });
