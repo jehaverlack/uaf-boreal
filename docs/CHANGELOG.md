@@ -5,12 +5,23 @@
 | **Name** | boreal |
 | **Author** | John Haverlack |
 | **License** | MIT |
-| **Version** | 1.0.1 |
+| **Version** | 1.0.2 |
 | **Maturity** | STABLE |
-| **Date** | 2026-09-02 |
+| **Date** | 2026-09-03 |
+
+## v1.0.2 - 2026-09-03 (STABLE)
+
+- Setting Cleanup
+- Removing Bookmarking, addign Boreal Persons Template Link
+- Import Person Updates
+- Fixing People Filters
+- Fixing 401 Issue
+- Start v1.0.2
 
 ## v1.0.1 - 2026-09-02 (STABLE)
 
+- v1.0.1
+- v1.0.1
 - v1.0.1
 - v1.0.1
 - v1.0.1
@@ -254,22 +265,10 @@ Added Migration Assitant and Polished Interfaces
 **Summary**
 Project Initialization
 
-- v1.0.1
-- v1.0.1
-- v1.0.1
-- Cleaning up Modals
-- Planning service feature
-- Cleaning up App Menu
-- Simplify Setup
-- Task Bar Menu Cleanup
-- Removed Bookmark Alerts
-- Exit messgae
-- Added Taskbar Widget
-- Fixing Quit
-- GDrive and Rclone Menu Icons
-- Adding Download As Migration
-- Adding Download As Migration
-- Checking Update Order
-- Starting v1.0.1
-- Start v1.0.1
+- Setting Cleanup
+- Removing Bookmarking, addign Boreal Persons Template Link
+- Import Person Updates
+- Fixing People Filters
+- Fixing 401 Issue
+- Start v1.0.2
 
