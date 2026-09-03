@@ -572,6 +572,7 @@ struct DirectoryTemplate {
     status_filter: String,
     departure_filter: String,
     organization_filter: String,
+    tag_filter: String,
     tags: Vec<database::inventory::Tag>,
 }
 
@@ -708,6 +709,8 @@ struct DirectoryQuery {
     departure_filter: String,
     #[serde(default)]
     organization_filter: String,
+    #[serde(default)]
+    tag_filter: String,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -1153,7 +1156,8 @@ async fn google_cloud_oauth_json() -> impl IntoResponse {
     )
 }
 
-const PERSONS_CSV_TEMPLATE: &str = "name,email,organization,type,status,departure_date,notes\r\n";
+const PERSONS_CSV_TEMPLATE: &str =
+    "name,email,organization,type,status,departure_date,notes,tags\r\n";
 
 async fn directory_csv_template() -> impl IntoResponse {
     (
@@ -4091,6 +4095,7 @@ async fn directory_page(
         &query.status_filter,
         &query.departure_filter,
         &query.organization_filter,
+        &query.tag_filter,
     )
     .map_err(|error| {
         log::error!("Unable to load directory principals: {error}");
@@ -4147,6 +4152,7 @@ async fn directory_page(
         status_filter: query.status_filter,
         departure_filter: query.departure_filter,
         organization_filter: query.organization_filter,
+        tag_filter: query.tag_filter,
         tags,
     })
 }
@@ -5503,7 +5509,7 @@ mod tests {
     fn persons_csv_template_has_supported_import_columns() {
         assert_eq!(
             PERSONS_CSV_TEMPLATE,
-            "name,email,organization,type,status,departure_date,notes\r\n"
+            "name,email,organization,type,status,departure_date,notes,tags\r\n"
         );
     }
 

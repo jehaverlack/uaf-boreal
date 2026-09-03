@@ -125,7 +125,7 @@ pub fn summary(database: &Database) -> Result<DirectorySummary, DatabaseError> {
 }
 
 pub fn list_principals(database: &Database) -> Result<Vec<PrincipalRow>, DatabaseError> {
-    list_principals_filtered(database, "", "", "", "", "", "")
+    list_principals_filtered(database, "", "", "", "", "", "", "")
 }
 
 pub fn list_principals_filtered(
@@ -136,6 +136,7 @@ pub fn list_principals_filtered(
     status_filter: &str,
     departure_filter: &str,
     organization_filter: &str,
+    tag_filter: &str,
 ) -> Result<Vec<PrincipalRow>, DatabaseError> {
     let connection = database.connect()?;
     let (departure_comparison, departure_value) = parse_date_filter(departure_filter)?;
@@ -198,6 +199,12 @@ pub fn list_principals_filtered(
                 (?5 = 4 AND COALESCE(p.departure_date, '') <= ?6) OR
                 (?5 = 5 AND COALESCE(p.departure_date, '') = ?6))
            AND (?7 = '' OR instr(lower(COALESCE(po.names, '')), lower(?7)) > 0)
+           AND (?8 = '' OR EXISTS (
+                SELECT 1
+                FROM principal_tags filter_pt
+                JOIN tags filter_tag ON filter_tag.id = filter_pt.tag_id
+                WHERE filter_pt.principal_id = p.id AND filter_tag.slug = ?8
+           ))
          ORDER BY p.display_name COLLATE NOCASE, p.primary_email COLLATE NOCASE",
     )?;
     let rows = statement.query_map(
@@ -209,6 +216,7 @@ pub fn list_principals_filtered(
             departure_comparison,
             departure_value,
             organization_filter.trim(),
+            tag_filter.trim(),
         ],
         |row| {
             Ok(PrincipalRow {
@@ -665,6 +673,7 @@ fn import_csv_source(
     let departure_index = header_index(&headers, &["departure_date", "end_date"]);
     let organization_index = header_index(&headers, &["organization", "department"]);
     let notes_index = header_index(&headers, &["notes", "note"]);
+    let tags_index = header_index(&headers, &["tags", "tag"]);
 
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
@@ -759,6 +768,20 @@ fn import_csv_source(
             [&email],
             |row| row.get(0),
         )?;
+        if let Some(tags) = tags_index.map(|index| cell(row, index)) {
+            for tag in tags.split(';').map(str::trim).filter(|tag| !tag.is_empty()) {
+                let tag_slug = tag_reference_slug(tag);
+                transaction.execute(
+                    "INSERT OR IGNORE INTO principal_tags (principal_id, tag_id)
+                     SELECT ?1, t.id
+                     FROM tags t
+                     JOIN tag_scopes s ON s.tag_id = t.id
+                     WHERE s.scope = 'directory'
+                       AND (lower(t.name) = lower(?2) OR lower(t.slug) = lower(?3))",
+                    params![principal_id, tag, tag_slug],
+                )?;
+            }
+        }
         transaction.execute(
             "INSERT OR IGNORE INTO principal_emails (principal_id, email, is_primary)
              VALUES (?1, ?2, 1)",
@@ -912,6 +935,10 @@ fn normalize_value(value: &str) -> String {
         .collect::<String>()
         .trim_matches('_')
         .to_string()
+}
+
+fn tag_reference_slug(value: &str) -> String {
+    normalize_value(value).replace('_', "-")
 }
 
 fn header_index(headers: &[String], names: &[&str]) -> Option<usize> {

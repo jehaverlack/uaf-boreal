@@ -425,6 +425,42 @@ mod tests {
     }
 
     #[test]
+    fn directory_csv_import_applies_existing_person_tags_idempotently() {
+        let root = temporary_directory();
+        let database = Database::initialize(&runtime(&root)).expect("database should initialize");
+        let csv = b"email,name,tags\nformer@example.edu,Former User,Data Loss Risk; data-loss-risk\nactive@example.edu,Active User,\n";
+
+        directory::import_csv(&database, "directory.csv", csv)
+            .expect("directory CSV should import tags");
+        directory::import_csv(&database, "directory.csv", csv)
+            .expect("reimporting directory tags should be idempotent");
+
+        let principal = directory::list_principals(&database)
+            .expect("directory identities should load")
+            .into_iter()
+            .find(|principal| principal.primary_email == "former@example.edu")
+            .expect("former identity should exist");
+        assert_eq!(principal.tags.len(), 1);
+        assert_eq!(principal.tags[0].slug, "data-loss-risk");
+
+        let filtered = directory::list_principals_filtered(
+            &database,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "data-loss-risk",
+        )
+        .expect("directory should filter by tag");
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].primary_email, "former@example.edu");
+
+        fs::remove_dir_all(root).expect("temporary database directory should be removable");
+    }
+
+    #[test]
     fn directory_csv_preserves_custom_types_and_ignores_blank_type_updates() {
         let root = temporary_directory();
         let database = Database::initialize(&runtime(&root)).expect("database should initialize");
