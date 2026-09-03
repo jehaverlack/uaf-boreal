@@ -25,9 +25,9 @@ INSERT OR IGNORE INTO tags (slug, name, description, color) VALUES
     ),
     (
         'retain',
-        'Retain',
+        'Keep',
         'Content intentionally marked by the user to remain in its current location.',
-        '#0f766e'
+        '#00d149'
     ),
     (
         'migration-complete',

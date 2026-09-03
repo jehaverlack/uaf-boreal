@@ -187,7 +187,7 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 26,);
+        assert_eq!(migration_count, 27,);
 
         let safe_to_delete_scope_count: i64 = connection
             .query_row(
@@ -237,6 +237,16 @@ mod tests {
             "Content the user has reviewed and marked as ready for manual deletion from Google Drive."
         );
         assert_eq!(safe_to_delete_tag.2, "#198754");
+
+        let keep_tag: (String, String) = connection
+            .query_row(
+                "SELECT name, color FROM tags WHERE slug = 'retain'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("Keep tag should exist");
+        assert_eq!(keep_tag.0, "Keep");
+        assert_eq!(keep_tag.1, "#00d149");
 
         for slug in [
             "data-loss-risk",
