@@ -864,8 +864,10 @@ mod tests {
         connection
             .execute(
                 "INSERT INTO migration_jobs
-                 (source_scope, source_kind, status, phase)
-                 VALUES ('my-drive-ro', 'my-drive', 'running', 'Copying selected items')",
+                 (source_scope, source_kind, status, phase, files_total, files_copied,
+                  bytes_total, bytes_copied)
+                 VALUES ('my-drive-ro', 'my-drive', 'running', 'Copying selected items',
+                         4, 2, 100, 50)",
                 [],
             )
             .expect("running migration should insert");
@@ -873,6 +875,17 @@ mod tests {
         assert_eq!(
             migration::active_count(&database).expect("active migrations should be countable"),
             1,
+        );
+        assert_eq!(
+            migration::active_summary(&database)
+                .expect("active migration progress should be readable"),
+            migration::ActiveMigrationSummary {
+                count: 1,
+                files_total: 4,
+                files_copied: 2,
+                bytes_total: 100,
+                bytes_copied: 50,
+            },
         );
         connection
             .execute(

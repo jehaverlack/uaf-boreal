@@ -480,6 +480,12 @@ struct DownloadStatusItemTemplate {
     item: StatusItem,
 }
 
+#[derive(Template)]
+#[template(path = "partials/migration-status-item.html", config = "askama.toml")]
+struct MigrationStatusItemTemplate {
+    item: StatusItem,
+}
+
 pub struct SharedDriveView {
     pub drive_id: String,
     pub name: String,
@@ -1030,6 +1036,7 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/ui/download-status", get(ui_download_status))
         .route("/ui/download-status-item", get(ui_download_status_item))
+        .route("/ui/migration-status-item", get(ui_migration_status_item))
         .route("/tags", get(tags_page))
         .route("/directory", get(directory_page))
         .route(
@@ -3994,6 +4001,14 @@ async fn ui_download_status_item(
     })
 }
 
+async fn ui_migration_status_item(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
+    render_template(&MigrationStatusItemTemplate {
+        item: build_migration_status_item(&state),
+    })
+}
+
 fn render_download_status(state: &DownloadState) -> Result<Html<String>, StatusCode> {
     match state {
         DownloadState::Idle => render_download_message("idle", String::new(), false),
@@ -5436,6 +5451,16 @@ fn build_status_items(
         },
         build_download_status_item(download_state),
         StatusItem {
+            icon: "bi-arrow-left-right",
+            label: "Migrations",
+            value: "Checking…".to_string(),
+            value_class: "text-body-secondary",
+            value_url: "/migrations".to_string(),
+            spinner: false,
+            age_timestamp: String::new(),
+            title: "Open migration progress and history".to_string(),
+        },
+        StatusItem {
             icon: "bi-info-circle",
             label: "BOREAL",
             value: boreal_version_label(),
@@ -5511,6 +5536,59 @@ fn build_download_status_item(download_state: &DownloadState) -> StatusItem {
         spinner,
         age_timestamp: String::new(),
         title: String::new(),
+    }
+}
+
+fn build_migration_status_item(state: &AppState) -> StatusItem {
+    let summary = state.database().and_then(|database| {
+        database::migration::active_summary(&database).map_err(|error| error.to_string())
+    });
+    let (value, value_class, spinner, title) = match summary {
+        Ok(summary) if summary.count == 0 => (
+            "Idle".to_string(),
+            "text-body-secondary",
+            false,
+            "No active migrations".to_string(),
+        ),
+        Ok(summary) => {
+            let percent = if summary.bytes_total > 0 {
+                summary.bytes_copied.saturating_mul(100) / summary.bytes_total
+            } else if summary.files_total > 0 {
+                summary.files_copied.saturating_mul(100) / summary.files_total
+            } else {
+                0
+            };
+            (
+                format!(
+                    "{} active · {}% · {}/{} files",
+                    summary.count, percent, summary.files_copied, summary.files_total
+                ),
+                "text-primary",
+                true,
+                format!(
+                    "{} active migration(s); {} of {} copied",
+                    summary.count,
+                    format_bytes(summary.bytes_copied),
+                    format_bytes(summary.bytes_total)
+                ),
+            )
+        }
+        Err(error) => (
+            "Unavailable".to_string(),
+            "text-danger",
+            false,
+            format!("Unable to read migration progress: {error}"),
+        ),
+    };
+    StatusItem {
+        icon: "bi-arrow-left-right",
+        label: "Migrations",
+        value,
+        value_class,
+        value_url: "/migrations".to_string(),
+        spinner,
+        age_timestamp: String::new(),
+        title,
     }
 }
 
