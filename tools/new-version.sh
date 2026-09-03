@@ -25,13 +25,11 @@ suggest_next_version() {
 # -------------------------------------------------
 DESC=$(jq -r '.METADATA.description' metadata.json)
 ABBR=$(jq -r '.METADATA.abbr' metadata.json)
-COPYRT=$(jq -r '.METADATA.copyright' metadata.json)
 CUR_VER=$(jq -r '.METADATA.version' metadata.json)
 CUR_VER_DATE=$(jq -r '.METADATA.version_date' metadata.json)
 NXT_VER=$(suggest_next_version)
 
 echo "Description:             $DESC ($ABBR)"
-echo "Copyright:               (C) $COPYRT"
 echo "Current version:         $CUR_VER"
 echo "Current version date:    $CUR_VER_DATE"
 echo ""
@@ -57,8 +55,16 @@ fi
 # -------------------------------------------------
 # Safety checks
 # -------------------------------------------------
-if git show-ref --verify --quiet "refs/heads/v${NEW_VER}"; then
-    echo "Branch v${NEW_VER} already exists"
+BRANCH="b${NEW_VER}"
+TAG="v${NEW_VER}"
+
+if git show-ref --verify --quiet "refs/heads/${BRANCH}"; then
+    echo "Branch ${BRANCH} already exists"
+    exit 1
+fi
+
+if git show-ref --verify --quiet "refs/tags/${TAG}"; then
+    echo "Tag ${TAG} already exists"
     exit 1
 fi
 
@@ -78,7 +84,7 @@ mv "$tmp_meta" metadata.json
 # -------------------------------------------------
 # Create branch
 # -------------------------------------------------
-git checkout -b "v${NEW_VER}"
+git checkout -b "${BRANCH}"
 
 # -------------------------------------------------
 # Propagate metadata and commit
@@ -87,4 +93,4 @@ git checkout -b "v${NEW_VER}"
 
 git commit -am "Start v${NEW_VER}"
 
-echo "Created new release branch v${NEW_VER}"
+echo "Created new release branch ${BRANCH} for tag ${TAG}"

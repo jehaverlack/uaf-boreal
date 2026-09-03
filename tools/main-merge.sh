@@ -5,10 +5,13 @@ set -euo pipefail
 CUR_VER=$(jq -r '.METADATA.version' metadata.json)
 CUR_BRANCH=$(git branch --show-current)
 TAG="v${CUR_VER}"
+RELEASE_BRANCH="b${CUR_VER}"
+LEGACY_BRANCH="v${CUR_VER}"
 
 # Ensure correct branch
-if [[ "$CUR_BRANCH" != "$TAG" ]]; then
-    echo "You must be on branch $TAG"
+if [[ "$CUR_BRANCH" != "$RELEASE_BRANCH" && "$CUR_BRANCH" != "$LEGACY_BRANCH" ]]; then
+    echo "You must be on release branch $RELEASE_BRANCH"
+    echo "Legacy branch $LEGACY_BRANCH is also accepted for this release."
     exit 1
 fi
 

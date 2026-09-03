@@ -2,7 +2,8 @@
 
 The `main` branch represents the most recent released version. Annotated
 `vX.Y.Z` tags preserve each release. Development for the next release occurs on
-a matching `vX.Y.Z` branch.
+a matching `bX.Y.Z` branch. The different prefixes prevent branch and tag name
+collisions.
 
 ## 1. Develop on the version branch
 
@@ -75,8 +76,10 @@ git push origin main
 git push origin --tags
 ```
 
-`main-merge.sh` merges the version branch into `main`, creates the annotated
-version tag, and removes the local version branch.
+`main-merge.sh` merges the `bX.Y.Z` version branch into `main`, creates the
+annotated `vX.Y.Z` version tag, and removes the local version branch. Legacy
+`vX.Y.Z` release branches are also accepted so an in-progress release is not
+broken by the naming transition.
 
 ## 6. Publish the GitHub release
 

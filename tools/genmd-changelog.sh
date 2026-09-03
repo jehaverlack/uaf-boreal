@@ -27,13 +27,16 @@ LICENSE=$(jq -r '.METADATA.license' metadata.json)
 # -------------------------------------------------
 mapfile -t MERGES < <(
   git log main --merges --pretty=format:'%H|%s' |
-  grep -E "(Merge branch 'v|Release v)"
+  grep -E "(Merge branch '[bv][0-9]|Release v)"
 )
 
 find_merge() {
   local tag="v$1"
+  local branch="b$1"
   for entry in "${MERGES[@]}"; do
-    if [[ "$entry" == *"Merge branch '${tag}'"* ]] || [[ "$entry" == *"Release ${tag}"* ]]; then
+    if [[ "$entry" == *"Merge branch '${branch}'"* ]] ||
+       [[ "$entry" == *"Merge branch '${tag}'"* ]] ||
+       [[ "$entry" == *"Release ${tag}"* ]]; then
       echo "${entry%%|*}"
       return
     fi
