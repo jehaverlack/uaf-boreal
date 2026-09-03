@@ -21,6 +21,9 @@
 - [x] https://drive.google.com/drive/quota
 - [x] Auto close window on shutdown.
 - [x] Add Close Console Message
+- [ ] Build Org Template in Google Drive for Copying
+   -  Support for Org Quotas
+   -  Improved People Statuses
 
 ## Future Implementation: Per-User Installation, Startup, and Updates
 

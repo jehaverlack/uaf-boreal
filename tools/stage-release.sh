@@ -160,3 +160,6 @@ echo "  ${CHECKSUM_FILE}"
 echo
 echo "==> Release staging complete"
 ls -lh "$DIST_DIR"
+
+git add -- "$DIST_DIR"
+echo "==> Added ${DIST_DIR}/ release artifacts to the Git index"

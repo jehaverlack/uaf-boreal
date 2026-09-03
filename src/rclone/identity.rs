@@ -64,10 +64,19 @@ pub fn fetch_google_drive_folder_for_remote(
         .text()
         .map_err(|error| format!("Unable to read Google Drive destination response: {error}"))?;
     if !status.is_success() {
-        return Err(format!(
-            "Google Drive destination lookup returned {status}. Confirm that the authenticated read-only account can open this folder."
-        )
-        .into());
+        let message = if status == reqwest::StatusCode::UNAUTHORIZED {
+            "Google rejected the refreshed My Drive RO authorization. Reconnect the my-drive-ro remote, then validate the destination again."
+                .to_string()
+        } else if status == reqwest::StatusCode::FORBIDDEN
+            || status == reqwest::StatusCode::NOT_FOUND
+        {
+            format!(
+                "Google Drive destination lookup returned {status}. Confirm that the authenticated read-only account can open this folder."
+            )
+        } else {
+            format!("Google Drive destination lookup returned {status}")
+        };
+        return Err(message.into());
     }
     let value: Value = serde_json::from_str(&body)
         .map_err(|error| format!("Invalid Google Drive destination response: {error}"))?;

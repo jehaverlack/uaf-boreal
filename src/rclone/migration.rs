@@ -25,6 +25,10 @@ pub fn validate_destination(
     folder_id: &str,
     require_shared_drive: bool,
 ) -> Result<SharedDriveDestination, RcloneError> {
+    // Contact Drive through Rclone before reading its cached OAuth token below.
+    // Rclone refreshes expired access tokens and persists the refreshed token in
+    // BOREAL's config; the exact Google API lookup can then safely reuse it.
+    let drives = inventory::discover_shared_drives(runtime, executable)?;
     let folder = identity::fetch_google_drive_folder(runtime, folder_id)?;
     if folder.drive_id.is_empty() {
         if require_shared_drive {
@@ -42,7 +46,6 @@ pub fn validate_destination(
             folders,
         });
     }
-    let drives = inventory::discover_shared_drives(runtime, executable)?;
     if drives.is_empty() {
         return Err("The authenticated read-only account cannot access any Shared Drives".into());
     }

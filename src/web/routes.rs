@@ -20,7 +20,6 @@ use crate::{
     app::{
         AppState, DownloadState, GoogleClientState, GoogleRemotesState, MetadataState, RcloneState,
     },
-    config,
     database::{
         self,
         settings::{self, InventorySettings},
@@ -164,8 +163,6 @@ struct SettingsTemplate {
     error: String,
     notice: String,
     directory_source: database::directory::LinkedSheetStatus,
-    boreal_url: String,
-    bookmark_reminder_dismissed: bool,
 }
 
 #[allow(dead_code)]
@@ -572,6 +569,7 @@ struct DirectoryTemplate {
     status_filter: String,
     departure_filter: String,
     organization_filter: String,
+    tag_filter: String,
     tags: Vec<database::inventory::Tag>,
 }
 
@@ -708,6 +706,8 @@ struct DirectoryQuery {
     departure_filter: String,
     #[serde(default)]
     organization_filter: String,
+    #[serde(default)]
+    tag_filter: String,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -1153,7 +1153,8 @@ async fn google_cloud_oauth_json() -> impl IntoResponse {
     )
 }
 
-const PERSONS_CSV_TEMPLATE: &str = "name,email,organization,type,status,departure_date,notes\r\n";
+const PERSONS_CSV_TEMPLATE: &str =
+    "name,email,organization,type,status,departure_date,notes,tags\r\n";
 
 async fn directory_csv_template() -> impl IntoResponse {
     (
@@ -1630,7 +1631,7 @@ async fn show_bookmark_reminder(
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     settings::set_bookmark_reminder_dismissed(&database, false)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Redirect::to("/settings?saved=true#bookmark-this-page"))
+    Ok(Redirect::to("/settings?saved=true"))
 }
 
 async fn test_directory_sheet(
@@ -1752,8 +1753,6 @@ fn render_settings(
         error,
         notice,
         directory_source,
-        boreal_url: boreal_web_url(state),
-        bookmark_reminder_dismissed: !bookmark_reminder_visible(state),
     };
 
     render_template(&template)
@@ -1766,19 +1765,6 @@ fn bookmark_reminder_visible(state: &AppState) -> bool {
         .and_then(|database| settings::bookmark_reminder_dismissed(&database).ok())
         .map(|dismissed| !dismissed)
         .unwrap_or(true)
-}
-
-fn boreal_web_url(state: &AppState) -> String {
-    config::get_webapp_config(&state.runtime.boreal)
-        .map(|webapp| {
-            let host = if webapp.listen == "::1" {
-                "[::1]".to_string()
-            } else {
-                webapp.listen
-            };
-            format!("http://{host}:{}", webapp.port)
-        })
-        .unwrap_or_else(|_| "http://127.0.0.1:8765".to_string())
 }
 
 async fn about(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
@@ -4091,6 +4077,7 @@ async fn directory_page(
         &query.status_filter,
         &query.departure_filter,
         &query.organization_filter,
+        &query.tag_filter,
     )
     .map_err(|error| {
         log::error!("Unable to load directory principals: {error}");
@@ -4147,6 +4134,7 @@ async fn directory_page(
         status_filter: query.status_filter,
         departure_filter: query.departure_filter,
         organization_filter: query.organization_filter,
+        tag_filter: query.tag_filter,
         tags,
     })
 }
@@ -5503,7 +5491,7 @@ mod tests {
     fn persons_csv_template_has_supported_import_columns() {
         assert_eq!(
             PERSONS_CSV_TEMPLATE,
-            "name,email,organization,type,status,departure_date,notes\r\n"
+            "name,email,organization,type,status,departure_date,notes,tags\r\n"
         );
     }
 
