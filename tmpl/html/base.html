@@ -189,6 +189,54 @@
         .navbar .boreal-purple-nav:focus {
             color: #59359a !important;
         }
+
+        body.boreal-print-report {
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+        }
+
+        body.boreal-print-report > nav,
+        body.boreal-print-report > #boreal-alerts,
+        body.boreal-print-report > #boreal-status,
+        body.boreal-print-report .boreal-report-hide {
+            display: none !important;
+        }
+
+        body.boreal-print-report main,
+        body.boreal-print-report .boreal-print-expand,
+        body.boreal-print-report .boreal-explorer-card,
+        body.boreal-print-report .boreal-explorer-table,
+        body.boreal-print-report .table-responsive,
+        body.boreal-print-report .h-100 {
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+        }
+
+        body.boreal-print-report .overflow-hidden {
+            overflow: visible !important;
+        }
+
+        body.boreal-print-report .boreal-explorer-table thead th {
+            position: static;
+        }
+
+        @page {
+            size: legal landscape;
+            margin: 0.4in;
+        }
+
+        @media print {
+            .boreal-print-actions {
+                display: none !important;
+            }
+
+            a[href] {
+                color: inherit;
+                text-decoration: underline;
+            }
+        }
     </style>
 
 </head>

@@ -463,6 +463,7 @@ struct MyDriveTemplate {
     tag_action: &'static str,
     tag_remove_action: &'static str,
     summary: ExplorerSummary,
+    print_view: bool,
 }
 
 #[derive(Template)]
@@ -532,6 +533,7 @@ struct SharedDrivesTemplate {
     direction: String,
     error: String,
     summary: ExplorerSummary,
+    print_view: bool,
 }
 
 #[allow(dead_code)]
@@ -573,6 +575,7 @@ struct DirectoryTemplate {
     tag_filter: String,
     tags: Vec<database::inventory::Tag>,
     filter_tags: Vec<TagFilterPill>,
+    print_view: bool,
 }
 
 #[allow(dead_code)]
@@ -710,6 +713,8 @@ struct DirectoryQuery {
     organization_filter: String,
     #[serde(default)]
     tag_filter: String,
+    #[serde(default)]
+    print: bool,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -756,6 +761,8 @@ struct DrivePathQuery {
     shared_drive_manager_filter: String,
     #[serde(default)]
     shared_drive_permission_filter: String,
+    #[serde(default)]
+    print: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -3264,6 +3271,7 @@ async fn shared_drives_page(
             },
             error,
             summary,
+            print_view: query.print,
         });
     }
     let drive = database::inventory::get_shared_drive(&database, &query.drive)
@@ -3609,6 +3617,7 @@ fn render_drive_explorer(
         tag_action,
         tag_remove_action,
         summary,
+        print_view: query.print,
     };
     render_template(&template)
 }
@@ -4157,6 +4166,7 @@ async fn directory_page(
         tag_filter: query.tag_filter,
         tags,
         filter_tags,
+        print_view: query.print,
     })
 }
 
