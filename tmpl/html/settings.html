@@ -35,23 +35,19 @@
         </div>
         {% endif %}
 
-        <div class="card mb-3" id="bookmark-this-page">
-            <div class="card-header fw-semibold"><i class="bi bi-bookmark-star me-1"></i>Bookmark this page</div>
-            <div class="card-body">
-                <p class="mb-2">Bookmark BOREAL so you can reopen the WebUI if this browser tab is closed while BOREAL is still running.</p>
-                <div class="input-group mb-2">
-                    <input class="form-control font-monospace" id="borealWebUrl" value="{{ boreal_url }}" readonly aria-label="BOREAL WebUI address">
-                    <a class="btn btn-outline-primary" href="{{ boreal_url }}"><i class="bi bi-box-arrow-up-right me-1"></i>Open</a>
-                </div>
-                <p class="small text-body-secondary mb-0">Press <kbd>Ctrl</kbd>+<kbd>D</kbd> on Windows or Linux, or <kbd>Command</kbd>+<kbd>D</kbd> on macOS.</p>
-            </div>
-        </div>
-
         <form method="post" action="/settings">
 
             <div class="card mb-3">
                 <div class="card-header fw-semibold">Linked persons spreadsheet</div>
                 <div class="card-body">
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                        <span class="small text-body-secondary">Need a persons spreadsheet?</span>
+                        <a class="btn btn-sm btn-outline-success"
+                           href="https://docs.google.com/spreadsheets/d/1Z7899ztliEN3SHHG6cLOc0rORf5f0V0gTsexIW0WUtU/copy"
+                           target="_blank" rel="noopener noreferrer">
+                            <i class="bi bi-files me-1"></i>Create from BOREAL template
+                        </a>
+                    </div>
                     <label class="form-label" for="directorySheetUrl">Google Sheets URL</label>
                     <input class="form-control" type="url" id="directorySheetUrl"
                            name="directory_sheet_url" value="{{ settings.directory_sheet_url }}"

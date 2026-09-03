@@ -187,6 +187,13 @@
                                     {% if directory_sheet_enabled %}<span class="badge text-bg-success">Configured</span>{% else %}<span class="badge text-bg-secondary">Optional</span>{% endif %}
                                 </div>
                                 <p class="small text-body-secondary mb-2">Link a Google Sheet containing organizational identities. BOREAL imports it only when you manually start a metadata update.</p>
+                                <div class="mb-2">
+                                    <a class="btn btn-sm btn-outline-success"
+                                       href="https://docs.google.com/spreadsheets/d/1Z7899ztliEN3SHHG6cLOc0rORf5f0V0gTsexIW0WUtU/copy"
+                                       target="_blank" rel="noopener noreferrer">
+                                        <i class="bi bi-files me-1"></i>Create from BOREAL template
+                                    </a>
+                                </div>
                                 <form method="post" action="/setup/directory" class="d-flex flex-wrap gap-2">
                                     <label class="visually-hidden" for="setup-directory-sheet-url">Directory Google Sheets URL</label>
                                     <input class="form-control form-control-sm flex-grow-1" style="min-width: 18rem" type="url"

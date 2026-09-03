@@ -20,7 +20,6 @@ use crate::{
     app::{
         AppState, DownloadState, GoogleClientState, GoogleRemotesState, MetadataState, RcloneState,
     },
-    config,
     database::{
         self,
         settings::{self, InventorySettings},
@@ -164,8 +163,6 @@ struct SettingsTemplate {
     error: String,
     notice: String,
     directory_source: database::directory::LinkedSheetStatus,
-    boreal_url: String,
-    bookmark_reminder_dismissed: bool,
 }
 
 #[allow(dead_code)]
@@ -1634,7 +1631,7 @@ async fn show_bookmark_reminder(
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     settings::set_bookmark_reminder_dismissed(&database, false)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Redirect::to("/settings?saved=true#bookmark-this-page"))
+    Ok(Redirect::to("/settings?saved=true"))
 }
 
 async fn test_directory_sheet(
@@ -1756,8 +1753,6 @@ fn render_settings(
         error,
         notice,
         directory_source,
-        boreal_url: boreal_web_url(state),
-        bookmark_reminder_dismissed: !bookmark_reminder_visible(state),
     };
 
     render_template(&template)
@@ -1770,19 +1765,6 @@ fn bookmark_reminder_visible(state: &AppState) -> bool {
         .and_then(|database| settings::bookmark_reminder_dismissed(&database).ok())
         .map(|dismissed| !dismissed)
         .unwrap_or(true)
-}
-
-fn boreal_web_url(state: &AppState) -> String {
-    config::get_webapp_config(&state.runtime.boreal)
-        .map(|webapp| {
-            let host = if webapp.listen == "::1" {
-                "[::1]".to_string()
-            } else {
-                webapp.listen
-            };
-            format!("http://{host}:{}", webapp.port)
-        })
-        .unwrap_or_else(|_| "http://127.0.0.1:8765".to_string())
 }
 
 async fn about(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
