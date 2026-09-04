@@ -11,6 +11,14 @@
 
 ## v1.1.0 - 2026-09-03 (STABLE)
 
+**Summary**
+Added GitHub and Keeper Support
+
+- Cleaning up Github Summary
+- Fixing Keeper Integration
+- Updating Docs
+- Adding Keeper Integration
+- Fixed Github PDF Exporter
 - github token assistance widget
 - Adding GitHub Integration
 - Start v1.1.0
@@ -289,6 +297,11 @@ Added Migration Assitant and Polished Interfaces
 **Summary**
 Project Initialization
 
+- Cleaning up Github Summary
+- Fixing Keeper Integration
+- Updating Docs
+- Adding Keeper Integration
+- Fixed Github PDF Exporter
 - github token assistance widget
 - Adding GitHub Integration
 - Start v1.1.0
