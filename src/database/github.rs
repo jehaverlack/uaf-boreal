@@ -29,12 +29,13 @@ pub struct Summary {
     pub private_repositories: u64,
     pub archived_repositories: u64,
     pub total_size_kb: u64,
+    pub total_size_label: String,
     pub completed_at: String,
 }
 
 pub fn summary(database: &Database) -> Result<Summary, DatabaseError> {
     let connection = database.connect()?;
-    connection
+    let mut summary = connection
         .query_row(
             "SELECT COUNT(*),
                     COUNT(DISTINCT CASE WHEN owner_kind='Organization' THEN owner_id END),
@@ -51,11 +52,30 @@ pub fn summary(database: &Database) -> Result<Summary, DatabaseError> {
                     private_repositories: row.get::<_, i64>(2)? as u64,
                     archived_repositories: row.get::<_, i64>(3)? as u64,
                     total_size_kb: row.get::<_, i64>(4)? as u64,
+                    total_size_label: String::new(),
                     completed_at: row.get(5)?,
                 })
             },
         )
-        .map_err(Into::into)
+        .map_err(DatabaseError::from)?;
+    summary.total_size_label = format_repository_size(summary.total_size_kb);
+    Ok(summary)
+}
+
+fn format_repository_size(size_kb: u64) -> String {
+    let bytes = size_kb.saturating_mul(1_000);
+    const UNITS: [(&str, u64); 4] = [
+        ("TB", 1_000_000_000_000),
+        ("GB", 1_000_000_000),
+        ("MB", 1_000_000),
+        ("KB", 1_000),
+    ];
+    for (unit, divisor) in UNITS {
+        if bytes >= divisor {
+            return format!("{:.1} {unit}", bytes as f64 / divisor as f64);
+        }
+    }
+    "0.0 KB".to_string()
 }
 
 pub fn synchronize(database: &Database, repositories: &[Repository]) -> Result<(), DatabaseError> {
@@ -344,4 +364,18 @@ pub fn change_tags(
     }
     transaction.commit()?;
     Ok(changed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_repository_size;
+
+    #[test]
+    fn formats_repository_sizes_with_adaptive_units() {
+        assert_eq!(format_repository_size(2208), "2.2 MB");
+        assert_eq!(format_repository_size(2_208_400), "2.2 GB");
+        assert_eq!(format_repository_size(2_208_400_000), "2.2 TB");
+        assert_eq!(format_repository_size(220), "220.0 KB");
+        assert_eq!(format_repository_size(0), "0.0 KB");
+    }
 }
