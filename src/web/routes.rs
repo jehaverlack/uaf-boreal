@@ -163,7 +163,7 @@ struct SettingsTemplate {
     error: String,
     notice: String,
     directory_source: database::directory::LinkedSheetStatus,
-    github_token_configured: bool,
+    github_connections: Vec<crate::github::client::ConnectionSummary>,
 }
 
 #[allow(dead_code)]
@@ -898,8 +898,19 @@ struct SettingsForm {
     directory_sheet_url: String,
     #[serde(default)]
     github_enabled: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct GitHubConnectionForm {
+    resource_owner: String,
     #[serde(default)]
-    github_token: String,
+    expires_on: String,
+    token: String,
+}
+
+#[derive(serde::Deserialize)]
+struct DeleteGitHubConnectionForm {
+    resource_owner: String,
 }
 
 #[derive(Clone, Default, serde::Deserialize)]
@@ -1146,6 +1157,14 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/tags/update", post(update_tag))
         .route("/tags/delete", post(delete_tag))
         .route("/settings", get(settings_page).post(save_settings))
+        .route(
+            "/settings/github/connections",
+            post(add_github_connection),
+        )
+        .route(
+            "/settings/github/connections/delete",
+            post(delete_github_connection),
+        )
         .route("/google-client", get(google_client_page))
         .route(
             "/settings/bookmark-reminder/dismiss",
@@ -1675,38 +1694,6 @@ async fn save_settings(
     inventory_settings.directory_sheet_enabled = !directory_sheet_url.is_empty();
     inventory_settings.directory_sheet_url = directory_sheet_url;
     inventory_settings.github_enabled = form.github_enabled.is_some();
-    let supplied_github_account = if form.github_token.trim().is_empty() {
-        None
-    } else {
-        match crate::github::client::account_with_token(form.github_token.trim()) {
-            Ok(account) => {
-                if let Err(error) = crate::github::client::save_credentials(
-                    &state.runtime,
-                    form.github_token.trim(),
-                ) {
-                    return render_settings(
-                        &state,
-                        inventory_settings,
-                        false,
-                        error.to_string(),
-                        String::new(),
-                    )
-                    .map(axum::response::IntoResponse::into_response);
-                }
-                Some(account)
-            }
-            Err(error) => {
-                return render_settings(
-                    &state,
-                    inventory_settings,
-                    false,
-                    format!("GitHub connection failed: {error}"),
-                    String::new(),
-                )
-                .map(axum::response::IntoResponse::into_response);
-            }
-        }
-    };
     if inventory_settings.github_enabled && !crate::github::client::configured(&state.runtime) {
         return render_settings(
             &state,
@@ -1716,27 +1703,6 @@ async fn save_settings(
             String::new(),
         )
         .map(axum::response::IntoResponse::into_response);
-    }
-    if inventory_settings.github_enabled {
-        match supplied_github_account
-            .map(Ok)
-            .unwrap_or_else(|| crate::github::client::account(&state.runtime))
-        {
-            Ok(account) => {
-                inventory_settings.github_login = account.login;
-                log::info!("GitHub integration verified: account_id={}", account.id);
-            }
-            Err(error) => {
-                return render_settings(
-                    &state,
-                    inventory_settings,
-                    false,
-                    format!("GitHub connection failed: {error}"),
-                    String::new(),
-                )
-                .map(axum::response::IntoResponse::into_response);
-            }
-        }
     }
     if inventory_settings.directory_sheet_enabled {
         if let Err(error) =
@@ -1764,6 +1730,72 @@ async fn save_settings(
         )
         .map(axum::response::IntoResponse::into_response),
     }
+}
+
+async fn add_github_connection(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<GitHubConnectionForm>,
+) -> Result<axum::response::Response, StatusCode> {
+    match crate::github::client::save_connection(
+        &state.runtime,
+        &form.resource_owner,
+        &form.expires_on,
+        &form.token,
+    ) {
+        Ok(account) => {
+            let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            let mut inventory_settings =
+                settings::load(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            inventory_settings.github_enabled = true;
+            inventory_settings.github_login = account.login;
+            settings::save(&database, &inventory_settings)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            log::info!(
+                "GitHub connection added: resource_owner={}, account_id={}",
+                form.resource_owner.trim(),
+                account.id
+            );
+            Ok(Redirect::to("/settings?saved=true").into_response())
+        }
+        Err(error) => {
+            let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            let inventory_settings =
+                settings::load(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            render_settings(
+                &state,
+                inventory_settings,
+                false,
+                format!("GitHub connection failed: {error}"),
+                String::new(),
+            )
+            .map(axum::response::IntoResponse::into_response)
+        }
+    }
+}
+
+async fn delete_github_connection(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<DeleteGitHubConnectionForm>,
+) -> Result<axum::response::Response, StatusCode> {
+    crate::github::client::delete_connection(&state.runtime, &form.resource_owner)
+        .map_err(|error| {
+            log::error!("Unable to remove GitHub connection: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let mut inventory_settings =
+        settings::load(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if !crate::github::client::configured(&state.runtime) {
+        inventory_settings.github_enabled = false;
+        inventory_settings.github_login.clear();
+        settings::save(&database, &inventory_settings)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+    log::info!(
+        "GitHub connection removed: resource_owner={}",
+        form.resource_owner.trim()
+    );
+    Ok(Redirect::to("/settings?saved=true").into_response())
 }
 
 async fn dismiss_bookmark_reminder(
@@ -1907,7 +1939,7 @@ fn render_settings(
         error,
         notice,
         directory_source,
-        github_token_configured: crate::github::client::configured(&state.runtime),
+        github_connections: crate::github::client::connection_summaries(&state.runtime),
     };
 
     render_template(&template)

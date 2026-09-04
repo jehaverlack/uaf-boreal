@@ -86,11 +86,30 @@
                         <input class="form-check-input" type="checkbox" role="switch" id="githubEnabled" name="github_enabled" value="true" {% if settings.github_enabled %}checked{% endif %}>
                         <label class="form-check-label" for="githubEnabled">Enable GitHub repository metadata</label>
                     </div>
-                    <label class="form-label" for="githubToken">Fine-grained personal access token</label>
-                    <input class="form-control font-monospace" type="password" id="githubToken" name="github_token" autocomplete="new-password" placeholder="{% if github_token_configured %}Token is stored; leave blank to keep it{% else %}github_pat_…{% endif %}">
-                    <div class="form-text">Create a read-only token with repository Metadata access. BOREAL stores it locally in its private configuration directory and never displays it again.</div>
-                    <div class="mt-2"><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" class="small"><i class="bi bi-box-arrow-up-right me-1"></i>Create a fine-grained token on GitHub</a></div>
-                    {% if github_token_configured %}<div class="small text-success mt-2"><i class="bi bi-check-circle me-1"></i>GitHub token stored{% if settings.github_login.len() > 0 %} for {{ settings.github_login }}{% endif %}</div>{% endif %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                            <div class="fw-semibold">Resource-owner connections</div>
+                            <div class="small text-body-secondary">GitHub requires a separate fine-grained token for each resource owner.</div>
+                        </div>
+                        <button class="btn btn-sm btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#githubTokenSetupModal">
+                            <i class="bi bi-plus-lg me-1"></i>Add token
+                        </button>
+                    </div>
+                    {% if github_connections.is_empty() %}
+                    <div class="border rounded p-3 text-body-secondary small">No GitHub resource owners are configured.</div>
+                    {% else %}
+                    <div class="list-group">
+                        {% for connection in github_connections %}
+                        <div class="list-group-item d-flex justify-content-between align-items-center gap-3">
+                            <div>
+                                <div class="fw-semibold"><i class="bi bi-building me-1"></i>{{ connection.resource_owner }}</div>
+                                <div class="small text-body-secondary">Authenticated as {{ connection.authenticated_login }}{% if connection.expires_on.len() > 0 %} · Expires {{ connection.expires_on }}{% else %} · Expiration not recorded{% endif %}</div>
+                            </div>
+                            <button class="btn btn-sm btn-outline-danger" type="submit" form="delete-github-connection-{{ loop.index }}" onclick="return confirm('Remove the GitHub token for {{ connection.resource_owner }}?')" title="Remove connection"><i class="bi bi-trash"></i></button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
                     {% if settings.github_last_sync_at.len() > 0 %}<div class="small text-body-secondary mt-1">Last updated {{ settings.github_last_sync_at }} UTC</div>{% endif %}
                 </div>
             </div>
@@ -105,6 +124,12 @@
 
         </form>
 
+        {% for connection in github_connections %}
+        <form id="delete-github-connection-{{ loop.index }}" method="post" action="/settings/github/connections/delete">
+            <input type="hidden" name="resource_owner" value="{{ connection.resource_owner }}">
+        </form>
+        {% endfor %}
+
         <p class="small text-body-secondary mt-3">
             Directory spreadsheet failures do not prevent Drive metadata from updating.
             Review the source status above or the BOREAL log for details.
@@ -113,5 +138,81 @@
     </div>
 
 </div>
+
+<div class="modal fade" id="githubTokenSetupModal" tabindex="-1" aria-labelledby="githubTokenSetupTitle" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <form method="post" action="/settings/github/connections" id="github-token-form">
+                <div class="modal-header">
+                    <div><h2 class="modal-title fs-5" id="githubTokenSetupTitle">Add GitHub resource owner</h2><div class="small text-body-secondary" id="github-step-label">Step 1 of 4</div></div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <section class="github-token-step" data-step="1">
+                        <h3 class="h5">Choose the Resource owner</h3>
+                        <p>A fine-grained token can access repositories for only one resource owner. Repeat this assistant for each personal account or organization you want BOREAL to inventory.</p>
+                        <label class="form-label fw-semibold" for="githubResourceOwner">Resource owner</label>
+                        <input class="form-control" id="githubResourceOwner" name="resource_owner" required placeholder="Organization or account name">
+                        <div class="form-text">Enter the exact owner you will select on GitHub, such as <code>uaf-acep</code>. Adding this owner again replaces its stored token.</div>
+                    </section>
+                    <section class="github-token-step d-none" data-step="2">
+                        <h3 class="h5">Select repository access and permission</h3>
+                        <ol class="mb-3">
+                            <li>Select the intended <strong>Resource owner</strong>.</li>
+                            <li>Choose <strong>All repositories</strong>, or select only the repositories BOREAL should inventory.</li>
+                            <li>Under <strong>Repository permissions</strong>, set <strong>Metadata</strong> to <strong>Read-only</strong>.</li>
+                            <li>Leave all other repository, organization, and account permissions at <strong>No access</strong>.</li>
+                        </ol>
+                        <div class="alert alert-info mb-0"><i class="bi bi-shield-check me-1"></i>BOREAL reads repository-level metadata only. It does not need Contents or any write permission.</div>
+                    </section>
+                    <section class="github-token-step d-none" data-step="3">
+                        <h3 class="h5">Choose an expiration and generate the token</h3>
+                        <p><strong>Recommended:</strong> choose a 90-day expiration, or the shortest period your organization can reliably renew. Short expirations reduce risk, but an expired token stops metadata updates until it is replaced.</p>
+                        <p>Your organization may enforce a maximum lifetime or require administrator approval. BOREAL records the date as a reminder; GitHub controls and enforces expiration.</p>
+                        <label class="form-label" for="githubExpiresOn">Expiration date selected on GitHub <span class="text-body-secondary">(optional)</span></label>
+                        <input class="form-control" type="date" id="githubExpiresOn" name="expires_on">
+                        <a class="btn btn-primary mt-3" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer"><i class="bi bi-github me-1"></i>Open GitHub token generator</a>
+                    </section>
+                    <section class="github-token-step d-none" data-step="4">
+                        <h3 class="h5">Store the generated token in BOREAL</h3>
+                        <p>Copy the token immediately after GitHub generates it, then paste it below. GitHub will not show it again.</p>
+                        <label class="form-label fw-semibold" for="githubToken">Fine-grained personal access token</label>
+                        <input class="form-control font-monospace" type="password" id="githubToken" name="token" autocomplete="new-password" required placeholder="github_pat_…">
+                        <div class="form-text">BOREAL validates the token and repository listing, stores it only in its private local configuration, and never displays it again. An organization token may still require administrator approval before private repositories appear.</div>
+                    </section>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary d-none" type="button" id="github-step-back">Back</button>
+                    <button class="btn btn-primary" type="button" id="github-step-next">Next</button>
+                    <button class="btn btn-success d-none" type="submit" id="github-step-save"><i class="bi bi-shield-lock me-1"></i>Validate and save token</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+(() => {
+    let step = 1;
+    const sections = [...document.querySelectorAll('.github-token-step')];
+    const back = document.getElementById('github-step-back');
+    const next = document.getElementById('github-step-next');
+    const save = document.getElementById('github-step-save');
+    const label = document.getElementById('github-step-label');
+    const show = () => {
+        sections.forEach(section => section.classList.toggle('d-none', Number(section.dataset.step) !== step));
+        back.classList.toggle('d-none', step === 1);
+        next.classList.toggle('d-none', step === 4);
+        save.classList.toggle('d-none', step !== 4);
+        label.textContent = `Step ${step} of 4`;
+    };
+    next.addEventListener('click', () => {
+        if (step === 1 && !document.getElementById('githubResourceOwner').reportValidity()) return;
+        step = Math.min(4, step + 1); show();
+    });
+    back.addEventListener('click', () => { step = Math.max(1, step - 1); show(); });
+    document.getElementById('githubTokenSetupModal').addEventListener('hidden.bs.modal', () => { step = 1; show(); });
+})();
+</script>
 
 {% endblock %}
