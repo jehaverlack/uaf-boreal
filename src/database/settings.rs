@@ -13,6 +13,9 @@ pub struct InventorySettings {
     pub github_enabled: bool,
     pub github_login: String,
     pub github_last_sync_at: String,
+    pub keeper_enabled: bool,
+    pub keeper_command: String,
+    pub keeper_last_sync_at: String,
 }
 
 impl Default for InventorySettings {
@@ -27,6 +30,9 @@ impl Default for InventorySettings {
             github_enabled: false,
             github_login: String::new(),
             github_last_sync_at: String::new(),
+            keeper_enabled: false,
+            keeper_command: String::new(),
+            keeper_last_sync_at: String::new(),
         }
     }
 }
@@ -87,6 +93,10 @@ pub fn load(database: &Database) -> Result<InventorySettings, DatabaseError> {
         github_login: get(&connection, "github.login")?.unwrap_or(defaults.github_login),
         github_last_sync_at: get(&connection, "github.last_sync_at")?
             .unwrap_or(defaults.github_last_sync_at),
+        keeper_enabled: get_bool(&connection, "keeper.enabled", defaults.keeper_enabled)?,
+        keeper_command: get(&connection, "keeper.command")?.unwrap_or(defaults.keeper_command),
+        keeper_last_sync_at: get(&connection, "keeper.last_sync_at")?
+            .unwrap_or(defaults.keeper_last_sync_at),
     })
 }
 
@@ -132,6 +142,16 @@ pub fn save(database: &Database, settings: &InventorySettings) -> Result<(), Dat
         bool_value(settings.github_enabled),
     )?;
     set(&transaction, "github.login", settings.github_login.trim())?;
+    set(
+        &transaction,
+        "keeper.enabled",
+        bool_value(settings.keeper_enabled),
+    )?;
+    set(
+        &transaction,
+        "keeper.command",
+        settings.keeper_command.trim(),
+    )?;
     transaction.execute(
         "INSERT INTO directory_sources (
             name, source_type, source_location, enabled, refresh_on_metadata_update

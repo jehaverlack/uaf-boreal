@@ -207,6 +207,10 @@
         .navbar .boreal-github-nav:focus {
             color: #000 !important;
         }
+        .navbar .boreal-keeper-nav,
+        .navbar .boreal-keeper-nav.active { color: #ffc107; }
+        .navbar .boreal-keeper-nav:hover,
+        .navbar .boreal-keeper-nav:focus { color: #ffda6a; }
 
         body.boreal-print-report {
             height: auto !important;
@@ -299,7 +303,7 @@
 
 </head>
 
-<body class="d-flex flex-column min-vh-100{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" || active_page == "directory" || active_page == "tags" || active_page == "github" %} vh-100 overflow-hidden{% endif %}">
+<body class="d-flex flex-column min-vh-100{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" || active_page == "directory" || active_page == "tags" || active_page == "github" || active_page == "keeper" %} vh-100 overflow-hidden{% endif %}">
 
     <nav
         class="navbar navbar-expand-lg bg-body-tertiary border-bottom"
@@ -390,6 +394,7 @@
                     </li>
 
                     <li id="github-primary-navigation" hx-get="/ui/github-primary-nav" hx-trigger="load" hx-swap="outerHTML"></li>
+                    <li id="keeper-primary-navigation" hx-get="/ui/keeper-primary-nav" hx-trigger="load" hx-swap="outerHTML"></li>
 
                     <li class="nav-item">
                         <a
@@ -424,6 +429,7 @@
                 <ul class="navbar-nav ms-auto">
 
                     <li id="github-launcher" hx-get="/ui/github-launcher" hx-trigger="load" hx-swap="outerHTML"></li>
+                    <li id="keeper-launcher" hx-get="/ui/keeper-launcher" hx-trigger="load" hx-swap="outerHTML"></li>
 
                     <li class="nav-item">
                         <a
@@ -612,7 +618,7 @@
 
     {% include "partials/alerts.html" %}
 
-    <main class="container-fluid py-4 flex-grow-1{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" || active_page == "directory" || active_page == "tags" || active_page == "github" %} overflow-hidden{% endif %}">
+    <main class="container-fluid py-4 flex-grow-1{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" || active_page == "directory" || active_page == "tags" || active_page == "github" || active_page == "keeper" %} overflow-hidden{% endif %}">
 
         {% block content %}
         {% endblock %}

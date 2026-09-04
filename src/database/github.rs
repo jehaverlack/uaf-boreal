@@ -194,7 +194,7 @@ pub fn list(
         .collect::<Result<Vec<_>, _>>()?;
     let mut tag_statement = connection.prepare(
         "SELECT t.slug,t.name,t.description,t.color,
-                0,0,0,0,1 FROM github_repository_tags rt JOIN tags t ON t.id=rt.tag_id
+                0,0,0,0,1,0 FROM github_repository_tags rt JOIN tags t ON t.id=rt.tag_id
          WHERE rt.repository_id=?1 ORDER BY t.name COLLATE NOCASE",
     )?;
     for repository in &mut rows {
@@ -210,6 +210,7 @@ pub fn list(
                     shared_drives: row.get(6)?,
                     shared_with_me: row.get(7)?,
                     github_repositories: row.get(8)?,
+                    keeper_shared_folders: row.get(9)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -239,8 +240,14 @@ fn parse_count_filter(
     let normalized = value.to_ascii_uppercase();
     let value = if let Some(number) = normalized.strip_suffix("KB") {
         number.trim()
-    } else if normalized.chars().any(|character| character.is_ascii_alphabetic()) {
-        return Err(format!("Invalid {label} filter '{filter}'. GitHub sizes use KB; try {example}.").into());
+    } else if normalized
+        .chars()
+        .any(|character| character.is_ascii_alphabetic())
+    {
+        return Err(format!(
+            "Invalid {label} filter '{filter}'. GitHub sizes use KB; try {example}."
+        )
+        .into());
     } else {
         normalized.trim()
     };

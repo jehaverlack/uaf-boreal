@@ -1,6 +1,7 @@
 pub mod directory;
 pub mod github;
 pub mod inventory;
+pub mod keeper;
 pub mod migration;
 mod migrations;
 pub mod settings;
@@ -188,7 +189,7 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 28,);
+        assert_eq!(migration_count, 29,);
 
         let safe_to_delete_scope_count: i64 = connection
             .query_row(
@@ -204,14 +205,14 @@ mod tests {
         for (slug, expected_scope_count) in [
             ("data-loss-risk", 1_i64),
             ("access-review", 1_i64),
-            ("needs-review", 3_i64),
-            ("permission-review", 3_i64),
-            ("needs-handoff", 3_i64),
-            ("retain", 3_i64),
+            ("needs-review", 4_i64),
+            ("permission-review", 4_i64),
+            ("needs-handoff", 4_i64),
+            ("retain", 4_i64),
             ("to-delete", 3_i64),
             ("to-migrate", 2_i64),
             ("migrated", 2_i64),
-            ("remove-my-permissions", 3_i64),
+            ("remove-my-permissions", 4_i64),
         ] {
             let scope_count: i64 = connection
                 .query_row(
@@ -338,6 +339,9 @@ mod tests {
             github_enabled: true,
             github_login: "octocat".to_string(),
             github_last_sync_at: String::new(),
+            keeper_enabled: true,
+            keeper_command: "keeper".to_string(),
+            keeper_last_sync_at: String::new(),
         };
 
         settings::save(&database, &expected).expect("settings should save");

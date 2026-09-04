@@ -21,6 +21,7 @@ mod database;
 mod desktop;
 mod github;
 mod google;
+mod keeper;
 mod logging;
 mod rclone;
 mod update;
