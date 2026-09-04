@@ -111,11 +111,16 @@ pub fn list(
     owner: &str,
     visibility: &str,
     permission: &str,
+    language: &str,
+    size_filter: &str,
+    pushed_filter: &str,
     tag: &str,
     include_inaccessible: bool,
     sort: &str,
     descending: bool,
 ) -> Result<Vec<RepositoryRow>, DatabaseError> {
+    let (size_comparison, size_kb) = parse_count_filter(size_filter, "size", ">5000")?;
+    let (pushed_comparison, pushed_value) = parse_date_filter(pushed_filter)?;
     let (exclude_tag, tag_slug) = tag
         .strip_prefix('!')
         .map_or((false, tag), |value| (true, value));
@@ -124,6 +129,7 @@ pub fn list(
         "visibility" => "visibility",
         "size" => "size_kb",
         "permission" => "effective_permission",
+        "language" => "language",
         "pushed" => "pushed_at",
         _ => "full_name",
     };
@@ -137,11 +143,14 @@ pub fn list(
            AND (?3='' OR owner_login LIKE '%'||?3||'%')
            AND (?4='' OR visibility=?4)
            AND (?5='' OR effective_permission=?5)
-           AND (?6='' OR
-                (?8=1 AND ((?7=0 AND NOT EXISTS(SELECT 1 FROM github_repository_tags rt WHERE rt.repository_id=r.repository_id))
-                         OR (?7=1 AND EXISTS(SELECT 1 FROM github_repository_tags rt WHERE rt.repository_id=r.repository_id))))
-                OR (?8=0 AND ((?7=0 AND EXISTS(SELECT 1 FROM github_repository_tags rt JOIN tags t ON t.id=rt.tag_id WHERE rt.repository_id=r.repository_id AND t.slug=?6))
-                           OR (?7=1 AND NOT EXISTS(SELECT 1 FROM github_repository_tags rt JOIN tags t ON t.id=rt.tag_id WHERE rt.repository_id=r.repository_id AND t.slug=?6)))))
+           AND (?6='' OR language LIKE '%'||?6||'%')
+           AND (?7=0 OR CASE ?7 WHEN 1 THEN size_kb>?8 WHEN 2 THEN size_kb>=?8 WHEN 3 THEN size_kb<?8 WHEN 4 THEN size_kb<=?8 ELSE size_kb=?8 END)
+           AND (?9=0 OR CASE ?9 WHEN 1 THEN substr(pushed_at,1,10)>?10 WHEN 2 THEN substr(pushed_at,1,10)>=?10 WHEN 3 THEN substr(pushed_at,1,10)<?10 WHEN 4 THEN substr(pushed_at,1,10)<=?10 ELSE substr(pushed_at,1,10)=?10 END)
+           AND (?11='' OR
+                (?13=1 AND ((?12=0 AND NOT EXISTS(SELECT 1 FROM github_repository_tags rt WHERE rt.repository_id=r.repository_id))
+                         OR (?12=1 AND EXISTS(SELECT 1 FROM github_repository_tags rt WHERE rt.repository_id=r.repository_id))))
+                OR (?13=0 AND ((?12=0 AND EXISTS(SELECT 1 FROM github_repository_tags rt JOIN tags t ON t.id=rt.tag_id WHERE rt.repository_id=r.repository_id AND t.slug=?11))
+                           OR (?12=1 AND NOT EXISTS(SELECT 1 FROM github_repository_tags rt JOIN tags t ON t.id=rt.tag_id WHERE rt.repository_id=r.repository_id AND t.slug=?11)))))
          ORDER BY {order} {direction}, repository_id {direction}"
     );
     let connection = database.connect()?;
@@ -154,6 +163,11 @@ pub fn list(
                 owner.trim(),
                 visibility,
                 permission,
+                language.trim(),
+                size_comparison,
+                size_kb,
+                pushed_comparison,
+                pushed_value,
                 tag_slug,
                 exclude_tag,
                 tag_slug == super::inventory::UNTAGGED_TAG_FILTER
@@ -201,6 +215,61 @@ pub fn list(
             .collect::<Result<Vec<_>, _>>()?;
     }
     Ok(rows)
+}
+
+fn comparison_prefix(value: &str) -> (i64, &str) {
+    for (prefix, comparison) in [(">=", 2), ("<=", 4), (">", 1), ("<", 3), ("=", 5)] {
+        if let Some(rest) = value.strip_prefix(prefix) {
+            return (comparison, rest.trim());
+        }
+    }
+    (5, value.trim())
+}
+
+fn parse_count_filter(
+    filter: &str,
+    label: &str,
+    example: &str,
+) -> Result<(i64, i64), DatabaseError> {
+    let filter = filter.trim();
+    if filter.is_empty() {
+        return Ok((0, 0));
+    }
+    let (comparison, value) = comparison_prefix(filter);
+    let normalized = value.to_ascii_uppercase();
+    let value = if let Some(number) = normalized.strip_suffix("KB") {
+        number.trim()
+    } else if normalized.chars().any(|character| character.is_ascii_alphabetic()) {
+        return Err(format!("Invalid {label} filter '{filter}'. GitHub sizes use KB; try {example}.").into());
+    } else {
+        normalized.trim()
+    };
+    let value = value
+        .parse::<i64>()
+        .map_err(|_| format!("Invalid {label} filter '{filter}'. Try {example}."))?;
+    if value < 0 {
+        return Err(format!("GitHub repository {label} cannot be negative").into());
+    }
+    Ok((comparison, value))
+}
+
+fn parse_date_filter(filter: &str) -> Result<(i64, String), DatabaseError> {
+    let filter = filter.trim();
+    if filter.is_empty() {
+        return Ok((0, String::new()));
+    }
+    let (comparison, value) = comparison_prefix(filter);
+    let valid = value.len() == 10
+        && value.as_bytes()[4] == b'-'
+        && value.as_bytes()[7] == b'-'
+        && value
+            .chars()
+            .enumerate()
+            .all(|(index, character)| index == 4 || index == 7 || character.is_ascii_digit());
+    if !valid {
+        return Err(format!("Invalid last-push filter '{filter}'. Try >2026-01-01.").into());
+    }
+    Ok((comparison, value.to_string()))
 }
 
 pub fn change_tags(

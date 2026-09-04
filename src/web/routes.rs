@@ -569,6 +569,7 @@ struct GitHubTemplate {
     filter_tags: Vec<TagFilterPill>,
     query: GitHubQuery,
     error: String,
+    print_view: bool,
 }
 
 #[allow(dead_code)]
@@ -924,6 +925,12 @@ struct GitHubQuery {
     #[serde(default)]
     permission: String,
     #[serde(default)]
+    language: String,
+    #[serde(default)]
+    size_filter: String,
+    #[serde(default)]
+    pushed_filter: String,
+    #[serde(default)]
     tag: String,
     #[serde(default)]
     include_inaccessible: bool,
@@ -935,6 +942,8 @@ struct GitHubQuery {
     tagged: usize,
     #[serde(default)]
     untagged: usize,
+    #[serde(default)]
+    print: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -949,6 +958,12 @@ struct GitHubTagForm {
     visibility: String,
     #[serde(default)]
     permission: String,
+    #[serde(default)]
+    language: String,
+    #[serde(default)]
+    size_filter: String,
+    #[serde(default)]
+    pushed_filter: String,
     #[serde(default)]
     tag_filter: String,
     #[serde(default)]
@@ -1086,6 +1101,7 @@ pub fn router() -> Router<Arc<AppState>> {
             post(remove_shared_with_me_tag),
         )
         .route("/github", get(github_page))
+        .route("/github/export.xlsx", get(export_github))
         .route("/github/tags", post(apply_github_tag))
         .route("/github/tags/remove", post(remove_github_tag))
         .route("/ui/github-primary-nav", get(ui_github_primary_nav))
@@ -4264,6 +4280,9 @@ async fn github_page(
         &query.owner,
         &query.visibility,
         &query.permission,
+        &query.language,
+        &query.size_filter,
+        &query.pushed_filter,
         &query.tag,
         query.include_inaccessible,
         &query.sort,
@@ -4271,7 +4290,7 @@ async fn github_page(
     )
     .map_err(|error| {
         log::error!("Unable to list GitHub repositories: {error}");
-        StatusCode::INTERNAL_SERVER_ERROR
+        StatusCode::BAD_REQUEST
     })?;
     let tags = database::inventory::list_tags_for_scope(
         &database,
@@ -4317,9 +4336,82 @@ async fn github_page(
         repositories,
         tags,
         filter_tags,
+        print_view: query.print,
         query,
         error: String::new(),
     })
+}
+
+async fn export_github(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<GitHubQuery>,
+) -> Result<Response<Body>, StatusCode> {
+    if !github_enabled(&state) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let database = state.database().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let repositories = database::github::list(
+        &database,
+        &query.q,
+        &query.owner,
+        &query.visibility,
+        &query.permission,
+        &query.language,
+        &query.size_filter,
+        &query.pushed_filter,
+        &query.tag,
+        query.include_inaccessible,
+        &query.sort,
+        query.direction.eq_ignore_ascii_case("desc"),
+    )
+    .map_err(|error| {
+        log::error!("Unable to export GitHub repositories: {error}");
+        StatusCode::BAD_REQUEST
+    })?;
+    let context = vec![
+        ("View".into(), "GitHub Repositories".into()),
+        ("Results".into(), repositories.len().to_string()),
+        ("Repository".into(), filter_value(&query.q)),
+        ("Owner".into(), filter_value(&query.owner)),
+        ("Visibility".into(), filter_value(&query.visibility)),
+        ("Access".into(), filter_value(&query.permission)),
+        ("Language".into(), filter_value(&query.language)),
+        ("Size (KB)".into(), filter_value(&query.size_filter)),
+        ("Last push".into(), filter_value(&query.pushed_filter)),
+        ("Tag".into(), filter_value(&query.tag)),
+        ("Include inaccessible".into(), query.include_inaccessible.to_string()),
+        ("Sort".into(), format!("{} {}", query.sort, query.direction)),
+    ];
+    let rows = repositories
+        .into_iter()
+        .map(|repository| {
+            vec![
+                repository.name.into(),
+                repository.description.into(),
+                repository.owner_login.into(),
+                repository.owner_kind.into(),
+                repository.visibility.into(),
+                xlsx::Cell::Number(repository.size_kb),
+                repository.effective_permission.into(),
+                repository.language.into(),
+                repository.pushed_at.into(),
+                (if repository.archived { "Yes" } else { "No" }).into(),
+                (if repository.fork { "Yes" } else { "No" }).into(),
+                repository.tags.iter().map(|tag| tag.name.as_str()).collect::<Vec<_>>().join(", ").into(),
+                xlsx::Cell::Link { url: repository.html_url, label: "Open on GitHub".into() },
+            ]
+        })
+        .collect::<Vec<_>>();
+    let bytes = xlsx::workbook(
+        &context,
+        &["Repository", "Description", "Owner", "Owner type", "Visibility", "Size (KB)", "Access", "Language", "Last push", "Archived", "Fork", "Tags", "GitHub"],
+        &rows,
+    )
+    .map_err(|error| {
+        log::error!("Unable to build GitHub Excel report: {error}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    xlsx_download(bytes, "boreal-github-repositories-report.xlsx")
 }
 
 async fn apply_github_tag(
@@ -4355,11 +4447,14 @@ fn change_github_tag(
             StatusCode::BAD_REQUEST
         })?;
     let url = format!(
-        "/github?q={}&owner={}&visibility={}&permission={}&tag={}&sort={}&direction={}&{}={changed}",
+        "/github?q={}&owner={}&visibility={}&permission={}&language={}&size_filter={}&pushed_filter={}&tag={}&sort={}&direction={}&{}={changed}",
         encode_query_value(&form.q),
         encode_query_value(&form.owner),
         encode_query_value(&form.visibility),
         encode_query_value(&form.permission),
+        encode_query_value(&form.language),
+        encode_query_value(&form.size_filter),
+        encode_query_value(&form.pushed_filter),
         encode_query_value(&form.tag_filter),
         encode_query_value(&form.sort),
         encode_query_value(&form.direction),

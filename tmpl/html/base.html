@@ -96,6 +96,14 @@
         .boreal-shared-size { width: 7rem; }
         .boreal-shared-managers { width: 14rem; }
         .boreal-shared-permissions { width: 22rem; }
+        .boreal-github-table { min-width: 82rem !important; }
+        .boreal-github-repository { width: 38%; }
+        .boreal-github-owner { width: 11rem; }
+        .boreal-github-visibility { width: 8rem; }
+        .boreal-github-size { width: 8rem; }
+        .boreal-github-access { width: 8rem; }
+        .boreal-github-language { width: 9rem; }
+        .boreal-github-pushed { width: 12rem; }
 
         .boreal-explorer-table thead th,
         .boreal-explorer-table thead a,
@@ -242,6 +250,26 @@
             position: static;
         }
 
+        body.boreal-print-report .boreal-github-table {
+            width: 100% !important;
+            min-width: 0 !important;
+            table-layout: fixed;
+        }
+
+        body.boreal-print-report .boreal-github-repository { width: 50%; }
+        body.boreal-print-report .boreal-github-owner { width: 12%; }
+        body.boreal-print-report .boreal-github-visibility { width: 7%; }
+        body.boreal-print-report .boreal-github-size { width: 7%; }
+        body.boreal-print-report .boreal-github-access { width: 7%; }
+        body.boreal-print-report .boreal-github-language { width: 8%; }
+        body.boreal-print-report .boreal-github-pushed { width: 9%; }
+        body.boreal-print-report .boreal-github-table td {
+            overflow-wrap: anywhere;
+        }
+        body.boreal-print-report .boreal-github-table td.text-nowrap {
+            white-space: normal !important;
+        }
+
         @page {
             size: legal landscape;
             margin: 0.4in;
@@ -271,7 +299,7 @@
 
 </head>
 
-<body class="d-flex flex-column min-vh-100{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" || active_page == "directory" || active_page == "tags" %} vh-100 overflow-hidden{% endif %}">
+<body class="d-flex flex-column min-vh-100{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" || active_page == "directory" || active_page == "tags" || active_page == "github" %} vh-100 overflow-hidden{% endif %}">
 
     <nav
         class="navbar navbar-expand-lg bg-body-tertiary border-bottom"
@@ -584,7 +612,7 @@
 
     {% include "partials/alerts.html" %}
 
-    <main class="container-fluid py-4 flex-grow-1{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" || active_page == "directory" || active_page == "tags" %} overflow-hidden{% endif %}">
+    <main class="container-fluid py-4 flex-grow-1{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" || active_page == "directory" || active_page == "tags" || active_page == "github" %} overflow-hidden{% endif %}">
 
         {% block content %}
         {% endblock %}
