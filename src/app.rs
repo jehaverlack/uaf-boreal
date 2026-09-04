@@ -131,6 +131,8 @@ pub struct MetadataUpdateSelection {
     pub shared_drives: bool,
     pub shared_with_me: bool,
     pub directory_info: bool,
+    pub github: bool,
+    pub keeper: bool,
 }
 
 impl AppState {
@@ -765,6 +767,8 @@ impl AppState {
             && !selection.shared_drives
             && !selection.shared_with_me
             && !selection.directory_info
+            && !selection.github
+            && !selection.keeper
         {
             return Err("Select at least one metadata source".to_string());
         }
@@ -789,12 +793,20 @@ impl AppState {
             }
         };
 
-        let rclone_path = match state.rclone_state() {
-            RcloneState::Ready(status) => status.path,
-            _ => {
-                state.finish_metadata_job();
-                return Err("Rclone is not ready".to_string());
+        let google_selected = selection.my_drive
+            || selection.shared_drives
+            || selection.shared_with_me
+            || selection.directory_info;
+        let rclone_path = if google_selected {
+            match state.rclone_state() {
+                RcloneState::Ready(status) => status.path,
+                _ => {
+                    state.finish_metadata_job();
+                    return Err("Rclone is not ready".to_string());
+                }
             }
+        } else {
+            PathBuf::new()
         };
         let inventory_settings = match database::settings::load(&database) {
             Ok(settings) => settings,
@@ -812,6 +824,15 @@ impl AppState {
             state.finish_metadata_job();
             return Err(
                 "Directory Info requires a configured directory spreadsheet URL".to_string(),
+            );
+        }
+        if selection.keeper
+            && (!inventory_settings.keeper_enabled
+                || inventory_settings.keeper_command.trim().is_empty())
+        {
+            state.finish_metadata_job();
+            return Err(
+                "Keeper metadata requires a configured Keeper Commander connection".to_string(),
             );
         }
         let scan_id = match if selection.my_drive {
@@ -852,11 +873,13 @@ impl AppState {
         };
 
         println!(
-            "Metadata update started: my_drive={}, shared_drives={}, shared_with_me={}, directory_info={}, remote=my-drive-ro, permissions={permission_scanning}",
+            "Metadata update started: my_drive={}, shared_drives={}, shared_with_me={}, directory_info={}, github={}, keeper={}, remote=my-drive-ro, permissions={permission_scanning}",
             selection.my_drive,
             selection.shared_drives,
             selection.shared_with_me,
             selection.directory_info,
+            selection.github,
+            selection.keeper,
         );
 
         state.set_metadata_state(MetadataState::Updating(MetadataProgress {
@@ -873,10 +896,8 @@ impl AppState {
             let worker_state = Arc::clone(&state);
             let failure_database = database.clone();
             let result = tokio::task::spawn_blocking(move || {
-                    match rclone::identity::fetch_read_only_account(
-                        &worker_state.runtime,
-                        &rclone_path,
-                    ) {
+                    if google_selected {
+                    match rclone::identity::fetch_read_only_account(&worker_state.runtime, &rclone_path) {
                         Ok(identity) => {
                             database::directory::save_remote_account(
                                 &database,
@@ -894,6 +915,7 @@ impl AppState {
                         Err(error) => {
                             log::warn!("Unable to verify authenticated Google account: {error}");
                         }
+                    }
                     }
                     if let Some(sheet_url) = directory_sheet_url.as_deref() {
                         worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
@@ -1164,6 +1186,39 @@ impl AppState {
                     shared_drives_summary = database::inventory::shared_drives_aggregate(&database)?;
                     database.complete_scan_run(shared_drives_scan_id, &shared_drives_summary)?;
                     }
+                    if selection.github {
+                        worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                            selection,
+                            phase: "Fetching GitHub repository metadata".to_string(),
+                            files_scanned: my_drive_summary.files_scanned,
+                            folders_scanned: my_drive_summary.folders_scanned,
+                            permissions_scanned: my_drive_summary.permissions_scanned,
+                            bytes_discovered: my_drive_summary.bytes_discovered,
+                            errors: 0,
+                        }));
+                        let repositories = crate::github::client::repositories(&worker_state.runtime)
+                            .map_err(|error| -> crate::database::DatabaseError { error })?;
+                        database::github::synchronize(&database, &repositories)?;
+                        log::info!("GitHub repository metadata updated: repositories={}", repositories.len());
+                    }
+                    if selection.keeper {
+                        worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
+                            selection,
+                            phase: "Fetching Keeper shared-folder metadata".to_string(),
+                            files_scanned: my_drive_summary.files_scanned,
+                            folders_scanned: my_drive_summary.folders_scanned,
+                            permissions_scanned: my_drive_summary.permissions_scanned,
+                            bytes_discovered: my_drive_summary.bytes_discovered,
+                            errors: 0,
+                        }));
+                        let folders = crate::keeper::client::shared_folders(
+                            &worker_state.runtime,
+                            &inventory_settings.keeper_command,
+                        )
+                        .map_err(|error| -> crate::database::DatabaseError { error })?;
+                        crate::database::keeper::synchronize(&database, &folders)?;
+                        log::info!("Keeper shared-folder metadata updated: folders={}", folders.len());
+                    }
                     Ok::<_, crate::database::DatabaseError>((my_drive_summary, shared_drives_summary, shared_summary))
                 }).await;
 
@@ -1290,6 +1345,8 @@ impl AppState {
                 || inventory_scope.starts_with(database::inventory::SHARED_DRIVE_SCOPE_PREFIX),
             shared_with_me: inventory_scope == database::inventory::SHARED_WITH_ME_SCOPE,
             directory_info: false,
+            github: false,
+            keeper: false,
         };
         state.set_metadata_state(MetadataState::Updating(MetadataProgress {
             selection,

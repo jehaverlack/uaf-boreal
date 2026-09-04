@@ -3,7 +3,7 @@
 | **Name** | boreal |
 | **Author** | John Haverlack |
 | **License** | MIT |
-| **Version** | 1.0.3 |
+| **Version** | 1.1.0 |
 | **Maturity** | STABLE |
 | **Date** | 2026-09-03 |
 
@@ -11,7 +11,7 @@
 
 ## Purpose
 
-BOREAL—the Browser-based Organizer for Rclone Exploration, Audit & Lookup—is a local desktop application for examining Google Drive content through rclone. It was developed at the Alaska Center for Energy and Power (ACEP), University of Alaska Fairbanks (UAF), to help organizations identify content at risk of loss, quota pressure, or inappropriate continued access.
+BOREAL—the Browser-based Organizer for Rclone Exploration, Audit & Lookup—is a local desktop application for examining Google Drive content through rclone and optionally inventorying GitHub repositories and Keeper shared-folder access. It was developed at the Alaska Center for Energy and Power (ACEP), University of Alaska Fairbanks (UAF), to help organizations identify content at risk of loss, quota pressure, inappropriate continued access, or missing stewardship.
 
 The primary use cases are:
 
@@ -22,6 +22,8 @@ The primary use cases are:
 - Identify permissions held by people or accounts that should be reviewed.
 - Prepare content for migration from user-owned storage to organization-owned Shared Drives.
 - Retain a historical local record when an item disappears or Shared Drive access is lost.
+- Inventory repository-level GitHub metadata without reading repository contents.
+- Review Keeper shared-folder membership and management responsibility without importing records or secrets.
 
 BOREAL is an audit and decision-support tool. It is not a Google Drive replacement, backup system, identity provider, or records-management authority.
 
@@ -80,10 +82,10 @@ BOREAL is an audit and decision-support tool. It is not a Google Drive replaceme
 ## System context
 
 ```text
-Google Drive / Google Workspace
-          │
-          │ OAuth through rclone (read-only today)
-          ▼
+Google Drive / Google Workspace ── OAuth through rclone ──┐
+GitHub ── fine-grained read-only access tokens ───────────┤
+Keeper ── authenticated Commander metadata report ────────┤
+                                                         ▼
    BOREAL Rust process
    ├── bootstrap and configuration
    ├── application state and background jobs
@@ -141,6 +143,8 @@ Mutable state uses `RwLock` for observable status and `Mutex` for exclusive job/
 | `src/app.rs` | Shared state, initialization, remote setup, and metadata job orchestration |
 | `src/rclone/` | Rclone installation, configuration, command execution, GUI, identity, and inventories |
 | `src/google/` | Google OAuth client credential detection and import |
+| `src/github/` | Optional GitHub credentials and repository metadata client |
+| `src/keeper/` | Optional Keeper Commander execution and allowlisted shared-folder report parsing |
 | `src/database/` | SQLite initialization, migrations, inventory, directory, tags, and settings |
 | `src/web/` | Local Axum server, routes, view models, form handling, and Askama rendering |
 | `tmpl/html/` | Embedded HTML pages and polled fragments |
@@ -154,8 +158,8 @@ Default locations are:
 | Name | Linux/macOS default | Purpose |
 | --- | --- | --- |
 | `HOME` | `~/.boreal` | BOREAL runtime root |
-| `BIN` | `~/.boreal/bin` | Managed rclone executable |
-| `CONF` | `~/.boreal/conf` | Application, secret, Google client, and rclone configuration |
+| `BIN` | `~/.boreal/bin` | Managed rclone and optional user-installed helper executables |
+| `CONF` | `~/.boreal/conf` | Application, Google, rclone, GitHub, and Keeper configuration and credentials |
 | `DATA` | `~/.boreal/data` | Persistent application data |
 | `CACHE` | `~/.boreal/data/cache` | Temporary rclone inventory files |
 | `SQLITE` | `~/.boreal/data/sqlite` | `boreal.sqlite` and SQLite sidecar files |
@@ -182,7 +186,7 @@ BOREAL treats a remote with an unexpected backend, client ID, or OAuth scope as 
 
 ### Inventory commands
 
-BOREAL invokes `rclone lsjson` recursively with metadata, owner information, and `--fast-list`. Permission metadata is optional through the application setting. Source-specific behavior is selected with:
+BOREAL invokes `rclone lsjson` recursively with metadata, owner information, permissions, and `--fast-list`. Source-specific behavior is selected with:
 
 - No additional source flag for My Drive.
 - `--drive-shared-with-me` for Shared with me.
@@ -200,12 +204,16 @@ The Update dialog permits any combination of:
 - Shared Drives
 - Shared with me
 - Persons directory
+- GitHub repositories, when configured
+- Keeper shared folders, when configured
 
 At least one source is required. Persons is selectable only when an enabled spreadsheet source URL exists. Unselected inventories and timestamps remain unchanged.
 
 The current job performs selected work sequentially in a background worker. The modal displays a separate progress row for each source, marks unselected sources as not requested, and shows typical duration guidance. Rclone does not provide an exact total-item download progress value, so displayed percentages and completion times are estimates.
 
 Only one metadata update may run at once. Failures are logged and represented in scan/import state. Successful completion causes dashboard/status fragments to refresh without requiring a full page reload.
+
+Google work uses rclone and the read-only remote. GitHub uses separately stored fine-grained tokens. Keeper runs the configured Keeper Commander executable with BOREAL's private Keeper configuration and parses `share-report --folders --format json`. GitHub-only and Keeper-only updates do not require rclone to be ready.
 
 ## Inventory scopes and reconciliation
 
@@ -246,6 +254,8 @@ SQLite is the local system of record for indexed metadata and user annotations. 
 | Directory ingestion | `directory_sources`, `directory_import_runs` | CSV/Google Sheet source configuration and import history |
 | Authentication identity | `remote_accounts` | Detected account associated with an rclone remote |
 | Migration history | `migration_jobs`, `migration_sources` | Persistent migration/download plans, destinations, progress, retries, and errors |
+| GitHub inventory | `github_organizations`, `github_repositories`, `github_repository_tags` | Optional repository-level metadata and local tags |
+| Keeper inventory | `keeper_shared_folders`, `keeper_shared_folder_access`, `keeper_shared_folder_tags` | Optional shared-folder access metadata and local tags |
 
 ### Storage considerations
 
@@ -278,7 +288,7 @@ Default content tags are:
 - `To Export`
 - `Safe for removal`
 
-Users can create and edit custom tags and colors. Tags may be applied to Shared Drives themselves or to selected items in My Drive, Shared with me, and Shared Drive explorers. Applying a tag to a folder recursively applies it to the indexed descendants in the same scope. Removing tags is also a local SQLite operation.
+Users can create and edit custom tags, descriptions, colors, and applicable scopes. Tags may be applied to Persons, Shared Drives themselves, selected Drive items, GitHub repositories, or Keeper shared folders when the tag supports that scope. Applying a tag to a Drive folder recursively applies it to indexed descendants in the same scope. GitHub and Keeper tags affect only the selected metadata rows. Removing tags is also a local SQLite operation.
 
 `Safe for removal` is intended to mean that a migration was reviewed and the source can be considered for manual removal. Today it can be applied manually, so BOREAL does not treat the tag itself as proof that verification occurred. It is advisory and does not remove, trash, or modify the Google Drive source.
 
@@ -288,10 +298,12 @@ Axum provides local routes and Askama renders HTML at compile time. Bootstrap su
 
 Primary views are:
 
-- Dashboard summaries for My Drive, Shared Drives, and Shared with me.
+- Dashboard summaries for My Drive, Shared Drives, and Shared with me, plus conditional GitHub and Keeper summaries.
 - My Drive Explorer.
 - Shared Drives list and per-Drive Explorer.
 - Shared with me Explorer.
+- Optional GitHub repository Explorer.
+- Optional Keeper shared-folder access Explorer.
 - Migration and local-download planning, progress, resume, and history views.
 - Directory list, detail, add, and edit pages.
 - Tag management.
@@ -303,7 +315,7 @@ Explorer behavior includes hierarchy navigation, Google Drive links, sortable co
 
 Shared Drives do not have individual owners, so the list shows Managers instead. During permission-enabled updates, BOREAL queries each Shared Drive root separately and records identities with Google's `organizer` role as Managers. The Permissions column combines those Drive-root identities with users, groups, domains, and other principals observed in indexed item permissions; observed roles are available on hover. This remains an audit view and may be constrained by the authenticated account's visibility.
 
-The status bar reports rclone, authenticated Google account, client configuration, remote count, metadata age/state, and BOREAL version. Metadata age uses green, amber, and red states based on freshness thresholds.
+The status bar reports rclone, authenticated Google account, client configuration, remote count, metadata age/state, active migrations, downloads, and BOREAL version. Metadata age uses green, amber, and red states based on freshness thresholds.
 
 ## Security and trust boundaries
 
@@ -320,9 +332,13 @@ The status bar reports rclone, authenticated Google account, client configuratio
 - Rclone command output.
 - Uploaded CSV files.
 - Linked Google Sheet CSV content.
+- GitHub API responses.
+- Keeper Commander output.
 - User-entered URLs, filters, tag names, colors, and directory values.
 
 External data must be parsed, validated, escaped by Askama, and written using SQL parameters. Drive IDs are authoritative identifiers. URLs must be parsed to IDs rather than used directly in shell commands. Child process execution uses argument arrays rather than a shell command string.
+
+GitHub token files and Keeper Commander configuration are private local credentials and must never be rendered, logged, or copied into inventory tables. Keeper report parsing uses an allowlisted model containing only folder UID, name, type, path, sharing target, and permission labels; unknown JSON fields are ignored.
 
 ### Known security boundary
 

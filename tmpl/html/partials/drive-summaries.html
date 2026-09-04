@@ -85,4 +85,47 @@
             {% endif %}
         </div></div>
     </section>
+
+    {% if github_enabled || keeper_enabled %}
+    <div class="row g-4 mb-4">
+        {% if github_enabled %}
+        <section class="col-12" aria-labelledby="github-summary-heading">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h2 class="h4 mb-0" id="github-summary-heading"><a class="text-body text-decoration-none" href="/github"><i class="bi bi-github me-2"></i>GitHub</a></h2>
+                {% if github_summary.completed_at.len() > 0 %}<span class="badge text-bg-success">Indexed</span>{% else %}<span class="badge text-bg-warning">Not indexed</span>{% endif %}
+            </div>
+            <div class="card h-100"><div class="card-body">
+                {% if github_summary.completed_at.len() > 0 %}
+                <div class="row g-3">
+                    <div class="col-6 col-md-4 col-xl-2"><div class="small text-body-secondary">Repository size</div><div class="fs-4 fw-semibold">{{ github_summary.total_size_label }}</div></div>
+                    <div class="col-6 col-md-4 col-xl-2"><div class="small text-body-secondary">Repositories</div><div class="fs-4 fw-semibold">{{ github_summary.repositories }}</div></div>
+                    <div class="col-6 col-md-4 col-xl-2"><div class="small text-body-secondary">Organizations</div><div class="fs-4 fw-semibold">{{ github_summary.organizations }}</div></div>
+                    <div class="col-6 col-md-4 col-xl-2"><div class="small text-body-secondary">Private</div><div class="fs-4 fw-semibold">{{ github_summary.private_repositories }}</div></div>
+                    <div class="col-6 col-md-4 col-xl-2"><div class="small text-body-secondary">Archived</div><div class="fs-4 fw-semibold">{{ github_summary.archived_repositories }}</div></div>
+                    <div class="col-6 col-md-4 col-xl-2"><div class="small text-body-secondary">Metadata age</div><div class="fs-4 fw-semibold boreal-data-age" data-synchronized-at="{{ github_summary.completed_at }}">just now</div></div>
+                </div>
+                {% else %}<p class="text-body-secondary mb-0">Select GitHub repositories from Update to populate this summary.</p>{% endif %}
+            </div></div>
+        </section>
+        {% endif %}
+        {% if keeper_enabled %}
+        <section class="col-lg-6" aria-labelledby="keeper-summary-heading">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h2 class="h4 mb-0" id="keeper-summary-heading"><a class="text-body text-decoration-none" href="/keeper"><i class="bi bi-shield-lock-fill text-warning me-2"></i>Keeper</a></h2>
+                {% if keeper_summary.completed_at.len() > 0 %}<span class="badge text-bg-success">Indexed</span>{% else %}<span class="badge text-bg-warning">Not indexed</span>{% endif %}
+            </div>
+            <div class="card h-100"><div class="card-body">
+                {% if keeper_summary.completed_at.len() > 0 %}
+                <div class="row g-3">
+                    <div class="col-6 col-xl"><div class="small text-body-secondary">Shared folders</div><div class="fs-4 fw-semibold">{{ keeper_summary.shared_folders }}</div></div>
+                    <div class="col-6 col-xl"><div class="small text-body-secondary">People / teams</div><div class="fs-4 fw-semibold">{{ keeper_summary.shared_with }}</div></div>
+                    <div class="col-6 col-xl"><div class="small text-body-secondary">Managed folders</div><div class="fs-4 fw-semibold">{{ keeper_summary.managed_folders }}</div></div>
+                    <div class="col-12"><div class="small text-body-secondary">Metadata age</div><div class="fs-5 fw-semibold boreal-data-age" data-synchronized-at="{{ keeper_summary.completed_at }}">just now</div></div>
+                </div>
+                {% else %}<p class="text-body-secondary mb-0">Select Keeper shared folders from Update to populate this summary.</p>{% endif %}
+            </div></div>
+        </section>
+        {% endif %}
+    </div>
+    {% endif %}
 </div>

@@ -1,5 +1,7 @@
 pub mod directory;
+pub mod github;
 pub mod inventory;
+pub mod keeper;
 pub mod migration;
 mod migrations;
 pub mod settings;
@@ -187,7 +189,7 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 27,);
+        assert_eq!(migration_count, 29,);
 
         let safe_to_delete_scope_count: i64 = connection
             .query_row(
@@ -203,14 +205,14 @@ mod tests {
         for (slug, expected_scope_count) in [
             ("data-loss-risk", 1_i64),
             ("access-review", 1_i64),
-            ("needs-review", 3_i64),
-            ("permission-review", 3_i64),
-            ("needs-handoff", 3_i64),
-            ("retain", 3_i64),
+            ("needs-review", 4_i64),
+            ("permission-review", 4_i64),
+            ("needs-handoff", 4_i64),
+            ("retain", 4_i64),
             ("to-delete", 3_i64),
             ("to-migrate", 2_i64),
             ("migrated", 2_i64),
-            ("remove-my-permissions", 3_i64),
+            ("remove-my-permissions", 4_i64),
         ] {
             let scope_count: i64 = connection
                 .query_row(
@@ -298,6 +300,9 @@ mod tests {
             "remote_accounts",
             "shared_drives",
             "shared_drive_tags",
+            "github_organizations",
+            "github_repositories",
+            "github_repository_tags",
         ] {
             let exists: bool = connection
                 .query_row(
@@ -331,6 +336,12 @@ mod tests {
             directory_sheet_enabled: true,
             directory_sheet_url: "https://docs.google.com/spreadsheets/d/example/edit?gid=0"
                 .to_string(),
+            github_enabled: true,
+            github_login: "octocat".to_string(),
+            github_last_sync_at: String::new(),
+            keeper_enabled: true,
+            keeper_command: "keeper".to_string(),
+            keeper_last_sync_at: String::new(),
         };
 
         settings::save(&database, &expected).expect("settings should save");
@@ -342,6 +353,8 @@ mod tests {
             actual.refresh_interval_hours,
             expected.refresh_interval_hours,
         );
+        assert_eq!(actual.github_enabled, expected.github_enabled);
+        assert_eq!(actual.github_login, expected.github_login);
         assert_eq!(
             actual.full_reconciliation_days,
             expected.full_reconciliation_days,
@@ -1586,6 +1599,7 @@ mod tests {
             ("My Drive Only", inventory::TagScope::MyDrive),
             ("Shared Drive Only", inventory::TagScope::SharedDrives),
             ("Shared With Me Only", inventory::TagScope::SharedWithMe),
+            ("GitHub Only", inventory::TagScope::GitHubRepositories),
         ];
         for (name, scope) in scopes {
             inventory::create_tag_with_description_and_scopes(
@@ -1663,6 +1677,87 @@ mod tests {
             .is_err(),
             "Shared Drives must reject a My Drive-only tag"
         );
+
+        let repository = crate::github::client::Repository {
+            id: 42,
+            name: "boreal".to_string(),
+            full_name: "example/boreal".to_string(),
+            html_url: "https://github.com/example/boreal".to_string(),
+            description: Some("Repository inventory test".to_string()),
+            owner: crate::github::client::Owner {
+                id: 7,
+                login: "example".to_string(),
+                html_url: "https://github.com/example".to_string(),
+                kind: "Organization".to_string(),
+            },
+            private: true,
+            visibility: "private".to_string(),
+            archived: false,
+            disabled: false,
+            fork: false,
+            is_template: false,
+            default_branch: "main".to_string(),
+            language: Some("Rust".to_string()),
+            topics: vec!["inventory".to_string()],
+            size: 123,
+            open_issues_count: 2,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-02-01T00:00:00Z".to_string(),
+            pushed_at: "2026-02-01T00:00:00Z".to_string(),
+            permissions: crate::github::client::RepositoryPermissions {
+                pull: true,
+                ..Default::default()
+            },
+        };
+        github::synchronize(&database, &[repository]).expect("GitHub inventory should synchronize");
+        assert!(
+            github::change_tags(&database, &[42], "github-only", false).is_ok(),
+            "GitHub repositories should accept GitHub tags"
+        );
+        assert!(
+            github::change_tags(&database, &[42], "my-drive-only", false).is_err(),
+            "GitHub repositories must reject My Drive-only tags"
+        );
+        let repositories = github::list(
+            &database,
+            "inventory",
+            "example",
+            "private",
+            "read",
+            "Rust",
+            ">100 KB",
+            ">2026-01-01",
+            "github-only",
+            false,
+            "name",
+            false,
+        )
+        .expect("GitHub repositories should be searchable");
+        assert_eq!(repositories.len(), 1);
+        assert_eq!(repositories[0].tags[0].slug, "github-only");
+        let github_summary = github::summary(&database).expect("GitHub summary should load");
+        assert_eq!(github_summary.repositories, 1);
+        assert_eq!(github_summary.organizations, 1);
+        assert_eq!(github_summary.private_repositories, 1);
+        assert_eq!(github_summary.total_size_kb, 123);
+
+        let keeper_folder = crate::keeper::client::SharedFolder {
+            folder_uid: "keeper-folder-1".to_string(),
+            name: "Operations".to_string(),
+            folder_type: "Shared Folder".to_string(),
+            folder_path: "/Operations".to_string(),
+            access: vec![crate::keeper::client::FolderAccess {
+                shared_to: "manager@example.edu".to_string(),
+                permissions: "Can Manage Users".to_string(),
+                target_kind: "user".to_string(),
+            }],
+        };
+        keeper::synchronize(&database, &[keeper_folder])
+            .expect("Keeper inventory should synchronize");
+        let keeper_summary = keeper::summary(&database).expect("Keeper summary should load");
+        assert_eq!(keeper_summary.shared_folders, 1);
+        assert_eq!(keeper_summary.shared_with, 1);
+        assert_eq!(keeper_summary.managed_folders, 1);
 
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }

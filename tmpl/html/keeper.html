@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <div><h1 class="h3 mb-0"><i class="bi bi-shield-lock-fill me-2"></i>Keeper Shared Folders</h1><div class="small text-body-secondary">Metadata only—record contents and secrets are never imported.</div></div>
+    <a class="btn btn-sm btn-outline-secondary" href="https://keepersecurity.com/vault/" target="_blank" rel="noopener noreferrer"><i class="bi bi-box-arrow-up-right me-1"></i>Open Keeper</a>
+</div>
+{% if query.tagged > 0 %}<div class="alert alert-success py-2">Updated {{ query.tagged }} shared folder tag assignments.</div>{% endif %}
+{% if query.untagged > 0 %}<div class="alert alert-success py-2">Removed {{ query.untagged }} shared folder tag assignments.</div>{% endif %}
+<form method="get" action="/keeper" id="keeper-filter-form">
+    <div class="d-flex flex-wrap gap-1 mb-2">
+        {% for tag in filter_tags %}
+        <button type="submit" name="tag" value="{% if tag.selected || tag.excluded %}{% else %}{{ tag.slug }}{% endif %}" class="btn btn-sm rounded-pill" title="{{ tag.description }} (click to include; right-click to exclude)" style="border-color: {{ tag.color }};{% if tag.selected %} background:{{ tag.color }};color:{{ tag.text_color }};{% else if tag.excluded %} background:repeating-linear-gradient(135deg,transparent,transparent 4px,{{ tag.color }} 4px,{{ tag.color }} 7px);{% else %} color:{{ tag.color }};{% endif %}" oncontextmenu="event.preventDefault(); this.value='!{{ tag.slug }}'; this.form.requestSubmit(this);">{{ tag.name }}</button>
+        {% endfor %}
+    </div>
+    <input type="hidden" name="sort" value="{{ query.sort }}"><input type="hidden" name="direction" value="{{ query.direction }}">
+    <div class="table-responsive border rounded" style="max-height: calc(100vh - 14rem); overflow-y:auto;">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead class="sticky-top bg-body"><tr>
+                <th style="width:2rem"></th>
+                <th><a href="/keeper?sort=name&direction={% if query.sort == "name" && query.direction != "desc" %}desc{% else %}asc{% endif %}">Shared folder</a><input class="form-control form-control-sm mt-1" name="name" value="{{ query.name }}" placeholder="Search name"></th>
+                <th><a href="/keeper?sort=path&direction={% if query.sort == "path" && query.direction != "desc" %}desc{% else %}asc{% endif %}">Path</a><input class="form-control form-control-sm mt-1" name="path" value="{{ query.path }}" placeholder="Search path"></th>
+                <th>Shared with<input class="form-control form-control-sm mt-1" name="shared_to" value="{{ query.shared_to }}" placeholder="Person or team"></th>
+                <th>Permissions<input class="form-control form-control-sm mt-1" name="permission" value="{{ query.permission }}" placeholder="Search permission"></th>
+            </tr></thead>
+            <tbody>
+            {% for folder in folders %}<tr{% if !folder.is_accessible %} class="opacity-50"{% endif %}>
+                <td><input class="form-check-input keeper-select" type="checkbox" value="{{ folder.folder_uid }}"></td>
+                <td><div class="fw-semibold">{{ folder.name }}</div><div class="small text-body-secondary">{{ folder.folder_type }}</div>{% for tag in folder.tags %}<span class="badge rounded-pill me-1" title="{{ tag.description }}" style="background:{{ tag.color }}">{{ tag.name }}</span>{% endfor %}</td>
+                <td class="small">{{ folder.folder_path }}</td>
+                <td class="small">{% for access in folder.access %}<div><span class="badge text-bg-secondary me-1">{{ access.target_kind }}</span>{{ access.shared_to }}</div>{% endfor %}</td>
+                <td class="small">{% for access in folder.access %}<div{% if access.permissions.contains("Manage") %} class="fw-semibold text-warning-emphasis"{% endif %}>{{ access.permissions }}</div>{% endfor %}</td>
+            </tr>{% else %}<tr><td colspan="5" class="text-center text-body-secondary py-4">No Keeper shared folders match these filters. Run a Keeper metadata update if this inventory is empty.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <button class="btn btn-sm btn-primary mt-2" type="submit">Apply filters</button>
+</form>
+{% if !tags.is_empty() %}
+<form method="post" action="/keeper/tags" class="d-flex gap-2 align-items-center mt-2" onsubmit="this.selected_folder_uids.value=Array.from(document.querySelectorAll('.keeper-select:checked')).map(x=>x.value).join(','); if(!this.selected_folder_uids.value){alert('Select at least one shared folder.');return false;}">
+    <input type="hidden" name="selected_folder_uids"><input type="hidden" name="name" value="{{ query.name }}"><input type="hidden" name="path" value="{{ query.path }}"><input type="hidden" name="shared_to" value="{{ query.shared_to }}"><input type="hidden" name="permission" value="{{ query.permission }}"><input type="hidden" name="tag_filter" value="{{ query.tag }}"><input type="hidden" name="sort" value="{{ query.sort }}"><input type="hidden" name="direction" value="{{ query.direction }}">
+    <select class="form-select form-select-sm" name="tag" required style="max-width:16rem"><option value="">Select tag…</option>{% for tag in tags %}<option value="{{ tag.slug }}">{{ tag.name }}</option>{% endfor %}</select>
+    <button class="btn btn-sm btn-outline-primary" type="submit">Add tag</button><button class="btn btn-sm btn-outline-danger" type="submit" formaction="/keeper/tags/remove">Remove tag</button>
+</form>
+{% endif %}
+{% endblock %}

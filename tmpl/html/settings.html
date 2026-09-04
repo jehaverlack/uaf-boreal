@@ -79,6 +79,60 @@
                 </div>
             </div>
 
+            <div class="card mb-3">
+                <div class="card-header fw-semibold"><i class="bi bi-github me-1"></i>GitHub integration <span class="badge text-bg-secondary ms-1">Optional</span></div>
+                <div class="card-body">
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" role="switch" id="githubEnabled" name="github_enabled" value="true" {% if settings.github_enabled %}checked{% endif %}>
+                        <label class="form-check-label" for="githubEnabled">Enable GitHub repository metadata</label>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                            <div class="fw-semibold">Resource-owner connections</div>
+                            <div class="small text-body-secondary">GitHub requires a separate fine-grained token for each resource owner.</div>
+                        </div>
+                        <button class="btn btn-sm btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#githubTokenSetupModal">
+                            <i class="bi bi-plus-lg me-1"></i>Add token
+                        </button>
+                    </div>
+                    {% if github_connections.is_empty() %}
+                    <div class="border rounded p-3 text-body-secondary small">No GitHub resource owners are configured.</div>
+                    {% else %}
+                    <div class="list-group">
+                        {% for connection in github_connections %}
+                        <div class="list-group-item d-flex justify-content-between align-items-center gap-3">
+                            <div>
+                                <div class="fw-semibold"><i class="bi bi-building me-1"></i>{{ connection.resource_owner }}</div>
+                                <div class="small text-body-secondary">Authenticated as {{ connection.authenticated_login }}{% if connection.expires_on.len() > 0 %} · Expires {{ connection.expires_on }}{% else %} · Expiration not recorded{% endif %}</div>
+                            </div>
+                            <button class="btn btn-sm btn-outline-danger" type="submit" form="delete-github-connection-{{ loop.index }}" onclick="return confirm('Remove the GitHub token for {{ connection.resource_owner }}?')" title="Remove connection"><i class="bi bi-trash"></i></button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% if settings.github_last_sync_at.len() > 0 %}<div class="small text-body-secondary mt-1">Last updated {{ settings.github_last_sync_at }} UTC</div>{% endif %}
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header fw-semibold"><i class="bi bi-shield-lock-fill me-1"></i>Keeper integration <span class="badge text-bg-secondary ms-1">Optional</span></div>
+                <div class="card-body">
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" role="switch" id="keeperEnabled" name="keeper_enabled" value="true" {% if settings.keeper_enabled %}checked{% endif %}>
+                        <label class="form-check-label" for="keeperEnabled">Enable Keeper shared-folder metadata</label>
+                    </div>
+                    <label class="form-label" for="keeperCommand">Keeper Commander executable</label>
+                    <input class="form-control font-monospace" id="keeperCommand" name="keeper_command" value="{{ settings.keeper_command }}" placeholder="{{ keeper_command_default }}">
+                    <div class="form-text">BOREAL runs Keeper's metadata-only shared-folder report. It does not read or store record contents, passwords, or other secrets.</div>
+                    <div class="d-flex flex-wrap gap-2 mt-3">
+                        <button class="btn btn-sm btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#keeperSetupModal"><i class="bi bi-list-check me-1"></i>Setup Keeper</button>
+                        <button class="btn btn-sm btn-outline-primary" type="submit" formaction="/settings/keeper/test"><i class="bi bi-cloud-check me-1"></i>Save and test access</button>
+                    </div>
+                    {% if keeper_version.len() > 0 %}<div class="small text-success mt-2"><i class="bi bi-check-circle me-1"></i>{{ keeper_version }}</div>{% endif %}
+                    {% if settings.keeper_last_sync_at.len() > 0 %}<div class="small text-body-secondary mt-1">Last updated {{ settings.keeper_last_sync_at }} UTC</div>{% endif %}
+                </div>
+            </div>
+
             <button type="submit" class="btn btn-primary me-2">
                 <i class="bi bi-save me-1"></i>
                 Save settings
@@ -89,6 +143,12 @@
 
         </form>
 
+        {% for connection in github_connections %}
+        <form id="delete-github-connection-{{ loop.index }}" method="post" action="/settings/github/connections/delete">
+            <input type="hidden" name="resource_owner" value="{{ connection.resource_owner }}">
+        </form>
+        {% endfor %}
+
         <p class="small text-body-secondary mt-3">
             Directory spreadsheet failures do not prevent Drive metadata from updating.
             Review the source status above or the BOREAL log for details.
@@ -97,5 +157,148 @@
     </div>
 
 </div>
+
+<div class="modal fade" id="keeperSetupModal" tabindex="-1" aria-labelledby="keeperSetupTitle" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+        <div class="modal-header"><div><h2 class="modal-title fs-5" id="keeperSetupTitle">Connect Keeper Commander</h2><div class="small text-body-secondary">Keeper credentials remain in Keeper's private configuration.</div></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+        <div class="modal-body">
+            <h3 class="h5">1. Install Keeper Commander</h3>
+            <p><strong>Windows and macOS:</strong> download the official Commander executable and place it in BOREAL's <code>bin</code> directory as <code>keeper.exe</code> or <code>keeper</code>. You may instead enter an existing executable path in Settings.</p>
+            <a class="btn btn-outline-primary mb-3" href="https://github.com/Keeper-Security/Commander/releases" target="_blank" rel="noopener noreferrer"><i class="bi bi-download me-1"></i>Windows and macOS downloads</a>
+            <div class="alert alert-secondary">
+                <p class="fw-semibold mb-2"><i class="bi bi-linux me-1"></i>Linux installation</p>
+                <p>Keeper distributes Commander for Linux as the <code>keepercommander</code> Python package. Install it in a user-owned virtual environment so administrator access and system-wide packages are not required:</p>
+                <pre class="border rounded bg-body p-2"><code>python3 -m venv ~/.boreal/keeper-env
+~/.boreal/keeper-env/bin/pip install keepercommander</code></pre>
+                <p>Then set <strong>Keeper Commander executable</strong> above to:</p>
+                <pre class="border rounded bg-body p-2 mb-2"><code>~/.boreal/keeper-env/bin/keeper</code></pre>
+                <div class="d-flex flex-wrap gap-2">
+                    <a class="btn btn-sm btn-outline-secondary" href="https://docs.keeper.io/en/keeperpam/commander-cli/commander-installation-setup" target="_blank" rel="noopener noreferrer"><i class="bi bi-book me-1"></i>Linux installation guide</a>
+                    <a class="btn btn-sm btn-outline-secondary" href="https://github.com/Keeper-Security/Commander#linux--python-using-pip" target="_blank" rel="noopener noreferrer"><i class="bi bi-github me-1"></i>Official Linux instructions</a>
+                    <a class="btn btn-sm btn-outline-secondary" href="https://pypi.org/project/keepercommander/" target="_blank" rel="noopener noreferrer"><i class="bi bi-box-seam me-1"></i>keepercommander package</a>
+                </div>
+            </div>
+            <h3 class="h5">2. Authenticate outside BOREAL</h3>
+            <p>Open a terminal and start Keeper Commander using BOREAL's private config path. The file does not exist before the first session; Keeper Commander creates it as you configure and authenticate the session. BOREAL creates its parent directory when this Settings page opens.</p>
+            <div class="mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <strong>Linux or macOS terminal</strong>
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-copy-command="keeper-auth-unix"><i class="bi bi-copy me-1"></i>Copy</button>
+                </div>
+                <pre class="border rounded bg-body-tertiary p-2 mb-0"><code id="keeper-auth-unix">keeper --config "$HOME/.boreal/conf/keeper/config.json" shell</code></pre>
+            </div>
+            <div class="mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <strong>Windows PowerShell</strong>
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-copy-command="keeper-auth-windows"><i class="bi bi-copy me-1"></i>Copy</button>
+                </div>
+                <pre class="border rounded bg-body-tertiary p-2 mb-0"><code id="keeper-auth-windows">&amp; "$env:LOCALAPPDATA\boreal\bin\keeper.exe" --config "$env:LOCALAPPDATA\boreal\conf\keeper\config.json" shell</code></pre>
+            </div>
+            <details class="mb-3">
+                <summary class="small">Command using this computer's configured paths</summary>
+                <pre class="border rounded bg-body-tertiary p-2 mt-2 mb-0"><code>{{ keeper_setup_command }} --config {{ keeper_config_path }} shell</code></pre>
+            </details>
+            <div class="alert alert-warning"><i class="bi bi-shield-exclamation me-1"></i>Sign in through Keeper Commander and complete your organization's MFA or SSO flow. Never enter your Keeper master password into BOREAL.</div>
+            <h3 class="h5">3. Register the device</h3>
+            <p>In the Keeper shell, run <code>this-device register</code>. Enable persistent login only if your organization permits it, then run <code>login-status</code> to confirm authentication.</p>
+            <h3 class="h5">4. Verify access</h3>
+            <p class="mb-0">Close this assistant, enable Keeper, and select <strong>Save and test access</strong>. After validation, Keeper appears in navigation and as an optional metadata-update source.</p>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-primary" data-bs-dismiss="modal">Back to Settings</button></div>
+    </div></div>
+</div>
+
+<script>
+    document.addEventListener("click", async (event) => {
+        const button = event.target.closest("[data-copy-command]");
+        if (!button) return;
+        const command = document.getElementById(button.dataset.copyCommand)?.textContent?.trim();
+        if (!command) return;
+        try {
+            await navigator.clipboard.writeText(command);
+            const original = button.innerHTML;
+            button.innerHTML = '<i class="bi bi-check-lg me-1"></i>Copied';
+            window.setTimeout(() => { button.innerHTML = original; }, 1500);
+        } catch (_error) {
+            window.prompt("Copy this Keeper authentication command:", command);
+        }
+    });
+</script>
+
+<div class="modal fade" id="githubTokenSetupModal" tabindex="-1" aria-labelledby="githubTokenSetupTitle" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <form method="post" action="/settings/github/connections" id="github-token-form">
+                <div class="modal-header">
+                    <div><h2 class="modal-title fs-5" id="githubTokenSetupTitle">Add GitHub resource owner</h2><div class="small text-body-secondary" id="github-step-label">Step 1 of 4</div></div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <section class="github-token-step" data-step="1">
+                        <h3 class="h5">Choose the Resource owner</h3>
+                        <p>A fine-grained token can access repositories for only one resource owner. Repeat this assistant for each personal account or organization you want BOREAL to inventory.</p>
+                        <label class="form-label fw-semibold" for="githubResourceOwner">Resource owner</label>
+                        <input class="form-control" id="githubResourceOwner" name="resource_owner" required placeholder="Organization or account name">
+                        <div class="form-text">Enter the exact owner you will select on GitHub, such as <code>uaf-acep</code>. Adding this owner again replaces its stored token.</div>
+                    </section>
+                    <section class="github-token-step d-none" data-step="2">
+                        <h3 class="h5">Select repository access and permission</h3>
+                        <ol class="mb-3">
+                            <li>Select the intended <strong>Resource owner</strong>.</li>
+                            <li>Choose <strong>All repositories</strong>, or select only the repositories BOREAL should inventory.</li>
+                            <li>Under <strong>Repository permissions</strong>, set <strong>Metadata</strong> to <strong>Read-only</strong>.</li>
+                            <li>Leave all other repository, organization, and account permissions at <strong>No access</strong>.</li>
+                        </ol>
+                        <div class="alert alert-info mb-0"><i class="bi bi-shield-check me-1"></i>BOREAL reads repository-level metadata only. It does not need Contents or any write permission.</div>
+                    </section>
+                    <section class="github-token-step d-none" data-step="3">
+                        <h3 class="h5">Choose an expiration and generate the token</h3>
+                        <p><strong>Recommended:</strong> choose a 90-day expiration, or the shortest period your organization can reliably renew. Short expirations reduce risk, but an expired token stops metadata updates until it is replaced.</p>
+                        <p>Your organization may enforce a maximum lifetime or require administrator approval. BOREAL records the date as a reminder; GitHub controls and enforces expiration.</p>
+                        <label class="form-label" for="githubExpiresOn">Expiration date selected on GitHub <span class="text-body-secondary">(optional)</span></label>
+                        <input class="form-control" type="date" id="githubExpiresOn" name="expires_on">
+                        <a class="btn btn-primary mt-3" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer"><i class="bi bi-github me-1"></i>Open GitHub token generator</a>
+                    </section>
+                    <section class="github-token-step d-none" data-step="4">
+                        <h3 class="h5">Store the generated token in BOREAL</h3>
+                        <p>Copy the token immediately after GitHub generates it, then paste it below. GitHub will not show it again.</p>
+                        <label class="form-label fw-semibold" for="githubToken">Fine-grained personal access token</label>
+                        <input class="form-control font-monospace" type="password" id="githubToken" name="token" autocomplete="new-password" required placeholder="github_pat_…">
+                        <div class="form-text">BOREAL validates the token and repository listing, stores it only in its private local configuration, and never displays it again. An organization token may still require administrator approval before private repositories appear.</div>
+                    </section>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary d-none" type="button" id="github-step-back">Back</button>
+                    <button class="btn btn-primary" type="button" id="github-step-next">Next</button>
+                    <button class="btn btn-success d-none" type="submit" id="github-step-save"><i class="bi bi-shield-lock me-1"></i>Validate and save token</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+(() => {
+    let step = 1;
+    const sections = [...document.querySelectorAll('.github-token-step')];
+    const back = document.getElementById('github-step-back');
+    const next = document.getElementById('github-step-next');
+    const save = document.getElementById('github-step-save');
+    const label = document.getElementById('github-step-label');
+    const show = () => {
+        sections.forEach(section => section.classList.toggle('d-none', Number(section.dataset.step) !== step));
+        back.classList.toggle('d-none', step === 1);
+        next.classList.toggle('d-none', step === 4);
+        save.classList.toggle('d-none', step !== 4);
+        label.textContent = `Step ${step} of 4`;
+    };
+    next.addEventListener('click', () => {
+        if (step === 1 && !document.getElementById('githubResourceOwner').reportValidity()) return;
+        step = Math.min(4, step + 1); show();
+    });
+    back.addEventListener('click', () => { step = Math.max(1, step - 1); show(); });
+    document.getElementById('githubTokenSetupModal').addEventListener('hidden.bs.modal', () => { step = 1; show(); });
+})();
+</script>
 
 {% endblock %}

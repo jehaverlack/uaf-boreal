@@ -13,6 +13,7 @@
             <nav class="nav nav-pills flex-column small" aria-label="Documentation sections">
                 <a class="nav-link" href="#getting-started">Getting started</a>
                 <a class="nav-link" href="#metadata">Metadata updates</a>
+                <a class="nav-link" href="#integrations">GitHub and Keeper</a>
                 <a class="nav-link" href="#explorers">Drive explorers</a>
                 <a class="nav-link" href="#tags">Tags</a>
                 <a class="nav-link" href="#persons">Persons</a>
@@ -26,7 +27,7 @@
     </aside>
 
     <div class="col-lg-9">
-        <p class="lead">Use BOREAL to inventory, explore, classify, and report on Google Drive metadata from this computer.</p>
+        <p class="lead">Use BOREAL to inventory, explore, classify, and report on Google Drive, GitHub repository, and Keeper shared-folder metadata from this computer.</p>
         <div id="docs-no-results" class="alert alert-warning d-none">No documentation matched your search. Try a shorter term or visit <a href="/help">Help</a>.</div>
 
         <section id="getting-started" class="mb-4" data-doc-entry>
@@ -51,8 +52,32 @@
                     <li><strong>My Drive (2–20 minutes)</strong> inventories content owned by or visible in My Drive.</li>
                     <li><strong>Shared with me (2–20 minutes)</strong> inventories content shared with the authenticated account.</li>
                     <li><strong>Shared Drives (1–6 hours)</strong> discovers and inventories accessible Shared Drives.</li>
+                    <li><strong>GitHub repositories</strong> inventories accessible organizations, owners, and repository metadata when the optional integration is enabled.</li>
+                    <li><strong>Keeper shared folders</strong> inventories shared-folder membership and permission metadata when Keeper Commander is configured.</li>
                 </ul>
                 <p class="mt-3 mb-0">Times are approximate and depend on inventory size, permissions, and network speed. You may close the update modal while a job runs; progress remains available from the Update control and status bar.</p>
+            </div></div>
+        </section>
+
+        <section id="integrations" class="mb-4" data-doc-entry>
+            <h2 class="h4">Optional GitHub and Keeper integrations</h2>
+            <div class="card"><div class="card-body">
+                <h3 class="h6">GitHub repositories</h3>
+                <p>Enable the optional read-only integration under <strong>App → Settings</strong>. Use the token assistant to add one fine-grained GitHub token per resource owner, with repository <strong>Metadata: Read-only</strong> access.</p>
+                <ul>
+                    <li>Select <strong>GitHub repositories</strong> from the Update modal to refresh the local inventory.</li>
+                    <li>Search by repository, description, topic, owner, organization, visibility, access, or tag.</li>
+                    <li>Apply tags scoped to GitHub Repositories; tags remain local to BOREAL and never modify GitHub.</li>
+                    <li>Repositories no longer returned by GitHub are retained as inaccessible historical records.</li>
+                </ul>
+                <h3 class="h6">Keeper shared folders</h3>
+                <p>Install Keeper Commander and use the assistant under <strong>App → Settings</strong> to authenticate it with BOREAL's private Keeper configuration. Windows and macOS use Keeper's downloadable Commander executable; Linux can use <code>keepercommander</code> in a user-owned Python virtual environment.</p>
+                <ul class="mb-0">
+                    <li>Select <strong>Keeper shared folders</strong> from Update to import folder names, paths, people or teams, and permission labels.</li>
+                    <li>Use Keeper filters and tags to find access that should be removed during offboarding and folders that need a management handoff.</li>
+                    <li>BOREAL invokes Keeper's shared-folder report only. It does not import record contents, passwords, attachments, or secrets.</li>
+                    <li>Keeper authentication remains in <code>~/.boreal/conf/keeper/config.json</code>, or the equivalent BOREAL configuration directory on Windows.</li>
+                </ul>
             </div></div>
         </section>
 
@@ -78,7 +103,7 @@
             <div class="card"><div class="card-body">
                 <p>Tags are private BOREAL annotations. They do not change Google Drive labels, permissions, or files.</p>
                 <ol class="mb-0">
-                    <li>Open <strong>App → Tags</strong> to add or edit a tag, description, color, and applicable explorer scopes.</li>
+                    <li>Open <strong>App → Tags</strong> to add or edit a tag, description, color, and applicable Persons, Drive, GitHub, or Keeper scopes.</li>
                     <li>In an explorer, select one or more rows. Select one row, then hold <strong>Shift</strong> while selecting another to select the entire visible range.</li>
                     <li>Choose a tag and click <strong>Apply</strong> or <strong>Remove</strong>.</li>
                     <li>Use colored tag pills above the explorer to filter the results.</li>
@@ -148,7 +173,7 @@
             <div class="card"><div class="card-body">
                 <ul class="mb-0">
                     <li>BOREAL remains available from its desktop tray or menu-bar icon when the browser tab is closed.</li>
-                    <li>Use the desktop tray or menu-bar menu to reopen or quit BOREAL. Google Drive and the Rclone WebGUI are available from icons in the WebUI navigation bar.</li>
+                    <li>Use the desktop tray or menu-bar menu to reopen or quit BOREAL. Configured Google Drive, Rclone, GitHub, and Keeper destinations are available from icons in the WebUI navigation bar.</li>
                     <li>If BOREAL is already running, launching it again opens the existing WebUI instead of starting a second server.</li>
                     <li>You can also use <strong>App → Quit BOREAL</strong> or Ctrl-C in the terminal to stop the application gracefully. Interactive quit actions warn when active work would be interrupted.</li>
                     <li><strong>Remotes</strong> shows BOREAL’s Rclone configuration status.</li>

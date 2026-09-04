@@ -147,6 +147,10 @@ struct DashboardTemplate {
     metadata: MetadataView,
     directory_sheet_enabled: bool,
     directory_sheet_url: String,
+    github_enabled: bool,
+    github_summary: database::github::Summary,
+    keeper_enabled: bool,
+    keeper_summary: database::keeper::Summary,
 }
 
 #[allow(dead_code)]
@@ -163,6 +167,11 @@ struct SettingsTemplate {
     error: String,
     notice: String,
     directory_source: database::directory::LinkedSheetStatus,
+    github_connections: Vec<crate::github::client::ConnectionSummary>,
+    keeper_command_default: String,
+    keeper_setup_command: String,
+    keeper_config_path: String,
+    keeper_version: String,
 }
 
 #[allow(dead_code)]
@@ -555,6 +564,36 @@ struct TagsTemplate {
     saved: bool,
 }
 
+#[derive(Template)]
+#[template(path = "github.html", config = "askama.toml")]
+struct GitHubTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+    repositories: Vec<database::github::RepositoryRow>,
+    tags: Vec<database::inventory::Tag>,
+    filter_tags: Vec<TagFilterPill>,
+    query: GitHubQuery,
+    error: String,
+    print_view: bool,
+}
+
+#[derive(Template)]
+#[template(path = "keeper.html", config = "askama.toml")]
+struct KeeperTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+    folders: Vec<database::keeper::SharedFolderRow>,
+    tags: Vec<database::inventory::Tag>,
+    filter_tags: Vec<TagFilterPill>,
+    query: KeeperQuery,
+}
+
 #[allow(dead_code)]
 #[derive(Template)]
 #[template(path = "directory.html", config = "askama.toml")]
@@ -668,6 +707,8 @@ struct MetadataUpdateModalTemplate {
     metadata: MetadataView,
     scopes: Vec<MetadataScopeProgressView>,
     directory_available: bool,
+    github_available: bool,
+    keeper_available: bool,
 }
 
 #[allow(dead_code)]
@@ -687,6 +728,10 @@ struct MetadataScopeProgressView {
 #[template(path = "partials/drive-summaries.html", config = "askama.toml")]
 struct DriveSummariesTemplate {
     metadata: MetadataView,
+    github_enabled: bool,
+    github_summary: database::github::Summary,
+    keeper_enabled: bool,
+    keeper_summary: database::keeper::Summary,
 }
 
 #[derive(serde::Deserialize)]
@@ -866,6 +911,10 @@ struct TagForm {
     shared_drives: Option<String>,
     #[serde(default)]
     shared_with_me: Option<String>,
+    #[serde(default)]
+    github_repositories: Option<String>,
+    #[serde(default)]
+    keeper_shared_folders: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -877,6 +926,127 @@ struct DeleteTagForm {
 struct SettingsForm {
     #[serde(default)]
     directory_sheet_url: String,
+    #[serde(default)]
+    github_enabled: Option<String>,
+    #[serde(default)]
+    keeper_enabled: Option<String>,
+    #[serde(default)]
+    keeper_command: String,
+}
+
+#[derive(serde::Deserialize)]
+struct GitHubConnectionForm {
+    resource_owner: String,
+    #[serde(default)]
+    expires_on: String,
+    token: String,
+}
+
+#[derive(serde::Deserialize)]
+struct DeleteGitHubConnectionForm {
+    resource_owner: String,
+}
+
+#[derive(Clone, Default, serde::Deserialize)]
+struct GitHubQuery {
+    #[serde(default)]
+    q: String,
+    #[serde(default)]
+    owner: String,
+    #[serde(default)]
+    visibility: String,
+    #[serde(default)]
+    permission: String,
+    #[serde(default)]
+    language: String,
+    #[serde(default)]
+    size_filter: String,
+    #[serde(default)]
+    pushed_filter: String,
+    #[serde(default)]
+    tag: String,
+    #[serde(default)]
+    include_inaccessible: bool,
+    #[serde(default)]
+    sort: String,
+    #[serde(default)]
+    direction: String,
+    #[serde(default)]
+    tagged: usize,
+    #[serde(default)]
+    untagged: usize,
+    #[serde(default)]
+    print: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct GitHubTagForm {
+    selected_repository_ids: String,
+    tag: String,
+    #[serde(default)]
+    q: String,
+    #[serde(default)]
+    owner: String,
+    #[serde(default)]
+    visibility: String,
+    #[serde(default)]
+    permission: String,
+    #[serde(default)]
+    language: String,
+    #[serde(default)]
+    size_filter: String,
+    #[serde(default)]
+    pushed_filter: String,
+    #[serde(default)]
+    tag_filter: String,
+    #[serde(default)]
+    sort: String,
+    #[serde(default)]
+    direction: String,
+}
+
+#[derive(Clone, Default, serde::Deserialize)]
+struct KeeperQuery {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    path: String,
+    #[serde(default)]
+    shared_to: String,
+    #[serde(default)]
+    permission: String,
+    #[serde(default)]
+    tag: String,
+    #[serde(default)]
+    include_inaccessible: bool,
+    #[serde(default)]
+    sort: String,
+    #[serde(default)]
+    direction: String,
+    #[serde(default)]
+    tagged: usize,
+    #[serde(default)]
+    untagged: usize,
+}
+
+#[derive(serde::Deserialize)]
+struct KeeperTagForm {
+    selected_folder_uids: String,
+    tag: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    path: String,
+    #[serde(default)]
+    shared_to: String,
+    #[serde(default)]
+    permission: String,
+    #[serde(default)]
+    tag_filter: String,
+    #[serde(default)]
+    sort: String,
+    #[serde(default)]
+    direction: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -897,6 +1067,10 @@ struct MetadataUpdateForm {
     shared_with_me: Option<String>,
     #[serde(default)]
     directory_info: Option<String>,
+    #[serde(default)]
+    github: Option<String>,
+    #[serde(default)]
+    keeper: Option<String>,
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -1005,6 +1179,17 @@ pub fn router() -> Router<Arc<AppState>> {
             "/shared-with-me/tags/remove",
             post(remove_shared_with_me_tag),
         )
+        .route("/github", get(github_page))
+        .route("/github/export.xlsx", get(export_github))
+        .route("/github/tags", post(apply_github_tag))
+        .route("/github/tags/remove", post(remove_github_tag))
+        .route("/ui/github-primary-nav", get(ui_github_primary_nav))
+        .route("/ui/github-launcher", get(ui_github_launcher))
+        .route("/keeper", get(keeper_page))
+        .route("/keeper/tags", post(apply_keeper_tag))
+        .route("/keeper/tags/remove", post(remove_keeper_tag))
+        .route("/ui/keeper-primary-nav", get(ui_keeper_primary_nav))
+        .route("/ui/keeper-launcher", get(ui_keeper_launcher))
         .route("/migrations", get(migrations_page))
         .route("/migrations/new", post(create_migration))
         .route("/migrations/download", post(create_download_migration))
@@ -1072,6 +1257,12 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/tags/update", post(update_tag))
         .route("/tags/delete", post(delete_tag))
         .route("/settings", get(settings_page).post(save_settings))
+        .route("/settings/keeper/test", post(test_keeper_connection))
+        .route("/settings/github/connections", post(add_github_connection))
+        .route(
+            "/settings/github/connections/delete",
+            post(delete_github_connection),
+        )
         .route("/google-client", get(google_client_page))
         .route(
             "/settings/bookmark-reminder/dismiss",
@@ -1237,6 +1428,18 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         directory_setup_decided,
     );
     let initial_setup_complete = setup_percent == 100 && metadata_setup_decided(&state);
+    let github_is_enabled = github_enabled(&state);
+    let keeper_is_enabled = keeper_enabled(&state);
+    let github_summary = state
+        .database()
+        .ok()
+        .and_then(|database| database::github::summary(&database).ok())
+        .unwrap_or_default();
+    let keeper_summary = state
+        .database()
+        .ok()
+        .and_then(|database| database::keeper::summary(&database).ok())
+        .unwrap_or_default();
 
     let poll_rclone = should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state);
 
@@ -1261,6 +1464,10 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         ),
         directory_sheet_enabled: setup_settings.directory_sheet_enabled,
         directory_sheet_url: setup_settings.directory_sheet_url,
+        github_enabled: github_is_enabled,
+        github_summary,
+        keeper_enabled: keeper_is_enabled,
+        keeper_summary,
     };
 
     render_template(&template)
@@ -1600,6 +1807,23 @@ async fn save_settings(
         settings::load(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     inventory_settings.directory_sheet_enabled = !directory_sheet_url.is_empty();
     inventory_settings.directory_sheet_url = directory_sheet_url;
+    inventory_settings.github_enabled = form.github_enabled.is_some();
+    inventory_settings.keeper_enabled = form.keeper_enabled.is_some();
+    inventory_settings.keeper_command = if form.keeper_command.trim().is_empty() {
+        crate::keeper::client::default_command(&state.runtime)
+    } else {
+        form.keeper_command.trim().to_string()
+    };
+    if inventory_settings.github_enabled && !crate::github::client::configured(&state.runtime) {
+        return render_settings(
+            &state,
+            inventory_settings,
+            false,
+            "Enter a GitHub access token before enabling GitHub".to_string(),
+            String::new(),
+        )
+        .map(axum::response::IntoResponse::into_response);
+    }
     if inventory_settings.directory_sheet_enabled {
         if let Err(error) =
             crate::rclone::identity::parse_google_sheet_url(&inventory_settings.directory_sheet_url)
@@ -1626,6 +1850,136 @@ async fn save_settings(
         )
         .map(axum::response::IntoResponse::into_response),
     }
+}
+
+async fn test_keeper_connection(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<SettingsForm>,
+) -> Result<axum::response::Response, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let mut inventory_settings =
+        settings::load(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    inventory_settings.directory_sheet_url = form.directory_sheet_url.trim().to_string();
+    inventory_settings.directory_sheet_enabled = !inventory_settings.directory_sheet_url.is_empty();
+    inventory_settings.github_enabled = form.github_enabled.is_some();
+    inventory_settings.keeper_enabled = true;
+    inventory_settings.keeper_command = if form.keeper_command.trim().is_empty() {
+        crate::keeper::client::default_command(&state.runtime)
+    } else {
+        form.keeper_command.trim().to_string()
+    };
+    if let Err(error) = settings::save(&database, &inventory_settings) {
+        return render_settings(
+            &state,
+            inventory_settings,
+            false,
+            error.to_string(),
+            String::new(),
+        )
+        .map(axum::response::IntoResponse::into_response);
+    }
+    let worker_state = Arc::clone(&state);
+    let command = inventory_settings.keeper_command.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let version = crate::keeper::client::version(&command)?;
+        crate::keeper::client::login_status(&worker_state.runtime, &command)?;
+        let folders = crate::keeper::client::shared_folders(&worker_state.runtime, &command)?;
+        Ok::<_, crate::keeper::client::KeeperError>((version, folders.len()))
+    })
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    match result {
+        Ok((version, count)) => render_settings(
+            &state,
+            inventory_settings,
+            false,
+            String::new(),
+            format!("Keeper access verified with {version}; {count} shared folders are visible."),
+        ),
+        Err(error) => render_settings(
+            &state,
+            inventory_settings,
+            false,
+            format!("Keeper connection failed: {error}"),
+            String::new(),
+        ),
+    }
+    .map(axum::response::IntoResponse::into_response)
+}
+
+async fn add_github_connection(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<GitHubConnectionForm>,
+) -> Result<axum::response::Response, StatusCode> {
+    match crate::github::client::save_connection(
+        &state.runtime,
+        &form.resource_owner,
+        &form.expires_on,
+        &form.token,
+    ) {
+        Ok(account) => {
+            let database = state
+                .database()
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            let mut inventory_settings =
+                settings::load(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            inventory_settings.github_enabled = true;
+            inventory_settings.github_login = account.login;
+            settings::save(&database, &inventory_settings)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            log::info!(
+                "GitHub connection added: resource_owner={}, account_id={}",
+                form.resource_owner.trim(),
+                account.id
+            );
+            Ok(Redirect::to("/settings?saved=true").into_response())
+        }
+        Err(error) => {
+            let database = state
+                .database()
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            let inventory_settings =
+                settings::load(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            render_settings(
+                &state,
+                inventory_settings,
+                false,
+                format!("GitHub connection failed: {error}"),
+                String::new(),
+            )
+            .map(axum::response::IntoResponse::into_response)
+        }
+    }
+}
+
+async fn delete_github_connection(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<DeleteGitHubConnectionForm>,
+) -> Result<axum::response::Response, StatusCode> {
+    crate::github::client::delete_connection(&state.runtime, &form.resource_owner).map_err(
+        |error| {
+            log::error!("Unable to remove GitHub connection: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        },
+    )?;
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let mut inventory_settings =
+        settings::load(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if !crate::github::client::configured(&state.runtime) {
+        inventory_settings.github_enabled = false;
+        inventory_settings.github_login.clear();
+        settings::save(&database, &inventory_settings)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+    log::info!(
+        "GitHub connection removed: resource_owner={}",
+        form.resource_owner.trim()
+    );
+    Ok(Redirect::to("/settings?saved=true").into_response())
 }
 
 async fn dismiss_bookmark_reminder(
@@ -1745,6 +2099,17 @@ fn render_settings(
         .and_then(|database| database::directory::linked_sheet_status(&database).ok())
         .unwrap_or_default();
 
+    let keeper_command_default = crate::keeper::client::default_command(&state.runtime);
+    let keeper_config_path = crate::keeper::client::config_path(&state.runtime)
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "<BOREAL conf>/keeper/config.json".to_string());
+    let keeper_command = if inventory_settings.keeper_command.trim().is_empty() {
+        keeper_command_default.as_str()
+    } else {
+        inventory_settings.keeper_command.as_str()
+    };
+    let keeper_version = crate::keeper::client::version(keeper_command).unwrap_or_default();
+    let keeper_setup_command = keeper_command.to_string();
     let template = SettingsTemplate {
         title: "Settings - BOREAL",
         active_page: "settings",
@@ -1769,6 +2134,11 @@ fn render_settings(
         error,
         notice,
         directory_source,
+        github_connections: crate::github::client::connection_summaries(&state.runtime),
+        keeper_command_default,
+        keeper_setup_command,
+        keeper_config_path,
+        keeper_version,
     };
 
     render_template(&template)
@@ -4052,6 +4422,406 @@ fn render_download_message(
     })
 }
 
+fn github_enabled(state: &AppState) -> bool {
+    state
+        .database()
+        .ok()
+        .and_then(|database| database::settings::load(&database).ok())
+        .is_some_and(|settings| settings.github_enabled)
+        && crate::github::client::configured(&state.runtime)
+}
+
+async fn ui_github_primary_nav(State(state): State<Arc<AppState>>) -> Html<String> {
+    if github_enabled(&state) {
+        Html("<li id=\"github-primary-navigation\" class=\"nav-item\"><a class=\"nav-link boreal-github-nav\" href=\"/github\" title=\"Explore GitHub repositories\">GitHub</a></li>".to_string())
+    } else {
+        Html("<li id=\"github-primary-navigation\" class=\"d-none\"></li>".to_string())
+    }
+}
+
+async fn ui_github_launcher(State(state): State<Arc<AppState>>) -> Html<String> {
+    if github_enabled(&state) {
+        Html("<li id=\"github-launcher\" class=\"nav-item\"><a class=\"nav-link boreal-github-nav\" href=\"https://github.com/\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"Open GitHub in a new tab\" aria-label=\"Open GitHub in a new tab\"><i class=\"bi bi-github\" aria-hidden=\"true\"></i></a></li>".to_string())
+    } else {
+        Html("<li id=\"github-launcher\" class=\"d-none\"></li>".to_string())
+    }
+}
+
+fn keeper_enabled(state: &AppState) -> bool {
+    let command = state
+        .database()
+        .ok()
+        .and_then(|database| database::settings::load(&database).ok())
+        .filter(|settings| settings.keeper_enabled)
+        .map(|settings| settings.keeper_command)
+        .filter(|command| !command.trim().is_empty());
+    command.is_some_and(|command| crate::keeper::client::version(&command).is_ok())
+}
+
+async fn ui_keeper_primary_nav(State(state): State<Arc<AppState>>) -> Html<String> {
+    if keeper_enabled(&state) {
+        Html("<li id=\"keeper-primary-navigation\" class=\"nav-item\"><a class=\"nav-link boreal-keeper-nav\" href=\"/keeper\" title=\"Explore Keeper shared-folder metadata\">Keeper</a></li>".to_string())
+    } else {
+        Html("<li id=\"keeper-primary-navigation\" class=\"d-none\"></li>".to_string())
+    }
+}
+
+async fn ui_keeper_launcher(State(state): State<Arc<AppState>>) -> Html<String> {
+    if keeper_enabled(&state) {
+        Html("<li id=\"keeper-launcher\" class=\"nav-item\"><a class=\"nav-link boreal-keeper-nav\" href=\"https://keepersecurity.com/vault/\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"Open Keeper Web Vault\" aria-label=\"Open Keeper Web Vault\"><i class=\"bi bi-shield-lock-fill\" aria-hidden=\"true\"></i></a></li>".to_string())
+    } else {
+        Html("<li id=\"keeper-launcher\" class=\"d-none\"></li>".to_string())
+    }
+}
+
+async fn keeper_page(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<KeeperQuery>,
+) -> Result<Html<String>, StatusCode> {
+    if !keeper_enabled(&state) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let folders = database::keeper::list(
+        &database,
+        &query.name,
+        &query.path,
+        &query.shared_to,
+        &query.permission,
+        &query.tag,
+        query.include_inaccessible,
+        &query.sort,
+        query.direction.eq_ignore_ascii_case("desc"),
+    )
+    .map_err(|error| {
+        log::error!("Unable to list Keeper shared folders: {error}");
+        StatusCode::BAD_REQUEST
+    })?;
+    let tags = database::inventory::list_tags_for_scope(
+        &database,
+        database::inventory::TagScope::KeeperSharedFolders,
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut filter_tags = tags
+        .iter()
+        .map(|tag| TagFilterPill {
+            slug: tag.slug.clone(),
+            name: tag.name.clone(),
+            description: tag.description.clone(),
+            color: tag.color.clone(),
+            text_color: tag_text_color(&tag.color),
+            selected: query.tag == tag.slug,
+            excluded: query.tag.strip_prefix('!') == Some(tag.slug.as_str()),
+        })
+        .collect::<Vec<_>>();
+    filter_tags.push(no_tags_filter_pill(&query.tag));
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    render_template(&KeeperTemplate {
+        title: "Keeper Shared Folders - BOREAL",
+        active_page: "keeper",
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
+        status_items: build_status_items(
+            &state.download_state(),
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(&state),
+            &state.update_state(),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+        folders,
+        tags,
+        filter_tags,
+        query,
+    })
+}
+
+async fn apply_keeper_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<KeeperTagForm>,
+) -> Result<Redirect, StatusCode> {
+    change_keeper_tag(&state, form, false)
+}
+
+async fn remove_keeper_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<KeeperTagForm>,
+) -> Result<Redirect, StatusCode> {
+    change_keeper_tag(&state, form, true)
+}
+
+fn change_keeper_tag(
+    state: &AppState,
+    form: KeeperTagForm,
+    remove: bool,
+) -> Result<Redirect, StatusCode> {
+    let ids = form
+        .selected_folder_uids
+        .split(',')
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let changed =
+        database::keeper::change_tags(&database, &ids, &form.tag, remove).map_err(|error| {
+            log::error!("Unable to change Keeper shared-folder tag: {error}");
+            StatusCode::BAD_REQUEST
+        })?;
+    let url = format!(
+        "/keeper?name={}&path={}&shared_to={}&permission={}&tag={}&sort={}&direction={}&{}={changed}",
+        encode_query_value(&form.name),
+        encode_query_value(&form.path),
+        encode_query_value(&form.shared_to),
+        encode_query_value(&form.permission),
+        encode_query_value(&form.tag_filter),
+        encode_query_value(&form.sort),
+        encode_query_value(&form.direction),
+        if remove { "untagged" } else { "tagged" }
+    );
+    Ok(Redirect::to(&url))
+}
+
+async fn github_page(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<GitHubQuery>,
+) -> Result<Html<String>, StatusCode> {
+    if !github_enabled(&state) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let repositories = database::github::list(
+        &database,
+        &query.q,
+        &query.owner,
+        &query.visibility,
+        &query.permission,
+        &query.language,
+        &query.size_filter,
+        &query.pushed_filter,
+        &query.tag,
+        query.include_inaccessible,
+        &query.sort,
+        query.direction.eq_ignore_ascii_case("desc"),
+    )
+    .map_err(|error| {
+        log::error!("Unable to list GitHub repositories: {error}");
+        StatusCode::BAD_REQUEST
+    })?;
+    let tags = database::inventory::list_tags_for_scope(
+        &database,
+        database::inventory::TagScope::GitHubRepositories,
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut filter_tags = tags
+        .iter()
+        .map(|tag| TagFilterPill {
+            slug: tag.slug.clone(),
+            name: tag.name.clone(),
+            description: tag.description.clone(),
+            color: tag.color.clone(),
+            text_color: tag_text_color(&tag.color),
+            selected: query.tag == tag.slug,
+            excluded: query.tag.strip_prefix('!') == Some(tag.slug.as_str()),
+        })
+        .collect::<Vec<_>>();
+    filter_tags.push(no_tags_filter_pill(&query.tag));
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    render_template(&GitHubTemplate {
+        title: "GitHub Repositories - BOREAL",
+        active_page: "github",
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
+        status_items: build_status_items(
+            &state.download_state(),
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(&state),
+            &state.update_state(),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+        repositories,
+        tags,
+        filter_tags,
+        print_view: query.print,
+        query,
+        error: String::new(),
+    })
+}
+
+async fn export_github(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<GitHubQuery>,
+) -> Result<Response<Body>, StatusCode> {
+    if !github_enabled(&state) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let repositories = database::github::list(
+        &database,
+        &query.q,
+        &query.owner,
+        &query.visibility,
+        &query.permission,
+        &query.language,
+        &query.size_filter,
+        &query.pushed_filter,
+        &query.tag,
+        query.include_inaccessible,
+        &query.sort,
+        query.direction.eq_ignore_ascii_case("desc"),
+    )
+    .map_err(|error| {
+        log::error!("Unable to export GitHub repositories: {error}");
+        StatusCode::BAD_REQUEST
+    })?;
+    let context = vec![
+        ("View".into(), "GitHub Repositories".into()),
+        ("Results".into(), repositories.len().to_string()),
+        ("Repository".into(), filter_value(&query.q)),
+        ("Owner".into(), filter_value(&query.owner)),
+        ("Visibility".into(), filter_value(&query.visibility)),
+        ("Access".into(), filter_value(&query.permission)),
+        ("Language".into(), filter_value(&query.language)),
+        ("Size (KB)".into(), filter_value(&query.size_filter)),
+        ("Last push".into(), filter_value(&query.pushed_filter)),
+        ("Tag".into(), filter_value(&query.tag)),
+        (
+            "Include inaccessible".into(),
+            query.include_inaccessible.to_string(),
+        ),
+        ("Sort".into(), format!("{} {}", query.sort, query.direction)),
+    ];
+    let rows = repositories
+        .into_iter()
+        .map(|repository| {
+            vec![
+                repository.name.into(),
+                repository.description.into(),
+                repository.owner_login.into(),
+                repository.owner_kind.into(),
+                repository.visibility.into(),
+                xlsx::Cell::Number(repository.size_kb),
+                repository.effective_permission.into(),
+                repository.language.into(),
+                repository.pushed_at.into(),
+                (if repository.archived { "Yes" } else { "No" }).into(),
+                (if repository.fork { "Yes" } else { "No" }).into(),
+                repository
+                    .tags
+                    .iter()
+                    .map(|tag| tag.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+                    .into(),
+                xlsx::Cell::Link {
+                    url: repository.html_url,
+                    label: "Open on GitHub".into(),
+                },
+            ]
+        })
+        .collect::<Vec<_>>();
+    let bytes = xlsx::workbook(
+        &context,
+        &[
+            "Repository",
+            "Description",
+            "Owner",
+            "Owner type",
+            "Visibility",
+            "Size (KB)",
+            "Access",
+            "Language",
+            "Last push",
+            "Archived",
+            "Fork",
+            "Tags",
+            "GitHub",
+        ],
+        &rows,
+    )
+    .map_err(|error| {
+        log::error!("Unable to build GitHub Excel report: {error}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    xlsx_download(bytes, "boreal-github-repositories-report.xlsx")
+}
+
+async fn apply_github_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<GitHubTagForm>,
+) -> Result<Redirect, StatusCode> {
+    change_github_tag(&state, form, false)
+}
+
+async fn remove_github_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<GitHubTagForm>,
+) -> Result<Redirect, StatusCode> {
+    change_github_tag(&state, form, true)
+}
+
+fn change_github_tag(
+    state: &AppState,
+    form: GitHubTagForm,
+    remove: bool,
+) -> Result<Redirect, StatusCode> {
+    let ids = form
+        .selected_repository_ids
+        .split(',')
+        .filter_map(|id| id.trim().parse().ok())
+        .collect::<Vec<i64>>();
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let changed =
+        database::github::change_tags(&database, &ids, &form.tag, remove).map_err(|error| {
+            log::error!("Unable to change GitHub repository tag: {error}");
+            StatusCode::BAD_REQUEST
+        })?;
+    let url = format!(
+        "/github?q={}&owner={}&visibility={}&permission={}&language={}&size_filter={}&pushed_filter={}&tag={}&sort={}&direction={}&{}={changed}",
+        encode_query_value(&form.q),
+        encode_query_value(&form.owner),
+        encode_query_value(&form.visibility),
+        encode_query_value(&form.permission),
+        encode_query_value(&form.language),
+        encode_query_value(&form.size_filter),
+        encode_query_value(&form.pushed_filter),
+        encode_query_value(&form.tag_filter),
+        encode_query_value(&form.sort),
+        encode_query_value(&form.direction),
+        if remove { "untagged" } else { "tagged" }
+    );
+    Ok(Redirect::to(&url))
+}
+
 async fn tags_page(
     State(state): State<Arc<AppState>>,
     Query(query): Query<SettingsQuery>,
@@ -4649,6 +5419,12 @@ fn tag_form_scopes(form: &TagForm) -> Vec<database::inventory::TagScope> {
     if form.shared_with_me.is_some() {
         scopes.push(database::inventory::TagScope::SharedWithMe);
     }
+    if form.github_repositories.is_some() {
+        scopes.push(database::inventory::TagScope::GitHubRepositories);
+    }
+    if form.keeper_shared_folders.is_some() {
+        scopes.push(database::inventory::TagScope::KeeperSharedFolders);
+    }
     scopes
 }
 
@@ -4796,6 +5572,18 @@ async fn ui_drive_summaries(
 ) -> Result<Html<String>, StatusCode> {
     let metadata_state = state.metadata_state();
     let shared_summary = latest_shared_summary(&state);
+    let github_is_enabled = github_enabled(&state);
+    let keeper_is_enabled = keeper_enabled(&state);
+    let github_summary = state
+        .database()
+        .ok()
+        .and_then(|database| database::github::summary(&database).ok())
+        .unwrap_or_default();
+    let keeper_summary = state
+        .database()
+        .ok()
+        .and_then(|database| database::keeper::summary(&database).ok())
+        .unwrap_or_default();
     let template = DriveSummariesTemplate {
         metadata: build_metadata_view(
             &metadata_state,
@@ -4806,6 +5594,10 @@ async fn ui_drive_summaries(
             latest_shared_drives_summary(&state).as_ref(),
             shared_drive_count(&state),
         ),
+        github_enabled: github_is_enabled,
+        github_summary,
+        keeper_enabled: keeper_is_enabled,
+        keeper_summary,
     };
     render_template(&template)
 }
@@ -4861,6 +5653,13 @@ async fn ui_metadata_update_modal(
                 settings.directory_sheet_enabled && !settings.directory_sheet_url.is_empty()
             })
             .unwrap_or(false),
+        github_available: state
+            .database()
+            .ok()
+            .and_then(|database| database::settings::load(&database).ok())
+            .is_some_and(|settings| settings.github_enabled)
+            && crate::github::client::configured(&state.runtime),
+        keeper_available: keeper_enabled(&state),
     })
 }
 
@@ -4930,6 +5729,16 @@ fn metadata_scope_progress_views(
         | "Indexing My Drive metadata" => (false, false, 0, "Waiting".to_string()),
         _ => (false, true, 100, "Complete".to_string()),
     };
+    let github = if phase == "Fetching GitHub repository metadata" {
+        (true, false, 60, phase.to_string())
+    } else {
+        (false, false, 0, "Waiting".to_string())
+    };
+    let keeper = if phase == "Fetching Keeper shared-folder metadata" {
+        (true, false, 60, phase.to_string())
+    } else {
+        (false, false, 0, "Waiting".to_string())
+    };
 
     [
         ("Persons", selection.directory_info, "", directory),
@@ -4946,6 +5755,8 @@ fn metadata_scope_progress_views(
             "shared-drives",
             shared_drives,
         ),
+        ("GitHub", selection.github, "", github),
+        ("Keeper", selection.keeper, "", keeper),
     ]
     .into_iter()
     .map(
@@ -5172,7 +5983,11 @@ async fn start_metadata_update(
 ) -> Result<Redirect, StatusCode> {
     let remotes = state.google_remotes_state();
 
-    if !matches!(remotes.ro, RemoteState::Ready) {
+    let google_selected = form.my_drive.is_some()
+        || form.shared_drives.is_some()
+        || form.shared_with_me.is_some()
+        || form.directory_info.is_some();
+    if google_selected && !matches!(remotes.ro, RemoteState::Ready) {
         return Err(StatusCode::PRECONDITION_FAILED);
     }
 
@@ -5181,6 +5996,8 @@ async fn start_metadata_update(
         shared_drives: form.shared_drives.is_some(),
         shared_with_me: form.shared_with_me.is_some(),
         directory_info: form.directory_info.is_some(),
+        github: form.github.is_some(),
+        keeper: form.keeper.is_some(),
     };
     if let Ok(database) = state.database() {
         database::settings::set_metadata_setup_skipped(&database, false)
@@ -5653,6 +6470,8 @@ mod tests {
                 shared_drives: true,
                 shared_with_me: false,
                 directory_info: false,
+                github: false,
+                keeper: false,
             },
             phase: "Scanning Shared Drive 1 of 1: Research".to_string(),
             files_scanned: 500,
