@@ -1,4 +1,5 @@
 pub mod directory;
+pub mod github;
 pub mod inventory;
 pub mod migration;
 mod migrations;
@@ -187,7 +188,7 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 27,);
+        assert_eq!(migration_count, 28,);
 
         let safe_to_delete_scope_count: i64 = connection
             .query_row(
@@ -298,6 +299,9 @@ mod tests {
             "remote_accounts",
             "shared_drives",
             "shared_drive_tags",
+            "github_organizations",
+            "github_repositories",
+            "github_repository_tags",
         ] {
             let exists: bool = connection
                 .query_row(
@@ -331,6 +335,9 @@ mod tests {
             directory_sheet_enabled: true,
             directory_sheet_url: "https://docs.google.com/spreadsheets/d/example/edit?gid=0"
                 .to_string(),
+            github_enabled: true,
+            github_login: "octocat".to_string(),
+            github_last_sync_at: String::new(),
         };
 
         settings::save(&database, &expected).expect("settings should save");
@@ -342,6 +349,8 @@ mod tests {
             actual.refresh_interval_hours,
             expected.refresh_interval_hours,
         );
+        assert_eq!(actual.github_enabled, expected.github_enabled);
+        assert_eq!(actual.github_login, expected.github_login);
         assert_eq!(
             actual.full_reconciliation_days,
             expected.full_reconciliation_days,
@@ -1586,6 +1595,7 @@ mod tests {
             ("My Drive Only", inventory::TagScope::MyDrive),
             ("Shared Drive Only", inventory::TagScope::SharedDrives),
             ("Shared With Me Only", inventory::TagScope::SharedWithMe),
+            ("GitHub Only", inventory::TagScope::GitHubRepositories),
         ];
         for (name, scope) in scopes {
             inventory::create_tag_with_description_and_scopes(
@@ -1663,6 +1673,61 @@ mod tests {
             .is_err(),
             "Shared Drives must reject a My Drive-only tag"
         );
+
+        let repository = crate::github::client::Repository {
+            id: 42,
+            name: "boreal".to_string(),
+            full_name: "example/boreal".to_string(),
+            html_url: "https://github.com/example/boreal".to_string(),
+            description: Some("Repository inventory test".to_string()),
+            owner: crate::github::client::Owner {
+                id: 7,
+                login: "example".to_string(),
+                html_url: "https://github.com/example".to_string(),
+                kind: "Organization".to_string(),
+            },
+            private: true,
+            visibility: "private".to_string(),
+            archived: false,
+            disabled: false,
+            fork: false,
+            is_template: false,
+            default_branch: "main".to_string(),
+            language: Some("Rust".to_string()),
+            topics: vec!["inventory".to_string()],
+            size: 123,
+            open_issues_count: 2,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-02-01T00:00:00Z".to_string(),
+            pushed_at: "2026-02-01T00:00:00Z".to_string(),
+            permissions: crate::github::client::RepositoryPermissions {
+                pull: true,
+                ..Default::default()
+            },
+        };
+        github::synchronize(&database, &[repository]).expect("GitHub inventory should synchronize");
+        assert!(
+            github::change_tags(&database, &[42], "github-only", false).is_ok(),
+            "GitHub repositories should accept GitHub tags"
+        );
+        assert!(
+            github::change_tags(&database, &[42], "my-drive-only", false).is_err(),
+            "GitHub repositories must reject My Drive-only tags"
+        );
+        let repositories = github::list(
+            &database,
+            "inventory",
+            "example",
+            "private",
+            "read",
+            "github-only",
+            false,
+            "name",
+            false,
+        )
+        .expect("GitHub repositories should be searchable");
+        assert_eq!(repositories.len(), 1);
+        assert_eq!(repositories[0].tags[0].slug, "github-only");
 
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }

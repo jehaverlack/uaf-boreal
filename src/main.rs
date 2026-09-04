@@ -19,6 +19,7 @@ mod bootstrap;
 mod config;
 mod database;
 mod desktop;
+mod github;
 mod google;
 mod logging;
 mod rclone;

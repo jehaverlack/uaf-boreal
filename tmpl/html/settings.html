@@ -79,6 +79,22 @@
                 </div>
             </div>
 
+            <div class="card mb-3">
+                <div class="card-header fw-semibold"><i class="bi bi-github me-1"></i>GitHub integration <span class="badge text-bg-secondary ms-1">Optional</span></div>
+                <div class="card-body">
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" role="switch" id="githubEnabled" name="github_enabled" value="true" {% if settings.github_enabled %}checked{% endif %}>
+                        <label class="form-check-label" for="githubEnabled">Enable GitHub repository metadata</label>
+                    </div>
+                    <label class="form-label" for="githubToken">Fine-grained personal access token</label>
+                    <input class="form-control font-monospace" type="password" id="githubToken" name="github_token" autocomplete="new-password" placeholder="{% if github_token_configured %}Token is stored; leave blank to keep it{% else %}github_pat_…{% endif %}">
+                    <div class="form-text">Create a read-only token with repository Metadata access. BOREAL stores it locally in its private configuration directory and never displays it again.</div>
+                    <div class="mt-2"><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" class="small"><i class="bi bi-box-arrow-up-right me-1"></i>Create a fine-grained token on GitHub</a></div>
+                    {% if github_token_configured %}<div class="small text-success mt-2"><i class="bi bi-check-circle me-1"></i>GitHub token stored{% if settings.github_login.len() > 0 %} for {{ settings.github_login }}{% endif %}</div>{% endif %}
+                    {% if settings.github_last_sync_at.len() > 0 %}<div class="small text-body-secondary mt-1">Last updated {{ settings.github_last_sync_at }} UTC</div>{% endif %}
+                </div>
+            </div>
+
             <button type="submit" class="btn btn-primary me-2">
                 <i class="bi bi-save me-1"></i>
                 Save settings

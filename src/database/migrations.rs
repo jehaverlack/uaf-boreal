@@ -144,6 +144,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "keep_tag",
         sql: include_str!("migrations/0027_keep_tag.sql"),
     },
+    Migration {
+        version: 28,
+        name: "github_inventory",
+        sql: include_str!("migrations/0028_github_inventory.sql"),
+    },
 ];
 
 pub fn apply(connection: &mut Connection) -> Result<(), DatabaseError> {

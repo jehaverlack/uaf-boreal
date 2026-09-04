@@ -190,6 +190,16 @@
             color: #59359a !important;
         }
 
+        .navbar .boreal-github-nav,
+        .navbar .boreal-github-nav.active {
+            color: #343a40 !important;
+        }
+
+        .navbar .boreal-github-nav:hover,
+        .navbar .boreal-github-nav:focus {
+            color: #000 !important;
+        }
+
         body.boreal-print-report {
             height: auto !important;
             min-height: 0 !important;
@@ -351,6 +361,8 @@
                         </a>
                     </li>
 
+                    <li id="github-primary-navigation" hx-get="/ui/github-primary-nav" hx-trigger="load" hx-swap="outerHTML"></li>
+
                     <li class="nav-item">
                         <a
                             class="nav-link boreal-person-nav{% if active_page == "directory" %} active{% endif %}"
@@ -382,6 +394,8 @@
                 </ul>
 
                 <ul class="navbar-nav ms-auto">
+
+                    <li id="github-launcher" hx-get="/ui/github-launcher" hx-trigger="load" hx-swap="outerHTML"></li>
 
                     <li class="nav-item">
                         <a

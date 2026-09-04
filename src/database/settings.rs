@@ -10,6 +10,9 @@ pub struct InventorySettings {
     pub update_when_overdue_at_startup: bool,
     pub directory_sheet_enabled: bool,
     pub directory_sheet_url: String,
+    pub github_enabled: bool,
+    pub github_login: String,
+    pub github_last_sync_at: String,
 }
 
 impl Default for InventorySettings {
@@ -21,6 +24,9 @@ impl Default for InventorySettings {
             update_when_overdue_at_startup: false,
             directory_sheet_enabled: false,
             directory_sheet_url: String::new(),
+            github_enabled: false,
+            github_login: String::new(),
+            github_last_sync_at: String::new(),
         }
     }
 }
@@ -77,6 +83,10 @@ pub fn load(database: &Database) -> Result<InventorySettings, DatabaseError> {
         )?,
         directory_sheet_url: get(&connection, "directory.sheet_url")?
             .unwrap_or(defaults.directory_sheet_url),
+        github_enabled: get_bool(&connection, "github.enabled", defaults.github_enabled)?,
+        github_login: get(&connection, "github.login")?.unwrap_or(defaults.github_login),
+        github_last_sync_at: get(&connection, "github.last_sync_at")?
+            .unwrap_or(defaults.github_last_sync_at),
     })
 }
 
@@ -116,6 +126,12 @@ pub fn save(database: &Database, settings: &InventorySettings) -> Result<(), Dat
         "directory.sheet_url",
         settings.directory_sheet_url.trim(),
     )?;
+    set(
+        &transaction,
+        "github.enabled",
+        bool_value(settings.github_enabled),
+    )?;
+    set(&transaction, "github.login", settings.github_login.trim())?;
     transaction.execute(
         "INSERT INTO directory_sources (
             name, source_type, source_location, enabled, refresh_on_metadata_update
@@ -235,6 +251,14 @@ fn set(transaction: &Transaction<'_>, key: &str, value: &str) -> Result<(), Data
     )?;
 
     Ok(())
+}
+
+pub(crate) fn set_in_transaction(
+    transaction: &Transaction<'_>,
+    key: &str,
+    value: &str,
+) -> Result<(), DatabaseError> {
+    set(transaction, key, value)
 }
 
 fn bool_value(value: bool) -> &'static str {

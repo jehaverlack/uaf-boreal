@@ -46,6 +46,7 @@
             <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="my_drive" value="true" checked>My Drive (2–20 min)</label>
             <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="shared_with_me" value="true" checked>Shared with me (2–20 min)</label>
             <label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="shared_drives" value="true">Shared Drives (1–6 hours)</label>
+            {% if github_available %}<label class="list-group-item"><input class="form-check-input me-2" form="metadata-update-form" type="checkbox" name="github" value="true">GitHub repositories (optional)</label>{% endif %}
         </div>
         <p class="mb-0">Large inventories can take several hours to update. Keep BOREAL running until the update completes.</p>
         {% endif %}

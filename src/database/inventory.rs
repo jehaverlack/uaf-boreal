@@ -19,6 +19,7 @@ pub enum TagScope {
     MyDrive,
     SharedDrives,
     SharedWithMe,
+    GitHubRepositories,
 }
 
 impl TagScope {
@@ -28,6 +29,7 @@ impl TagScope {
             Self::MyDrive => "my-drive",
             Self::SharedDrives => "shared-drives",
             Self::SharedWithMe => "shared-with-me",
+            Self::GitHubRepositories => "github-repositories",
         }
     }
 
@@ -302,6 +304,7 @@ pub fn list_shared_drives_filtered(
                                         my_drive: false,
                                         shared_drives: false,
                                         shared_with_me: false,
+                                        github_repositories: false,
                                     })
                                 })
                                 .collect()
@@ -368,6 +371,7 @@ pub fn list_shared_drives_filtered(
                 my_drive: false,
                 shared_drives: false,
                 shared_with_me: false,
+                github_repositories: false,
             },
         ))
     })? {
@@ -606,6 +610,7 @@ pub struct Tag {
     pub my_drive: bool,
     pub shared_drives: bool,
     pub shared_with_me: bool,
+    pub github_repositories: bool,
 }
 
 #[allow(dead_code)]
@@ -838,6 +843,7 @@ pub fn list_drive_directory(
                                     my_drive: false,
                                     shared_drives: false,
                                     shared_with_me: false,
+                                    github_repositories: false,
                                 })
                             })
                             .collect()
@@ -890,6 +896,7 @@ pub fn list_drive_directory(
                 my_drive: false,
                 shared_drives: false,
                 shared_with_me: false,
+                github_repositories: false,
             },
         ))
     })? {
@@ -1022,7 +1029,8 @@ fn list_tags_query(
                 EXISTS(SELECT 1 FROM tag_scopes s WHERE s.tag_id = t.id AND s.scope = 'directory'),
                 EXISTS(SELECT 1 FROM tag_scopes s WHERE s.tag_id = t.id AND s.scope = 'my-drive'),
                 EXISTS(SELECT 1 FROM tag_scopes s WHERE s.tag_id = t.id AND s.scope = 'shared-drives'),
-                EXISTS(SELECT 1 FROM tag_scopes s WHERE s.tag_id = t.id AND s.scope = 'shared-with-me')
+                EXISTS(SELECT 1 FROM tag_scopes s WHERE s.tag_id = t.id AND s.scope = 'shared-with-me'),
+                EXISTS(SELECT 1 FROM tag_scopes s WHERE s.tag_id = t.id AND s.scope = 'github-repositories')
          FROM tags t
          WHERE ?1 IS NULL OR EXISTS(
              SELECT 1 FROM tag_scopes selected
@@ -1040,6 +1048,7 @@ fn list_tags_query(
             my_drive: row.get(5)?,
             shared_drives: row.get(6)?,
             shared_with_me: row.get(7)?,
+            github_repositories: row.get(8)?,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -1052,11 +1061,12 @@ pub fn create_tag(database: &Database, name: &str, color: &str) -> Result<(), Da
 
 impl TagScope {
     #[allow(dead_code)]
-    const ALL: [Self; 4] = [
+    const ALL: [Self; 5] = [
         Self::Directory,
         Self::MyDrive,
         Self::SharedDrives,
         Self::SharedWithMe,
+        Self::GitHubRepositories,
     ];
 }
 
