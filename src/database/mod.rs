@@ -1735,6 +1735,29 @@ mod tests {
         .expect("GitHub repositories should be searchable");
         assert_eq!(repositories.len(), 1);
         assert_eq!(repositories[0].tags[0].slug, "github-only");
+        let github_summary = github::summary(&database).expect("GitHub summary should load");
+        assert_eq!(github_summary.repositories, 1);
+        assert_eq!(github_summary.organizations, 1);
+        assert_eq!(github_summary.private_repositories, 1);
+        assert_eq!(github_summary.total_size_kb, 123);
+
+        let keeper_folder = crate::keeper::client::SharedFolder {
+            folder_uid: "keeper-folder-1".to_string(),
+            name: "Operations".to_string(),
+            folder_type: "Shared Folder".to_string(),
+            folder_path: "/Operations".to_string(),
+            access: vec![crate::keeper::client::FolderAccess {
+                shared_to: "manager@example.edu".to_string(),
+                permissions: "Can Manage Users".to_string(),
+                target_kind: "user".to_string(),
+            }],
+        };
+        keeper::synchronize(&database, &[keeper_folder])
+            .expect("Keeper inventory should synchronize");
+        let keeper_summary = keeper::summary(&database).expect("Keeper summary should load");
+        assert_eq!(keeper_summary.shared_folders, 1);
+        assert_eq!(keeper_summary.shared_with, 1);
+        assert_eq!(keeper_summary.managed_folders, 1);
 
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }

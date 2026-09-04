@@ -147,6 +147,10 @@ struct DashboardTemplate {
     metadata: MetadataView,
     directory_sheet_enabled: bool,
     directory_sheet_url: String,
+    github_enabled: bool,
+    github_summary: database::github::Summary,
+    keeper_enabled: bool,
+    keeper_summary: database::keeper::Summary,
 }
 
 #[allow(dead_code)]
@@ -722,6 +726,10 @@ struct MetadataScopeProgressView {
 #[template(path = "partials/drive-summaries.html", config = "askama.toml")]
 struct DriveSummariesTemplate {
     metadata: MetadataView,
+    github_enabled: bool,
+    github_summary: database::github::Summary,
+    keeper_enabled: bool,
+    keeper_summary: database::keeper::Summary,
 }
 
 #[derive(serde::Deserialize)]
@@ -1418,6 +1426,18 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         directory_setup_decided,
     );
     let initial_setup_complete = setup_percent == 100 && metadata_setup_decided(&state);
+    let github_is_enabled = github_enabled(&state);
+    let keeper_is_enabled = keeper_enabled(&state);
+    let github_summary = state
+        .database()
+        .ok()
+        .and_then(|database| database::github::summary(&database).ok())
+        .unwrap_or_default();
+    let keeper_summary = state
+        .database()
+        .ok()
+        .and_then(|database| database::keeper::summary(&database).ok())
+        .unwrap_or_default();
 
     let poll_rclone = should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state);
 
@@ -1442,6 +1462,10 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         ),
         directory_sheet_enabled: setup_settings.directory_sheet_enabled,
         directory_sheet_url: setup_settings.directory_sheet_url,
+        github_enabled: github_is_enabled,
+        github_summary,
+        keeper_enabled: keeper_is_enabled,
+        keeper_summary,
     };
 
     render_template(&template)
@@ -5540,6 +5564,18 @@ async fn ui_drive_summaries(
 ) -> Result<Html<String>, StatusCode> {
     let metadata_state = state.metadata_state();
     let shared_summary = latest_shared_summary(&state);
+    let github_is_enabled = github_enabled(&state);
+    let keeper_is_enabled = keeper_enabled(&state);
+    let github_summary = state
+        .database()
+        .ok()
+        .and_then(|database| database::github::summary(&database).ok())
+        .unwrap_or_default();
+    let keeper_summary = state
+        .database()
+        .ok()
+        .and_then(|database| database::keeper::summary(&database).ok())
+        .unwrap_or_default();
     let template = DriveSummariesTemplate {
         metadata: build_metadata_view(
             &metadata_state,
@@ -5550,6 +5586,10 @@ async fn ui_drive_summaries(
             latest_shared_drives_summary(&state).as_ref(),
             shared_drive_count(&state),
         ),
+        github_enabled: github_is_enabled,
+        github_summary,
+        keeper_enabled: keeper_is_enabled,
+        keeper_summary,
     };
     render_template(&template)
 }

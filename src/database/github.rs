@@ -22,6 +22,42 @@ pub struct RepositoryRow {
     pub tags: Vec<Tag>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct Summary {
+    pub repositories: u64,
+    pub organizations: u64,
+    pub private_repositories: u64,
+    pub archived_repositories: u64,
+    pub total_size_kb: u64,
+    pub completed_at: String,
+}
+
+pub fn summary(database: &Database) -> Result<Summary, DatabaseError> {
+    let connection = database.connect()?;
+    connection
+        .query_row(
+            "SELECT COUNT(*),
+                    COUNT(DISTINCT CASE WHEN owner_kind='Organization' THEN owner_id END),
+                    COALESCE(SUM(CASE WHEN visibility='private' THEN 1 ELSE 0 END),0),
+                    COALESCE(SUM(CASE WHEN archived=1 THEN 1 ELSE 0 END),0),
+                    COALESCE(SUM(size_kb),0),
+                    COALESCE((SELECT value FROM settings WHERE key='github.last_sync_at'),'')
+             FROM github_repositories WHERE is_accessible=1",
+            [],
+            |row| {
+                Ok(Summary {
+                    repositories: row.get::<_, i64>(0)? as u64,
+                    organizations: row.get::<_, i64>(1)? as u64,
+                    private_repositories: row.get::<_, i64>(2)? as u64,
+                    archived_repositories: row.get::<_, i64>(3)? as u64,
+                    total_size_kb: row.get::<_, i64>(4)? as u64,
+                    completed_at: row.get(5)?,
+                })
+            },
+        )
+        .map_err(Into::into)
+}
+
 pub fn synchronize(database: &Database, repositories: &[Repository]) -> Result<(), DatabaseError> {
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;

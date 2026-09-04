@@ -22,6 +22,41 @@ pub struct AccessRow {
     pub target_kind: String,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct Summary {
+    pub shared_folders: u64,
+    pub shared_with: u64,
+    pub managed_folders: u64,
+    pub completed_at: String,
+}
+
+pub fn summary(database: &Database) -> Result<Summary, DatabaseError> {
+    let connection = database.connect()?;
+    connection
+        .query_row(
+            "SELECT COUNT(*),
+                    COALESCE((SELECT COUNT(DISTINCT shared_to) FROM keeper_shared_folder_access a
+                              JOIN keeper_shared_folders af ON af.folder_uid=a.folder_uid
+                              WHERE af.is_accessible=1),0),
+                    COALESCE(SUM(CASE WHEN EXISTS(
+                        SELECT 1 FROM keeper_shared_folder_access a
+                        WHERE a.folder_uid=f.folder_uid AND a.permissions LIKE '%Manage%'
+                    ) THEN 1 ELSE 0 END),0),
+                    COALESCE((SELECT value FROM settings WHERE key='keeper.last_sync_at'),'')
+             FROM keeper_shared_folders f WHERE is_accessible=1",
+            [],
+            |row| {
+                Ok(Summary {
+                    shared_folders: row.get::<_, i64>(0)? as u64,
+                    shared_with: row.get::<_, i64>(1)? as u64,
+                    managed_folders: row.get::<_, i64>(2)? as u64,
+                    completed_at: row.get(3)?,
+                })
+            },
+        )
+        .map_err(Into::into)
+}
+
 pub fn synchronize(database: &Database, folders: &[SharedFolder]) -> Result<(), DatabaseError> {
     let mut connection = database.connect()?;
     let transaction = connection.transaction()?;
