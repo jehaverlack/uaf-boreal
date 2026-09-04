@@ -169,6 +169,8 @@ struct SettingsTemplate {
     directory_source: database::directory::LinkedSheetStatus,
     github_connections: Vec<crate::github::client::ConnectionSummary>,
     keeper_command_default: String,
+    keeper_setup_command: String,
+    keeper_config_path: String,
     keeper_version: String,
 }
 
@@ -2098,12 +2100,16 @@ fn render_settings(
         .unwrap_or_default();
 
     let keeper_command_default = crate::keeper::client::default_command(&state.runtime);
+    let keeper_config_path = crate::keeper::client::config_path(&state.runtime)
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "<BOREAL conf>/keeper/config.json".to_string());
     let keeper_command = if inventory_settings.keeper_command.trim().is_empty() {
         keeper_command_default.as_str()
     } else {
         inventory_settings.keeper_command.as_str()
     };
     let keeper_version = crate::keeper::client::version(keeper_command).unwrap_or_default();
+    let keeper_setup_command = keeper_command.to_string();
     let template = SettingsTemplate {
         title: "Settings - BOREAL",
         active_page: "settings",
@@ -2130,6 +2136,8 @@ fn render_settings(
         directory_source,
         github_connections: crate::github::client::connection_summaries(&state.runtime),
         keeper_command_default,
+        keeper_setup_command,
+        keeper_config_path,
         keeper_version,
     };
 

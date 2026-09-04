@@ -179,8 +179,26 @@
                 </div>
             </div>
             <h3 class="h5">2. Authenticate outside BOREAL</h3>
-            <p>Open a terminal and start Keeper Commander using BOREAL's private config path. Sign in there and complete your organization's MFA or SSO flow. Never enter your Keeper master password into BOREAL.</p>
-            <pre class="border rounded bg-body-tertiary p-2"><code>{{ keeper_command_default }} --config &lt;BOREAL conf&gt;/keeper/config.json shell</code></pre>
+            <p>Open a terminal and start Keeper Commander using BOREAL's private config path. The file does not exist before the first session; Keeper Commander creates it as you configure and authenticate the session. BOREAL creates its parent directory when this Settings page opens.</p>
+            <div class="mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <strong>Linux or macOS terminal</strong>
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-copy-command="keeper-auth-unix"><i class="bi bi-copy me-1"></i>Copy</button>
+                </div>
+                <pre class="border rounded bg-body-tertiary p-2 mb-0"><code id="keeper-auth-unix">keeper --config "$HOME/.boreal/conf/keeper/config.json" shell</code></pre>
+            </div>
+            <div class="mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <strong>Windows PowerShell</strong>
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-copy-command="keeper-auth-windows"><i class="bi bi-copy me-1"></i>Copy</button>
+                </div>
+                <pre class="border rounded bg-body-tertiary p-2 mb-0"><code id="keeper-auth-windows">&amp; "$env:LOCALAPPDATA\boreal\bin\keeper.exe" --config "$env:LOCALAPPDATA\boreal\conf\keeper\config.json" shell</code></pre>
+            </div>
+            <details class="mb-3">
+                <summary class="small">Command using this computer's configured paths</summary>
+                <pre class="border rounded bg-body-tertiary p-2 mt-2 mb-0"><code>{{ keeper_setup_command }} --config {{ keeper_config_path }} shell</code></pre>
+            </details>
+            <div class="alert alert-warning"><i class="bi bi-shield-exclamation me-1"></i>Sign in through Keeper Commander and complete your organization's MFA or SSO flow. Never enter your Keeper master password into BOREAL.</div>
             <h3 class="h5">3. Register the device</h3>
             <p>In the Keeper shell, run <code>this-device register</code>. Enable persistent login only if your organization permits it, then run <code>login-status</code> to confirm authentication.</p>
             <h3 class="h5">4. Verify access</h3>
@@ -189,6 +207,23 @@
         <div class="modal-footer"><button type="button" class="btn btn-primary" data-bs-dismiss="modal">Back to Settings</button></div>
     </div></div>
 </div>
+
+<script>
+    document.addEventListener("click", async (event) => {
+        const button = event.target.closest("[data-copy-command]");
+        if (!button) return;
+        const command = document.getElementById(button.dataset.copyCommand)?.textContent?.trim();
+        if (!command) return;
+        try {
+            await navigator.clipboard.writeText(command);
+            const original = button.innerHTML;
+            button.innerHTML = '<i class="bi bi-check-lg me-1"></i>Copied';
+            window.setTimeout(() => { button.innerHTML = original; }, 1500);
+        } catch (_error) {
+            window.prompt("Copy this Keeper authentication command:", command);
+        }
+    });
+</script>
 
 <div class="modal fade" id="githubTokenSetupModal" tabindex="-1" aria-labelledby="githubTokenSetupTitle" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">

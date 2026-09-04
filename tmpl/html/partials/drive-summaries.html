@@ -89,7 +89,7 @@
     {% if github_enabled || keeper_enabled %}
     <div class="row g-4 mb-4">
         {% if github_enabled %}
-        <section class="col-lg-6" aria-labelledby="github-summary-heading">
+        <section class="col-12" aria-labelledby="github-summary-heading">
             <div class="d-flex justify-content-between align-items-center mb-2">
                 <h2 class="h4 mb-0" id="github-summary-heading"><a class="text-body text-decoration-none" href="/github"><i class="bi bi-github me-2"></i>GitHub</a></h2>
                 {% if github_summary.completed_at.len() > 0 %}<span class="badge text-bg-success">Indexed</span>{% else %}<span class="badge text-bg-warning">Not indexed</span>{% endif %}
