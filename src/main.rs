@@ -25,6 +25,7 @@ mod keeper;
 mod local_files;
 mod logging;
 mod rclone;
+mod s3;
 mod update;
 mod web;
 

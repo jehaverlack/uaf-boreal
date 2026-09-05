@@ -144,6 +144,8 @@ struct DashboardTemplate {
     setup_steps: Vec<SetupStep>,
     setup_percent: u8,
     initial_setup_complete: bool,
+    modules_enabled: bool,
+    google_drive_enabled: bool,
     poll_rclone: bool,
     metadata: MetadataView,
     directory_sheet_enabled: bool,
@@ -154,6 +156,8 @@ struct DashboardTemplate {
     keeper_summary: database::keeper::Summary,
     local_files_enabled: bool,
     local_files_summary: database::local_files::Summary,
+    s3_enabled: bool,
+    s3_summary: database::s3::Summary,
 }
 
 #[allow(dead_code)]
@@ -732,10 +736,12 @@ struct MetadataProgressTemplate {
 struct MetadataUpdateModalTemplate {
     metadata: MetadataView,
     scopes: Vec<MetadataScopeProgressView>,
+    google_available: bool,
     directory_available: bool,
     github_available: bool,
     keeper_available: bool,
     local_files_available: bool,
+    s3_available: bool,
 }
 
 #[allow(dead_code)]
@@ -755,12 +761,15 @@ struct MetadataScopeProgressView {
 #[template(path = "partials/drive-summaries.html", config = "askama.toml")]
 struct DriveSummariesTemplate {
     metadata: MetadataView,
+    google_drive_enabled: bool,
     github_enabled: bool,
     github_summary: database::github::Summary,
     keeper_enabled: bool,
     keeper_summary: database::keeper::Summary,
     local_files_enabled: bool,
     local_files_summary: database::local_files::Summary,
+    s3_enabled: bool,
+    s3_summary: database::s3::Summary,
 }
 
 #[derive(serde::Deserialize)]
@@ -956,6 +965,8 @@ struct DeleteTagForm {
 #[derive(serde::Deserialize)]
 struct SettingsForm {
     #[serde(default)]
+    google_drive_enabled: Option<String>,
+    #[serde(default)]
     directory_sheet_url: String,
     #[serde(default)]
     github_enabled: Option<String>,
@@ -975,6 +986,10 @@ struct SettingsForm {
     local_exclude_temporary: Option<String>,
     #[serde(default)]
     local_exclude_patterns: String,
+    #[serde(default)]
+    s3_enabled: Option<String>,
+    #[serde(default)]
+    s3_remote_name: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -1116,6 +1131,8 @@ struct MetadataUpdateForm {
     keeper: Option<String>,
     #[serde(default)]
     local_files: Option<String>,
+    #[serde(default)]
+    s3: Option<String>,
 }
 
 #[derive(Default, Clone, serde::Deserialize)]
@@ -1533,6 +1550,11 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         .ok()
         .and_then(|database| database::local_files::summary(&database).ok())
         .unwrap_or_default();
+    let s3_summary = state
+        .database()
+        .ok()
+        .and_then(|database| database::s3::summary(&database).ok())
+        .unwrap_or_default();
 
     let poll_rclone = should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state);
 
@@ -1545,6 +1567,12 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         setup_steps,
         setup_percent,
         initial_setup_complete,
+        modules_enabled: setup_settings.google_drive_enabled
+            || github_is_enabled
+            || keeper_is_enabled
+            || local_files_is_enabled
+            || setup_settings.s3_enabled,
+        google_drive_enabled: setup_settings.google_drive_enabled,
         poll_rclone,
         metadata: build_metadata_view(
             &metadata_state,
@@ -1563,6 +1591,8 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         keeper_summary,
         local_files_enabled: local_files_is_enabled,
         local_files_summary,
+        s3_enabled: setup_settings.s3_enabled,
+        s3_summary,
     };
 
     render_template(&template)
@@ -1900,8 +1930,14 @@ async fn save_settings(
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let mut inventory_settings =
         settings::load(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    inventory_settings.directory_sheet_enabled = !directory_sheet_url.is_empty();
-    inventory_settings.directory_sheet_url = directory_sheet_url;
+    let google_drive_was_enabled = inventory_settings.google_drive_enabled;
+    inventory_settings.google_drive_enabled = form.google_drive_enabled.is_some();
+    if inventory_settings.google_drive_enabled {
+        inventory_settings.directory_sheet_enabled = !directory_sheet_url.is_empty();
+        inventory_settings.directory_sheet_url = directory_sheet_url;
+    } else {
+        inventory_settings.directory_sheet_enabled = false;
+    }
     inventory_settings.github_enabled = form.github_enabled.is_some();
     inventory_settings.keeper_enabled = form.keeper_enabled.is_some();
     inventory_settings.keeper_command = if form.keeper_command.trim().is_empty() {
@@ -1915,6 +1951,9 @@ async fn save_settings(
     inventory_settings.local_exclude_caches = form.local_exclude_caches.is_some();
     inventory_settings.local_exclude_temporary = form.local_exclude_temporary.is_some();
     inventory_settings.local_exclude_patterns = form.local_exclude_patterns.trim().to_string();
+    inventory_settings.s3_enabled = form.s3_enabled.is_some();
+    inventory_settings.s3_remote_name =
+        form.s3_remote_name.trim().trim_end_matches(':').to_string();
     if inventory_settings.github_enabled && !crate::github::client::configured(&state.runtime) {
         return render_settings(
             &state,
@@ -1924,6 +1963,31 @@ async fn save_settings(
             String::new(),
         )
         .map(axum::response::IntoResponse::into_response);
+    }
+    if inventory_settings.s3_enabled {
+        let s3_remote_ready = match state.rclone_state() {
+            RcloneState::Ready(status) => {
+                rclone::remotes::list_configured(&state.runtime, &status.path)
+                    .map(|remotes| {
+                        remotes.into_iter().any(|remote| {
+                            remote.name == inventory_settings.s3_remote_name
+                                && remote.backend == "s3"
+                        })
+                    })
+                    .unwrap_or(false)
+            }
+            _ => false,
+        };
+        if !s3_remote_ready {
+            return render_settings(
+                &state,
+                inventory_settings,
+                false,
+                "Configure an S3 Rclone remote with this name before enabling S3".to_string(),
+                String::new(),
+            )
+            .map(axum::response::IntoResponse::into_response);
+        }
     }
     if inventory_settings.directory_sheet_enabled {
         if let Err(error) =
@@ -1940,7 +2004,19 @@ async fn save_settings(
         }
     }
     match settings::save(&database, &inventory_settings) {
-        Ok(()) => Ok(Redirect::to("/settings?saved=true").into_response()),
+        Ok(()) => {
+            if !google_drive_was_enabled && inventory_settings.google_drive_enabled {
+                let destination =
+                    if matches!(state.google_client_state(), GoogleClientState::Ready(_)) {
+                        "/remotes"
+                    } else {
+                        "/google-client"
+                    };
+                Ok(Redirect::to(destination).into_response())
+            } else {
+                Ok(Redirect::to("/settings?saved=true").into_response())
+            }
+        }
 
         Err(error) => render_settings(
             &state,
@@ -5944,12 +6020,27 @@ async fn ui_drive_summaries(
             latest_shared_drives_summary(&state).as_ref(),
             shared_drive_count(&state),
         ),
+        google_drive_enabled: state
+            .database()
+            .ok()
+            .and_then(|database| database::settings::load(&database).ok())
+            .is_some_and(|settings| settings.google_drive_enabled),
         github_enabled: github_is_enabled,
         github_summary,
         keeper_enabled: keeper_is_enabled,
         keeper_summary,
         local_files_enabled: local_files_is_enabled,
         local_files_summary,
+        s3_enabled: state
+            .database()
+            .ok()
+            .and_then(|database| database::settings::load(&database).ok())
+            .is_some_and(|settings| settings.s3_enabled),
+        s3_summary: state
+            .database()
+            .ok()
+            .and_then(|database| database::s3::summary(&database).ok())
+            .unwrap_or_default(),
     };
     render_template(&template)
 }
@@ -5983,7 +6074,16 @@ async fn ui_metadata_update_modal(
     let rclone_state = state.rclone_state();
     let metadata_state = state.metadata_state();
     let shared_summary = latest_shared_summary(&state);
-    let available = matches!(remotes.ro, RemoteState::Ready);
+    let enabled_settings = state
+        .database()
+        .ok()
+        .and_then(|database| database::settings::load(&database).ok())
+        .unwrap_or_default();
+    let available = matches!(remotes.ro, RemoteState::Ready)
+        || enabled_settings.github_enabled
+        || enabled_settings.keeper_enabled
+        || enabled_settings.local_files_enabled
+        || enabled_settings.s3_enabled;
     let scopes = metadata_scope_progress_views(&state, &metadata_state);
 
     render_template(&MetadataUpdateModalTemplate {
@@ -5997,6 +6097,8 @@ async fn ui_metadata_update_modal(
             shared_drive_count(&state),
         ),
         scopes,
+        google_available: enabled_settings.google_drive_enabled
+            && matches!(remotes.ro, RemoteState::Ready),
         directory_available: state
             .database()
             .ok()
@@ -6017,6 +6119,11 @@ async fn ui_metadata_update_modal(
             .ok()
             .and_then(|d| database::settings::load(&d).ok())
             .is_some_and(|s| s.local_files_enabled),
+        s3_available: state
+            .database()
+            .ok()
+            .and_then(|database| database::settings::load(&database).ok())
+            .is_some_and(|settings| settings.s3_enabled && !settings.s3_remote_name.is_empty()),
     })
 }
 
@@ -6101,6 +6208,11 @@ fn metadata_scope_progress_views(
     } else {
         (false, false, 0, "Waiting".to_string())
     };
+    let s3 = if phase == "Fetching S3 object metadata" {
+        (true, false, 50, phase.to_string())
+    } else {
+        (false, false, 0, "Waiting".to_string())
+    };
 
     [
         ("Persons", selection.directory_info, "", directory),
@@ -6120,6 +6232,7 @@ fn metadata_scope_progress_views(
         ("GitHub", selection.github, "", github),
         ("Keeper", selection.keeper, "", keeper),
         ("Local Files", selection.local_files, "", local_files),
+        ("S3-compatible storage", selection.s3, "", s3),
     ]
     .into_iter()
     .map(
@@ -6362,6 +6475,7 @@ async fn start_metadata_update(
         github: form.github.is_some(),
         keeper: form.keeper.is_some(),
         local_files: form.local_files.is_some(),
+        s3: form.s3.is_some(),
     };
     if let Ok(database) = state.database() {
         database::settings::set_metadata_setup_skipped(&database, false)
@@ -6488,29 +6602,10 @@ fn build_alerts(
         }
     }
 
-    match google_client_state {
-        GoogleClientState::NotConfigured => {
-            alerts.push(AlertItem {
-                level: "warning",
-                icon: "bi-key",
-                message: "Google Client ID is not configured".to_string(),
-                modal_target: "googleClientSetupModal",
-                dismiss_action: "",
-            });
-        }
-
-        GoogleClientState::Ready(_) => {}
-
-        GoogleClientState::Error(error) => {
-            alerts.push(AlertItem {
-                level: "danger",
-                icon: "bi-key",
-                message: format!("Google Client ID configuration is invalid: {error}"),
-                modal_target: "googleClientSetupModal",
-                dismiss_action: "",
-            });
-        }
-    }
+    // Google Drive is optional. Its setup view reports missing or invalid
+    // credentials after the module is enabled, rather than raising a global
+    // application warning for users of other modules.
+    let _ = google_client_state;
 
     alerts
 }
@@ -6847,6 +6942,7 @@ mod tests {
                 github: false,
                 keeper: false,
                 local_files: false,
+                s3: false,
             },
             phase: "Scanning Shared Drive 1 of 1: Research".to_string(),
             files_scanned: 500,

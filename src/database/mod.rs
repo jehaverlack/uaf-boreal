@@ -5,6 +5,7 @@ pub mod keeper;
 pub mod local_files;
 pub mod migration;
 mod migrations;
+pub mod s3;
 pub mod settings;
 
 use std::{
@@ -190,7 +191,7 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 31,);
+        assert_eq!(migration_count, 32,);
 
         let safe_to_delete_scope_count: i64 = connection
             .query_row(
@@ -299,6 +300,7 @@ mod tests {
             "directory_sources",
             "directory_import_runs",
             "remote_accounts",
+            "s3_objects",
             "shared_drives",
             "shared_drive_tags",
             "github_organizations",
@@ -330,6 +332,7 @@ mod tests {
         let root = temporary_directory();
         let database = Database::initialize(&runtime(&root)).expect("database should initialize");
         let expected = settings::InventorySettings {
+            google_drive_enabled: true,
             automatic_updates: false,
             refresh_interval_hours: 12,
             full_reconciliation_days: 14,
@@ -351,6 +354,7 @@ mod tests {
         let actual = settings::load(&database).expect("settings should load");
 
         assert_eq!(actual.automatic_updates, expected.automatic_updates,);
+        assert_eq!(actual.google_drive_enabled, expected.google_drive_enabled);
         assert_eq!(
             actual.refresh_interval_hours,
             expected.refresh_interval_hours,

@@ -134,6 +134,7 @@ pub struct MetadataUpdateSelection {
     pub github: bool,
     pub keeper: bool,
     pub local_files: bool,
+    pub s3: bool,
 }
 
 impl AppState {
@@ -164,6 +165,12 @@ impl AppState {
 
         let database = match database::Database::initialize(&runtime) {
             Ok(database) => {
+                if let Err(error) = database::settings::initialize_google_drive_enabled(
+                    &database,
+                    matches!(google_client, GoogleClientState::Ready(_)),
+                ) {
+                    eprintln!("Unable to initialize Google Drive module setting: {error}");
+                }
                 println!("SQLite database ready: {}", database.path().display(),);
 
                 DatabaseState::Ready(database)
@@ -780,6 +787,7 @@ impl AppState {
             && !selection.github
             && !selection.keeper
             && !selection.local_files
+            && !selection.s3
         {
             return Err("Select at least one metadata source".to_string());
         }
@@ -808,7 +816,7 @@ impl AppState {
             || selection.shared_drives
             || selection.shared_with_me
             || selection.directory_info;
-        let rclone_path = if google_selected {
+        let rclone_path = if google_selected || selection.s3 {
             match state.rclone_state() {
                 RcloneState::Ready(status) => status.path,
                 _ => {
@@ -850,6 +858,10 @@ impl AppState {
             state.finish_metadata_job();
             return Err("Local Files metadata is not enabled in Settings".to_string());
         }
+        if selection.s3 && !inventory_settings.s3_enabled {
+            state.finish_metadata_job();
+            return Err("S3 metadata is not enabled in Settings".to_string());
+        }
         let scan_id = match if selection.my_drive {
             database.start_scan_run("my-drive")
         } else {
@@ -888,7 +900,7 @@ impl AppState {
         };
 
         println!(
-            "Metadata update started: my_drive={}, shared_drives={}, shared_with_me={}, directory_info={}, github={}, keeper={}, local_files={}, remote=my-drive-ro, permissions={permission_scanning}",
+            "Metadata update started: my_drive={}, shared_drives={}, shared_with_me={}, directory_info={}, github={}, keeper={}, local_files={}, s3={}, remote=my-drive-ro, permissions={permission_scanning}",
             selection.my_drive,
             selection.shared_drives,
             selection.shared_with_me,
@@ -896,6 +908,7 @@ impl AppState {
             selection.github,
             selection.keeper,
             selection.local_files,
+            selection.s3,
         );
 
         state.set_metadata_state(MetadataState::Updating(MetadataProgress {
@@ -1245,6 +1258,20 @@ impl AppState {
                         crate::database::local_files::synchronize(&database,&scan.items)?;
                         log::info!("Local Files metadata updated: items={}, skipped={}, errors={}",scan.items.len(),scan.skipped,scan.errors.len());
                     }
+                    if selection.s3 {
+                        worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress { selection, phase:"Fetching S3 object metadata".to_string(), files_scanned:0, folders_scanned:0, permissions_scanned:0, bytes_discovered:0, errors:0 }));
+                        let objects = crate::s3::inventory(
+                            &worker_state.runtime,
+                            &rclone_path,
+                            &inventory_settings.s3_remote_name,
+                        ).map_err(|error| -> crate::database::DatabaseError { error })?;
+                        crate::database::s3::synchronize(
+                            &database,
+                            inventory_settings.s3_remote_name.trim().trim_end_matches(':'),
+                            &objects,
+                        )?;
+                        log::info!("S3 metadata updated: remote={}, objects={}", inventory_settings.s3_remote_name, objects.len());
+                    }
                     Ok::<_, crate::database::DatabaseError>((my_drive_summary, shared_drives_summary, shared_summary))
                 }).await;
 
@@ -1374,6 +1401,7 @@ impl AppState {
             github: false,
             keeper: false,
             local_files: false,
+            s3: false,
         };
         state.set_metadata_state(MetadataState::Updating(MetadataProgress {
             selection,
