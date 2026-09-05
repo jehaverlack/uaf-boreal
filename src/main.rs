@@ -88,7 +88,7 @@ async fn run_boreal() -> Result<(), Box<dyn Error>> {
         .unwrap_or("Unknown");
 
     std::println!("BOREAL v{} ({maturity})", env!("CARGO_PKG_VERSION"));
-    std::println!("GitHub: https://github.com/jehaverlack/uaf-boreal");
+    std::println!("GitHub: https://github.com/jehaverlack/boreal");
     std::println!("Startup status: Starting BOREAL services...");
 
     log::info!(

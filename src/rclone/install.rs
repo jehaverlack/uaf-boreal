@@ -24,7 +24,10 @@ use super::{RcloneError, command, executable_path};
 /// - use a system package manager
 /// - modify PATH
 /// - modify a system Rclone installation
-pub fn install(runtime: &Runtime) -> Result<PathBuf, RcloneError> {
+pub fn install<F>(runtime: &Runtime, progress: F) -> Result<PathBuf, RcloneError>
+where
+    F: FnMut(u64, Option<u64>),
+{
     let destination = executable_path(runtime)?;
 
     let bin_dir = destination
@@ -53,7 +56,7 @@ pub fn install(runtime: &Runtime) -> Result<PathBuf, RcloneError> {
 
     remove_if_exists(&extracted_path)?;
 
-    if let Err(error) = download(&download_url, &archive_path) {
+    if let Err(error) = download(&download_url, &archive_path, progress) {
         let _ = remove_if_exists(&archive_path);
 
         let _ = remove_if_exists(&extracted_path);
@@ -122,10 +125,15 @@ fn rclone_platform() -> Result<&'static str, RcloneError> {
     }
 }
 
-fn download(url: &str, destination: &Path) -> Result<(), RcloneError> {
+fn download<F>(url: &str, destination: &Path, progress: F) -> Result<(), RcloneError>
+where
+    F: FnMut(u64, Option<u64>),
+{
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(30))
-        .timeout(Duration::from_secs(300))
+        // Large downloads over institutional proxies can be slow. Allow a
+        // generous total window while retaining a ceiling for stalled jobs.
+        .timeout(Duration::from_secs(30 * 60))
         .user_agent(concat!("BOREAL/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|error| format!("Unable to initialize the Rclone downloader: {error}"))?;
@@ -141,16 +149,57 @@ fn download(url: &str, destination: &Path) -> Result<(), RcloneError> {
             destination.display()
         )
     })?;
-    copy_download(&mut response, &mut output)?;
+    let expected_bytes = response.content_length();
+    copy_download(&mut response, &mut output, expected_bytes, progress)?;
     output
         .sync_all()
         .map_err(|error| format!("Unable to finish writing the Rclone download: {error}"))?;
     Ok(())
 }
 
-fn copy_download(reader: &mut impl Read, writer: &mut impl Write) -> Result<u64, RcloneError> {
-    io::copy(reader, writer)
-        .map_err(|error| format!("Rclone download was interrupted: {error}").into())
+fn copy_download(
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    expected_bytes: Option<u64>,
+    mut progress: impl FnMut(u64, Option<u64>),
+) -> Result<u64, RcloneError> {
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut copied = 0_u64;
+    let mut next_report = 5 * 1024 * 1024;
+    loop {
+        let count = reader
+            .read(&mut buffer)
+            .map_err(|error| format!("Rclone download was interrupted: {error}"))?;
+        if count == 0 {
+            break;
+        }
+        writer
+            .write_all(&buffer[..count])
+            .map_err(|error| format!("Unable to write the Rclone download: {error}"))?;
+        copied = copied.saturating_add(count as u64);
+        progress(copied, expected_bytes);
+        if copied >= next_report {
+            match expected_bytes.filter(|total| *total > 0) {
+                Some(total) => println!(
+                    "==> Rclone download: {:.0}% ({} of {} MiB)",
+                    copied as f64 * 100.0 / total as f64,
+                    copied / 1024 / 1024,
+                    total / 1024 / 1024,
+                ),
+                None => println!("==> Rclone download: {} MiB", copied / 1024 / 1024),
+            }
+            next_report = copied.saturating_add(5 * 1024 * 1024);
+        }
+    }
+    if let Some(expected) = expected_bytes {
+        if copied != expected {
+            return Err(format!(
+                "Rclone download ended early: received {copied} of {expected} bytes"
+            )
+            .into());
+        }
+    }
+    Ok(copied)
 }
 
 fn extract_rclone(archive_path: &Path, destination: &Path) -> Result<(), RcloneError> {
@@ -277,7 +326,13 @@ mod tests {
         let mut reader = Cursor::new(expected);
         let mut actual = Vec::new();
 
-        let copied = copy_download(&mut reader, &mut actual).expect("download should copy");
+        let copied = copy_download(
+            &mut reader,
+            &mut actual,
+            Some(expected.len() as u64),
+            |_, _| {},
+        )
+        .expect("download should copy");
 
         assert_eq!(copied, expected.len() as u64);
         assert_eq!(actual, expected);

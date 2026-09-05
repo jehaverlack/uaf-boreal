@@ -1234,6 +1234,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/help", get(help_page))
         .route("/assets/uaf-logo.png", get(uaf_logo))
         .route("/assets/acep-logo.png", get(acep_logo))
+        .route("/assets/rclone-logo.svg", get(rclone_logo))
         .route(
             "/assets/google-cloud-project-selection.png",
             get(google_cloud_project_selection),
@@ -1280,6 +1281,11 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/github/tags", post(apply_github_tag))
         .route("/github/tags/remove", post(remove_github_tag))
         .route("/ui/github-primary-nav", get(ui_github_primary_nav))
+        .route(
+            "/ui/google-drive-primary-nav",
+            get(ui_google_drive_primary_nav),
+        )
+        .route("/ui/google-drive-launcher", get(ui_google_drive_launcher))
         .route("/ui/github-launcher", get(ui_github_launcher))
         .route("/keeper", get(keeper_page))
         .route("/keeper/tags", post(apply_keeper_tag))
@@ -1406,12 +1412,21 @@ async fn log_http_request(request: Request, next: Next) -> axum::response::Respo
     let response = next.run(request).await;
     let status = response.status();
     let elapsed_ms = started.elapsed().as_millis();
-    if method == axum::http::Method::GET {
+    if is_routine_poll(method.as_str(), uri.path()) && status.is_success() {
+        // Health checks and HTMX status fragments are expected background
+        // traffic. Logging each successful poll obscures useful diagnostics.
+    } else if is_routine_poll(method.as_str(), uri.path()) {
+        log::warn!("HTTP {method} {uri} -> {status} ({elapsed_ms} ms)");
+    } else if method == axum::http::Method::GET {
         log::debug!("HTTP {method} {uri} -> {status} ({elapsed_ms} ms)");
     } else {
         log::info!("HTTP {method} {uri} -> {status} ({elapsed_ms} ms)");
     }
     response
+}
+
+fn is_routine_poll(method: &str, path: &str) -> bool {
+    method == "GET" && (path == "/status" || path.starts_with("/ui/"))
 }
 
 async fn uaf_logo() -> impl IntoResponse {
@@ -1421,6 +1436,16 @@ async fn uaf_logo() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=86400"),
         ],
         include_bytes!("../../tmpl/html/img/UAFLogo_A_blue.png").as_slice(),
+    )
+}
+
+async fn rclone_logo() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/svg+xml"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_bytes!("../../tmpl/html/img/rclone-logo.svg").as_slice(),
     )
 }
 
@@ -1504,7 +1529,7 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
     );
 
     let status_items = build_status_items(
-        &state.download_state(),
+        &state,
         &rclone_state,
         &google_client_state,
         &google_remotes_state,
@@ -1610,6 +1635,25 @@ fn build_setup_progress(
             title: "Install Rclone",
             description: "BOREAL is installing and verifying its private Rclone binary."
                 .to_string(),
+            state_label: "In progress",
+            state_class: "text-bg-warning",
+            complete: false,
+            modal_target: "",
+            action: "",
+            disabled: true,
+            detail: String::new(),
+        },
+
+        RcloneState::Downloading {
+            downloaded_bytes,
+            total_bytes,
+        } => SetupStep {
+            icon: "bi-cloud-arrow-down",
+            title: "Install Rclone",
+            description: format!(
+                "BOREAL is downloading its private Rclone binary: {}.",
+                rclone_download_progress(*downloaded_bytes, *total_bytes)
+            ),
             state_label: "In progress",
             state_class: "text-bg-warning",
             complete: false,
@@ -2296,7 +2340,7 @@ fn render_settings(
             bookmark_reminder_visible(state),
         ),
         status_items: build_status_items(
-            &state.download_state(),
+            &state,
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -2344,7 +2388,7 @@ async fn about(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
     );
 
     let status_items = build_status_items(
-        &state.download_state(),
+        &state,
         &rclone_state,
         &google_client_state,
         &google_remotes_state,
@@ -2395,7 +2439,7 @@ async fn update_page(State(state): State<Arc<AppState>>) -> Result<Html<String>,
             bookmark_reminder_visible(&state),
         ),
         status_items: build_status_items(
-            &state.download_state(),
+            &state,
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -2454,7 +2498,7 @@ async fn docs_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, S
             bookmark_reminder_visible(&state),
         ),
         status_items: build_status_items(
-            &state.download_state(),
+            &state,
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -2481,7 +2525,7 @@ async fn help_page(State(state): State<Arc<AppState>>) -> Result<Html<String>, S
             bookmark_reminder_visible(&state),
         ),
         status_items: build_status_items(
-            &state.download_state(),
+            &state,
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -2510,7 +2554,7 @@ async fn google_client_page(
             bookmark_reminder_visible(&state),
         ),
         status_items: build_status_items(
-            &state.download_state(),
+            &state,
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -2582,7 +2626,7 @@ async fn migrations_page(
             bookmark_reminder_visible(&state),
         ),
         status_items: build_status_items(
-            &state.download_state(),
+            &state,
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -2758,6 +2802,9 @@ async fn save_migration_destination(
             RcloneState::Ready(status) => status.path,
             RcloneState::Initializing => {
                 return Err("Rclone is still initializing. Try again when it is ready.".to_string());
+            }
+            RcloneState::Downloading { .. } => {
+                return Err("Rclone is still downloading. Try again when it is ready.".to_string());
             }
             RcloneState::Error(error) => {
                 return Err(format!("Rclone is not ready: {error}"));
@@ -2995,7 +3042,7 @@ fn render_migration_wizard(
             bookmark_reminder_visible(state),
         ),
         status_items: build_status_items(
-            &state.download_state(),
+            &state,
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -3199,7 +3246,7 @@ async fn remotes_page(State(state): State<Arc<AppState>>) -> Result<Html<String>
             bookmark_reminder_visible(&state),
         ),
         status_items: build_status_items(
-            &state.download_state(),
+            &state,
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -3792,7 +3839,7 @@ async fn shared_drives_page(
                 bookmark_reminder_visible(&state),
             ),
             status_items: build_status_items(
-                &state.download_state(),
+                &state,
                 &rclone_state,
                 &google_client_state,
                 &google_remotes_state,
@@ -4097,7 +4144,7 @@ fn render_drive_explorer(
             bookmark_reminder_visible(state),
         ),
         status_items: build_status_items(
-            &state.download_state(),
+            &state,
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -4543,17 +4590,21 @@ async fn ui_download_status(
 async fn ui_download_status_item(
     State(state): State<Arc<AppState>>,
 ) -> Result<Html<String>, StatusCode> {
-    render_template(&DownloadStatusItemTemplate {
-        item: build_download_status_item(&state.download_state()),
-    })
+    match state.download_state() {
+        running @ DownloadState::Running { .. } => render_template(&DownloadStatusItemTemplate {
+            item: build_download_status_item(&running),
+        }),
+        _ => Ok(Html(String::new())),
+    }
 }
 
 async fn ui_migration_status_item(
     State(state): State<Arc<AppState>>,
 ) -> Result<Html<String>, StatusCode> {
-    render_template(&MigrationStatusItemTemplate {
-        item: build_migration_status_item(&state),
-    })
+    match build_migration_status_item(&state) {
+        Some(item) => render_template(&MigrationStatusItemTemplate { item }),
+        None => Ok(Html(String::new())),
+    }
 }
 
 fn render_download_status(state: &DownloadState) -> Result<Html<String>, StatusCode> {
@@ -4608,9 +4659,42 @@ fn github_enabled(state: &AppState) -> bool {
         && crate::github::client::configured(&state.runtime)
 }
 
+fn google_drive_enabled(state: &AppState) -> bool {
+    state
+        .database()
+        .ok()
+        .and_then(|database| database::settings::load(&database).ok())
+        .is_some_and(|settings| settings.google_drive_enabled)
+}
+
+async fn ui_google_drive_primary_nav(State(state): State<Arc<AppState>>) -> Html<String> {
+    if !google_drive_enabled(&state) {
+        return Html(
+            "<li id=\"google-drive-primary-navigation\" class=\"d-none\"></li>".to_string(),
+        );
+    }
+    Html(r##"<li id="google-drive-primary-navigation" class="nav-item dropdown">
+<a class="nav-link dropdown-toggle boreal-drive-nav" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" title="Google Drive"><i class="bi bi-google me-1"></i>GDrive</a>
+<ul class="dropdown-menu">
+<li><a class="dropdown-item boreal-drive-nav" href="/my-drive"><i class="bi bi-person-workspace me-2"></i>My Drive</a></li>
+<li><a class="dropdown-item boreal-drive-nav" href="/shared-drives"><i class="bi bi-people-fill me-2"></i>Shared Drives</a></li>
+<li><a class="dropdown-item boreal-drive-nav" href="/shared-with-me"><i class="bi bi-person-down me-2"></i>Shared with me</a></li>
+<li><hr class="dropdown-divider"></li>
+<li><a class="dropdown-item boreal-drive-nav" href="/remotes"><i class="bi bi-cloud-arrow-down-fill me-2"></i>Remotes</a></li>
+</ul></li>"##.to_string())
+}
+
+async fn ui_google_drive_launcher(State(state): State<Arc<AppState>>) -> Html<String> {
+    if google_drive_enabled(&state) {
+        Html(r#"<li id="google-drive-launcher" class="nav-item"><a class="nav-link boreal-drive-nav" href="https://drive.google.com/drive/quota" target="_blank" rel="noopener noreferrer" title="Open Google Drive in a new tab" aria-label="Open Google Drive in a new tab"><i class="bi bi-google" aria-hidden="true"></i></a></li>"#.to_string())
+    } else {
+        Html("<li id=\"google-drive-launcher\" class=\"d-none\"></li>".to_string())
+    }
+}
+
 async fn ui_github_primary_nav(State(state): State<Arc<AppState>>) -> Html<String> {
     if github_enabled(&state) {
-        Html("<li id=\"github-primary-navigation\" class=\"nav-item\"><a class=\"nav-link boreal-github-nav\" href=\"/github\" title=\"Explore GitHub repositories\">GitHub</a></li>".to_string())
+        Html("<li id=\"github-primary-navigation\" class=\"nav-item\"><a class=\"nav-link boreal-github-nav\" href=\"/github\" title=\"Explore GitHub repositories\"><i class=\"bi bi-github me-1\"></i>GitHub</a></li>".to_string())
     } else {
         Html("<li id=\"github-primary-navigation\" class=\"d-none\"></li>".to_string())
     }
@@ -4637,7 +4721,7 @@ fn keeper_enabled(state: &AppState) -> bool {
 
 async fn ui_keeper_primary_nav(State(state): State<Arc<AppState>>) -> Html<String> {
     if keeper_enabled(&state) {
-        Html("<li id=\"keeper-primary-navigation\" class=\"nav-item\"><a class=\"nav-link boreal-keeper-nav\" href=\"/keeper\" title=\"Explore Keeper shared-folder metadata\">Keeper</a></li>".to_string())
+        Html("<li id=\"keeper-primary-navigation\" class=\"nav-item\"><a class=\"nav-link boreal-keeper-nav\" href=\"/keeper\" title=\"Explore Keeper shared-folder metadata\"><i class=\"bi bi-shield-lock-fill me-1\"></i>Keeper</a></li>".to_string())
     } else {
         Html("<li id=\"keeper-primary-navigation\" class=\"d-none\"></li>".to_string())
     }
@@ -4707,7 +4791,7 @@ async fn keeper_page(
             bookmark_reminder_visible(&state),
         ),
         status_items: build_status_items(
-            &state.download_state(),
+            &state,
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -4734,7 +4818,7 @@ fn local_files_enabled(state: &AppState) -> bool {
 
 async fn ui_local_files_primary_nav(State(state): State<Arc<AppState>>) -> Html<String> {
     if local_files_enabled(&state) {
-        Html("<li id=\"local-files-primary-navigation\" class=\"nav-item\"><a class=\"nav-link\" href=\"/local-files\" title=\"Explore local file metadata\"><i class=\"bi bi-folder2-open me-1\"></i>Local Files</a></li>".to_string())
+        Html("<li id=\"local-files-primary-navigation\" class=\"nav-item\"><a class=\"nav-link boreal-local-files-nav\" href=\"/local-files\" title=\"Explore local file metadata\"><i class=\"bi bi-folder2-open me-1\"></i>Local Files</a></li>".to_string())
     } else {
         Html("<li id=\"local-files-primary-navigation\" class=\"d-none\"></li>".to_string())
     }
@@ -4825,7 +4909,7 @@ async fn local_files_page(
             bookmark_reminder_visible(&state),
         ),
         status_items: build_status_items(
-            &state.download_state(),
+            &state,
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -5022,7 +5106,7 @@ async fn github_page(
             bookmark_reminder_visible(&state),
         ),
         status_items: build_status_items(
-            &state.download_state(),
+            &state,
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -5212,7 +5296,7 @@ async fn tags_page(
             bookmark_reminder_visible(&state),
         ),
         status_items: build_status_items(
-            &state.download_state(),
+            &state,
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -5292,7 +5376,7 @@ async fn directory_page(
             bookmark_reminder_visible(&state),
         ),
         status_items: build_status_items(
-            &state.download_state(),
+            &state,
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -5580,7 +5664,7 @@ fn render_principal_editor(
             bookmark_reminder_visible(&state),
         ),
         status_items: build_status_items(
-            &state.download_state(),
+            &state,
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -5695,7 +5779,7 @@ async fn principal_page(
             bookmark_reminder_visible(&state),
         ),
         status_items: build_status_items(
-            &state.download_state(),
+            &state,
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -5936,7 +6020,7 @@ async fn ui_status(State(state): State<Arc<AppState>>) -> Result<Html<String>, S
 
     let template = StatusTemplate {
         status_items: build_status_items(
-            &state.download_state(),
+            &state,
             &rclone_state,
             &google_client_state,
             &google_remotes_state,
@@ -6537,7 +6621,23 @@ async fn skip_setup_metadata(State(state): State<Arc<AppState>>) -> Result<Redir
 }
 
 fn should_poll_rclone(rclone_state: &RcloneState) -> bool {
-    matches!(rclone_state, RcloneState::Initializing)
+    matches!(
+        rclone_state,
+        RcloneState::Initializing | RcloneState::Downloading { .. }
+    )
+}
+
+fn rclone_download_progress(downloaded_bytes: u64, total_bytes: Option<u64>) -> String {
+    const MIB: u64 = 1024 * 1024;
+    match total_bytes.filter(|total| *total > 0) {
+        Some(total) => format!(
+            "{:.0}% ({} of {} MiB)",
+            downloaded_bytes as f64 * 100.0 / total as f64,
+            downloaded_bytes / MIB,
+            total / MIB
+        ),
+        None => format!("{} MiB downloaded", downloaded_bytes / MIB),
+    }
 }
 
 fn should_poll_setup(rclone_state: &RcloneState, remotes_state: &GoogleRemotesState) -> bool {
@@ -6574,6 +6674,22 @@ fn build_alerts(
                 level: "warning",
                 icon: "bi-hourglass-split",
                 message: "BOREAL is initializing Rclone...".to_string(),
+                modal_target: "",
+                dismiss_action: "",
+            });
+        }
+
+        RcloneState::Downloading {
+            downloaded_bytes,
+            total_bytes,
+        } => {
+            alerts.push(AlertItem {
+                level: "warning",
+                icon: "bi-cloud-arrow-down",
+                message: format!(
+                    "BOREAL is downloading Rclone: {}",
+                    rclone_download_progress(*downloaded_bytes, *total_bytes)
+                ),
                 modal_target: "",
                 dismiss_action: "",
             });
@@ -6623,17 +6739,30 @@ fn authenticated_google_email(state: &AppState) -> String {
 }
 
 fn build_status_items(
-    download_state: &DownloadState,
+    state: &AppState,
     rclone_state: &RcloneState,
     google_client_state: &GoogleClientState,
     _google_remotes_state: &GoogleRemotesState,
     metadata_state: &MetadataState,
-    configured_remote_count: usize,
+    _configured_remote_count: usize,
     google_account_email: String,
     update_state: &crate::update::UpdateState,
 ) -> Vec<StatusItem> {
+    let source_settings = state
+        .database()
+        .ok()
+        .and_then(|database| database::settings::load(&database).ok())
+        .unwrap_or_default();
     let (rclone_value, rclone_value_class) = match rclone_state {
-        RcloneState::Initializing => ("Initializing...".to_string(), "text-warning"),
+        RcloneState::Initializing => ("Preparing download...".to_string(), "text-warning"),
+
+        RcloneState::Downloading {
+            downloaded_bytes,
+            total_bytes,
+        } => (
+            rclone_download_progress(*downloaded_bytes, *total_bytes),
+            "text-warning",
+        ),
 
         RcloneState::Ready(status) => (
             status
@@ -6647,25 +6776,13 @@ fn build_status_items(
         RcloneState::Error(_) => ("Unavailable".to_string(), "text-danger"),
     };
 
-    let (client_id_value, client_id_value_class) = match google_client_state {
-        GoogleClientState::NotConfigured => ("Not configured".to_string(), "text-warning"),
-
-        GoogleClientState::Ready(_) => ("Configured".to_string(), "text-success"),
-
-        GoogleClientState::Error(_) => ("Invalid".to_string(), "text-danger"),
-    };
-
-    let (remote_value, remote_class) = if configured_remote_count == 0 {
-        ("0 configured".to_string(), "text-warning")
-    } else {
-        (
-            format!("{configured_remote_count} configured"),
-            "text-success",
-        )
-    };
-
     let (google_account_value, google_account_class) = if google_account_email.is_empty() {
-        ("Not verified".to_string(), "text-warning")
+        let value = match google_client_state {
+            GoogleClientState::NotConfigured => "Setup required",
+            GoogleClientState::Ready(_) => "Not verified",
+            GoogleClientState::Error(_) => "Invalid setup",
+        };
+        (value.to_string(), "text-warning")
     } else {
         (google_account_email, "text-success")
     };
@@ -6681,18 +6798,45 @@ fn build_status_items(
         MetadataState::Error(_) => ("Update failed".to_string(), "text-danger", false),
     };
 
-    vec![
-        StatusItem {
-            icon: "bi-folder-symlink",
-            label: "Rclone",
-            value: rclone_value,
-            value_class: rclone_value_class,
-            value_url: rclone_gui_url(rclone_state),
-            spinner: false,
-            age_timestamp: String::new(),
-            title: "Open Rclone WebGUI".to_string(),
+    let mut items = vec![StatusItem {
+        icon: "",
+        label: "BOREAL",
+        value: boreal_version_label(),
+        value_class: if matches!(update_state, crate::update::UpdateState::Available { .. }) {
+            "text-warning fw-semibold"
+        } else {
+            "text-success"
         },
-        StatusItem {
+        value_url: "/update".to_string(),
+        spinner: false,
+        age_timestamp: String::new(),
+        title: match update_state {
+            crate::update::UpdateState::Available { release } => {
+                format!("BOREAL v{} is available", release.version)
+            }
+            crate::update::UpdateState::Checking => "Checking for BOREAL updates".to_string(),
+            crate::update::UpdateState::Current { .. } => {
+                "BOREAL is up to date. Open Update page.".to_string()
+            }
+            crate::update::UpdateState::Error(_) => {
+                "Open the Update page to retry the version check".to_string()
+            }
+        },
+    }];
+
+    items.push(StatusItem {
+        icon: "bi-folder-symlink",
+        label: "Rclone",
+        value: rclone_value,
+        value_class: rclone_value_class,
+        value_url: rclone_gui_url(rclone_state),
+        spinner: false,
+        age_timestamp: String::new(),
+        title: "Open Rclone WebGUI".to_string(),
+    });
+
+    if source_settings.google_drive_enabled {
+        items.push(StatusItem {
             icon: "bi-google",
             label: "GDrive",
             value: google_account_value,
@@ -6701,77 +6845,64 @@ fn build_status_items(
             spinner: false,
             age_timestamp: String::new(),
             title: String::new(),
+        });
+    }
+    if source_settings.github_enabled {
+        items.push(source_status_item("bi-github", "GitHub", "Enabled"));
+    }
+    if source_settings.keeper_enabled {
+        items.push(source_status_item("bi-shield-lock", "Keeper", "Enabled"));
+    }
+    if source_settings.local_files_enabled {
+        items.push(source_status_item(
+            "bi-folder2-open",
+            "Local Files",
+            "Enabled",
+        ));
+    }
+    if source_settings.s3_enabled {
+        let value = if source_settings.s3_remote_name.is_empty() {
+            "Enabled".to_string()
+        } else {
+            source_settings.s3_remote_name.clone()
+        };
+        items.push(source_status_item("bi-bucket", "S3", &value));
+    }
+
+    items.push(StatusItem {
+        icon: "bi-database",
+        label: "Metadata",
+        value: metadata_value,
+        value_class: metadata_class,
+        value_url: String::new(),
+        spinner: metadata_spinner,
+        age_timestamp: match metadata_state {
+            MetadataState::Synchronized(summary) => summary.completed_at.clone(),
+            _ => String::new(),
         },
-        StatusItem {
-            icon: "bi-key",
-            label: "ClientID",
-            value: client_id_value,
-            value_class: client_id_value_class,
-            value_url: String::new(),
-            spinner: false,
-            age_timestamp: String::new(),
-            title: String::new(),
-        },
-        StatusItem {
-            icon: "bi-cloud",
-            label: "Remotes",
-            value: remote_value,
-            value_class: remote_class,
-            value_url: String::new(),
-            spinner: false,
-            age_timestamp: String::new(),
-            title: String::new(),
-        },
-        StatusItem {
-            icon: "bi-database",
-            label: "Metadata",
-            value: metadata_value,
-            value_class: metadata_class,
-            value_url: String::new(),
-            spinner: metadata_spinner,
-            age_timestamp: match metadata_state {
-                MetadataState::Synchronized(summary) => summary.completed_at.clone(),
-                _ => String::new(),
-            },
-            title: String::new(),
-        },
-        build_download_status_item(download_state),
-        StatusItem {
-            icon: "bi-arrow-left-right",
-            label: "Migrations",
-            value: "Checking…".to_string(),
-            value_class: "text-body-secondary",
-            value_url: "/migrations".to_string(),
-            spinner: false,
-            age_timestamp: String::new(),
-            title: "Open migration progress and history".to_string(),
-        },
-        StatusItem {
-            icon: "bi-info-circle",
-            label: "BOREAL",
-            value: boreal_version_label(),
-            value_class: if matches!(update_state, crate::update::UpdateState::Available { .. }) {
-                "text-warning fw-semibold"
-            } else {
-                "text-success"
-            },
-            value_url: "/update".to_string(),
-            spinner: false,
-            age_timestamp: String::new(),
-            title: match update_state {
-                crate::update::UpdateState::Available { release } => {
-                    format!("BOREAL v{} is available", release.version)
-                }
-                crate::update::UpdateState::Checking => "Checking for BOREAL updates".to_string(),
-                crate::update::UpdateState::Current { .. } => {
-                    "BOREAL is up to date. Open Update page.".to_string()
-                }
-                crate::update::UpdateState::Error(_) => {
-                    "Open the Update page to retry the version check".to_string()
-                }
-            },
-        },
-    ]
+        title: String::new(),
+    });
+
+    if matches!(state.download_state(), DownloadState::Running { .. }) {
+        items.push(build_download_status_item(&state.download_state()));
+    }
+    if let Some(item) = build_migration_status_item(state) {
+        items.push(item);
+    }
+    items
+}
+
+fn source_status_item(icon: &'static str, label: &'static str, value: &str) -> StatusItem {
+    StatusItem {
+        icon,
+        label,
+        value: value.to_string(),
+        value_class: "text-success",
+        value_url: String::new(),
+        spinner: false,
+        age_timestamp: String::new(),
+        title: String::new(),
+    }
 }
 
 fn boreal_version_label() -> String {
@@ -6825,17 +6956,12 @@ fn build_download_status_item(download_state: &DownloadState) -> StatusItem {
     }
 }
 
-fn build_migration_status_item(state: &AppState) -> StatusItem {
+fn build_migration_status_item(state: &AppState) -> Option<StatusItem> {
     let summary = state.database().and_then(|database| {
         database::migration::active_summary(&database).map_err(|error| error.to_string())
     });
     let (value, value_class, spinner, title) = match summary {
-        Ok(summary) if summary.count == 0 => (
-            "Idle".to_string(),
-            "text-body-secondary",
-            false,
-            "No active migrations".to_string(),
-        ),
+        Ok(summary) if summary.count == 0 => return None,
         Ok(summary) => {
             let percent = if summary.bytes_total > 0 {
                 summary.bytes_copied.saturating_mul(100) / summary.bytes_total
@@ -6859,14 +6985,12 @@ fn build_migration_status_item(state: &AppState) -> StatusItem {
                 ),
             )
         }
-        Err(error) => (
-            "Unavailable".to_string(),
-            "text-danger",
-            false,
-            format!("Unable to read migration progress: {error}"),
-        ),
+        Err(error) => {
+            log::warn!("Unable to read active migration status: {error}");
+            return None;
+        }
     };
-    StatusItem {
+    Some(StatusItem {
         icon: "bi-arrow-left-right",
         label: "Migrations",
         value,
@@ -6875,7 +6999,7 @@ fn build_migration_status_item(state: &AppState) -> StatusItem {
         spinner,
         age_timestamp: String::new(),
         title,
-    }
+    })
 }
 
 fn render_template<T>(template: &T) -> Result<Html<String>, StatusCode>
@@ -6920,6 +7044,26 @@ mod tests {
         assert_eq!(
             boreal_version_label(),
             format!("v{} ({maturity})", env!("CARGO_PKG_VERSION"))
+        );
+    }
+
+    #[test]
+    fn identifies_only_get_health_and_ui_requests_as_routine_polls() {
+        assert!(is_routine_poll("GET", "/status"));
+        assert!(is_routine_poll("GET", "/ui/status"));
+        assert!(!is_routine_poll("POST", "/ui/status"));
+        assert!(!is_routine_poll("GET", "/settings"));
+    }
+
+    #[test]
+    fn formats_rclone_download_progress_for_the_status_bar() {
+        assert_eq!(
+            rclone_download_progress(10 * 1024 * 1024, Some(30 * 1024 * 1024)),
+            "33% (10 of 30 MiB)"
+        );
+        assert_eq!(
+            rclone_download_progress(5 * 1024 * 1024, None),
+            "5 MiB downloaded"
         );
     }
 

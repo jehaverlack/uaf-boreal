@@ -12,8 +12,8 @@
     "copyright": "2026 University of Alaska Fairbanks",
     "license": "MIT",
     "license_url": "https://opensource.org/license/MIT",
-    "homepage": "https://github.com/jehaverlack/uaf-boreal",
-    "git_repo": "https://github.com/jehaverlack/uaf-boreal.git"
+    "homepage": "https://github.com/jehaverlack/boreal",
+    "git_repo": "https://github.com/jehaverlack/boreal.git"
   },
   "BUILD_TARGETS": {
     "x86_64-unknown-linux-gnu": true,

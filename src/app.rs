@@ -51,6 +51,11 @@ pub struct AppState {
 pub enum RcloneState {
     Initializing,
 
+    Downloading {
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
+    },
+
     Ready(RcloneStatus),
 
     Error(String),
@@ -238,8 +243,16 @@ impl AppState {
 
             let worker_state = Arc::clone(&state);
 
+            let progress_state = Arc::clone(&worker_state);
             let result = tokio::task::spawn_blocking(move || {
-                rclone::ensure_installed(&worker_state.runtime)
+                rclone::ensure_installed(&worker_state.runtime, move |downloaded, total| {
+                    if let Ok(mut rclone) = progress_state.rclone.write() {
+                        *rclone = RcloneState::Downloading {
+                            downloaded_bytes: downloaded,
+                            total_bytes: total,
+                        };
+                    }
+                })
             })
             .await;
 

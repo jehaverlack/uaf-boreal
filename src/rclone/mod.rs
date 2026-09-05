@@ -74,7 +74,10 @@ pub fn detect(runtime: &Runtime) -> Result<Option<RcloneStatus>, RcloneError> {
 ///
 /// If an existing managed executable is unusable,
 /// BOREAL attempts to replace it.
-pub fn ensure_installed(runtime: &Runtime) -> Result<RcloneStatus, RcloneError> {
+pub fn ensure_installed<F>(runtime: &Runtime, progress: F) -> Result<RcloneStatus, RcloneError>
+where
+    F: FnMut(u64, Option<u64>),
+{
     match detect(runtime) {
         Ok(Some(status)) => {
             if supports_embedded_gui(&status.version) {
@@ -100,7 +103,7 @@ pub fn ensure_installed(runtime: &Runtime) -> Result<RcloneStatus, RcloneError> 
         }
     }
 
-    let installed_path = install::install(runtime)?;
+    let installed_path = install::install(runtime, progress)?;
 
     let version = command::version(&installed_path)?;
 
