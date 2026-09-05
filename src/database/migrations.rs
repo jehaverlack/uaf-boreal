@@ -169,6 +169,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "s3_inventory",
         sql: include_str!("migrations/0032_s3_inventory.sql"),
     },
+    Migration {
+        version: 33,
+        name: "local_file_ownership",
+        sql: include_str!("migrations/0033_local_file_ownership.sql"),
+    },
 ];
 
 pub fn apply(connection: &mut Connection) -> Result<(), DatabaseError> {

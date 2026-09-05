@@ -17,6 +17,12 @@ pub struct Row {
     pub modified_unix: i64,
     pub modified_label: String,
     pub checksum_sha256: String,
+    pub owner_username: String,
+    pub owner_identifier: String,
+    pub owner_principal_id: i64,
+    pub owner_display_name: String,
+    pub group_name: String,
+    pub group_identifier: String,
     pub duplicate_copies: u64,
     pub tags: Vec<Tag>,
 }
@@ -49,7 +55,7 @@ pub fn synchronize(db: &Database, items: &[Item]) -> Result<(), DatabaseError> {
     let tx = c.transaction()?;
     tx.execute("UPDATE local_file_items SET is_accessible=0", [])?;
     for i in items {
-        tx.execute("INSERT INTO local_file_items(root_path,relative_path,name,extension,is_directory,size_bytes,modified_unix,checksum_sha256,is_accessible,last_seen_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,1,CURRENT_TIMESTAMP) ON CONFLICT(root_path,relative_path) DO UPDATE SET name=excluded.name,extension=excluded.extension,is_directory=excluded.is_directory,size_bytes=excluded.size_bytes,modified_unix=excluded.modified_unix,checksum_sha256=excluded.checksum_sha256,is_accessible=1,last_seen_at=CURRENT_TIMESTAMP",params![i.root_path,i.relative_path,i.name,i.extension,i.is_directory,i.size_bytes as i64,i.modified_unix,i.checksum_sha256])?;
+        tx.execute("INSERT INTO local_file_items(root_path,relative_path,name,extension,is_directory,size_bytes,modified_unix,checksum_sha256,owner_username,owner_identifier,group_name,group_identifier,is_accessible,last_seen_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,1,CURRENT_TIMESTAMP) ON CONFLICT(root_path,relative_path) DO UPDATE SET name=excluded.name,extension=excluded.extension,is_directory=excluded.is_directory,size_bytes=excluded.size_bytes,modified_unix=excluded.modified_unix,checksum_sha256=excluded.checksum_sha256,owner_username=excluded.owner_username,owner_identifier=excluded.owner_identifier,group_name=excluded.group_name,group_identifier=excluded.group_identifier,is_accessible=1,last_seen_at=CURRENT_TIMESTAMP",params![i.root_path,i.relative_path,i.name,i.extension,i.is_directory,i.size_bytes as i64,i.modified_unix,i.checksum_sha256,i.owner_username,i.owner_identifier,i.group_name,i.group_identifier])?;
     }
     tx.execute("INSERT INTO settings(key,value,updated_at) VALUES('local_files.last_sync_at',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP",[])?;
     tx.commit()?;
@@ -59,6 +65,7 @@ pub fn list_children(
     db: &Database,
     root: &str,
     parent: &str,
+    search: &str,
     name: &str,
     path: &str,
     item_type: &str,
@@ -75,12 +82,14 @@ pub fn list_children(
         "type" => "i.is_directory DESC,i.extension",
         "size" => "i.size_bytes",
         "modified" => "i.modified_unix",
+        "owner" => "i.owner_username COLLATE NOCASE",
+        "group" => "i.group_name COLLATE NOCASE",
         "duplicates" => "copies",
         _ => "i.name COLLATE NOCASE",
     };
     let direction = if descending { "DESC" } else { "ASC" };
     let sql = format!(
-        "SELECT i.id,i.root_path,i.relative_path,i.name,i.extension,i.is_directory,i.size_bytes,i.modified_unix,i.checksum_sha256,CASE WHEN i.checksum_sha256='' THEN 0 ELSE (SELECT COUNT(*) FROM local_file_items d WHERE d.is_accessible=1 AND d.checksum_sha256=i.checksum_sha256) END copies,(SELECT group_concat(t.slug||char(30)||t.name||char(30)||t.color||char(30)||t.description,char(31)) FROM local_file_tags lft JOIN tags t ON t.id=lft.tag_id WHERE lft.local_file_id=i.id) FROM local_file_items i WHERE i.is_accessible=1 AND i.root_path=?1 AND ((?2='' AND instr(i.relative_path,'/')=0) OR (?2<>'' AND i.relative_path LIKE ?2||'/%' AND instr(substr(i.relative_path,length(?2)+2),'/')=0)) AND (?3='' OR instr(lower(i.name),lower(?3))>0) AND (?4='' OR instr(lower(i.relative_path),lower(?4))>0) AND (?5='' OR (?5='folder' AND i.is_directory=1) OR (?5='file' AND i.is_directory=0) OR lower(i.extension)=lower(?5)) AND (?6='' OR CAST(i.size_bytes AS TEXT) LIKE '%'||?6||'%') AND (?7='' OR datetime(i.modified_unix,'unixepoch') LIKE '%'||?7||'%') AND (?8='' OR (?8='__untagged__' AND NOT EXISTS(SELECT 1 FROM local_file_tags x WHERE x.local_file_id=i.id)) OR EXISTS(SELECT 1 FROM local_file_tags x JOIN tags xt ON xt.id=x.tag_id WHERE x.local_file_id=i.id AND xt.slug=?8)) AND (?9=0 OR (i.checksum_sha256<>'' AND (SELECT COUNT(*) FROM local_file_items d WHERE d.is_accessible=1 AND d.checksum_sha256=i.checksum_sha256)>1)) ORDER BY i.is_directory DESC,{order} {direction}"
+        "SELECT i.id,i.root_path,i.relative_path,i.name,i.extension,i.is_directory,i.size_bytes,i.modified_unix,i.checksum_sha256,CASE WHEN i.checksum_sha256='' THEN 0 ELSE (SELECT COUNT(*) FROM local_file_items d WHERE d.is_accessible=1 AND d.checksum_sha256=i.checksum_sha256) END copies,(SELECT group_concat(t.slug||char(30)||t.name||char(30)||t.color||char(30)||t.description,char(31)) FROM local_file_tags lft JOIN tags t ON t.id=lft.tag_id WHERE lft.local_file_id=i.id),i.owner_username,i.owner_identifier,COALESCE(p.id,0),COALESCE(p.display_name,''),i.group_name,i.group_identifier FROM local_file_items i LEFT JOIN principals p ON lower(p.username)=lower(i.owner_username) WHERE i.is_accessible=1 AND i.root_path=?1 AND ((?10='' AND ((?2='' AND instr(i.relative_path,'/')=0) OR (?2<>'' AND i.relative_path LIKE ?2||'/%' AND instr(substr(i.relative_path,length(?2)+2),'/')=0))) OR (?10<>'' AND (instr(lower(i.name),lower(?10))>0 OR instr(lower(i.relative_path),lower(?10))>0))) AND (?3='' OR instr(lower(i.name),lower(?3))>0) AND (?4='' OR instr(lower(i.relative_path),lower(?4))>0) AND (?5='' OR (?5='folder' AND i.is_directory=1) OR (?5='file' AND i.is_directory=0) OR lower(i.extension)=lower(?5)) AND (?6='' OR CAST(i.size_bytes AS TEXT) LIKE '%'||?6||'%') AND (?7='' OR datetime(i.modified_unix,'unixepoch') LIKE '%'||?7||'%') AND (?8='' OR (?8='__untagged__' AND NOT EXISTS(SELECT 1 FROM local_file_tags x WHERE x.local_file_id=i.id)) OR EXISTS(SELECT 1 FROM local_file_tags x JOIN tags xt ON xt.id=x.tag_id WHERE x.local_file_id=i.id AND xt.slug=?8)) AND (?9=0 OR (i.checksum_sha256<>'' AND (SELECT COUNT(*) FROM local_file_items d WHERE d.is_accessible=1 AND d.checksum_sha256=i.checksum_sha256)>1)) ORDER BY i.is_directory DESC,{order} {direction}"
     );
     let mut s = c.prepare(&sql)?;
     let rows = s.query_map(
@@ -93,7 +102,8 @@ pub fn list_children(
             size,
             modified,
             tag,
-            duplicates_only
+            duplicates_only,
+            search
         ],
         |r| {
             let bytes = r.get::<_, i64>(6)? as u64;
@@ -111,6 +121,12 @@ pub fn list_children(
                 checksum_sha256: r.get(8)?,
                 duplicate_copies: r.get::<_, i64>(9)? as u64,
                 tags: parse_tags(r.get::<_, Option<String>>(10)?),
+                owner_username: r.get(11)?,
+                owner_identifier: r.get(12)?,
+                owner_principal_id: r.get(13)?,
+                owner_display_name: r.get(14)?,
+                group_name: r.get(15)?,
+                group_identifier: r.get(16)?,
             })
         },
     )?;

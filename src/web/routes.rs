@@ -615,6 +615,7 @@ struct LocalFilesTemplate {
     query: LocalFilesQuery,
     tags: Vec<database::inventory::Tag>,
     filter_tags: Vec<TagFilterPill>,
+    persons: Vec<database::directory::PersonChoice>,
 }
 
 struct LocalRootView {
@@ -680,6 +681,7 @@ struct DirectoryEditTemplate {
     heading: &'static str,
     action: String,
     principal_id: i64,
+    username: String,
     email: String,
     display_name: String,
     principal_type: String,
@@ -917,6 +919,8 @@ struct ApplyPrincipalTagForm {
 
 #[derive(serde::Deserialize)]
 struct PrincipalEditForm {
+    #[serde(default)]
+    username: String,
     email: String,
     display_name: String,
     principal_type: String,
@@ -933,6 +937,8 @@ struct PrincipalEditForm {
 struct NewPrincipalQuery {
     #[serde(default)]
     email: String,
+    #[serde(default)]
+    username: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -1146,6 +1152,8 @@ struct LocalFilesQuery {
     #[serde(default)]
     path: String,
     #[serde(default)]
+    q: String,
+    #[serde(default)]
     name: String,
     #[serde(default)]
     path_filter: String,
@@ -1163,12 +1171,29 @@ struct LocalFilesQuery {
     sort: String,
     #[serde(default)]
     direction: String,
+    #[serde(default)]
+    owner_saved: bool,
+    #[serde(default)]
+    owner_error: String,
 }
 
 #[derive(serde::Deserialize)]
 struct LocalFileTagForm {
     selected_item_ids: String,
     tag: String,
+    #[serde(flatten)]
+    query: LocalFilesQuery,
+}
+
+#[derive(serde::Deserialize)]
+struct LocalFileOwnerForm {
+    username: String,
+    #[serde(default)]
+    principal_id: i64,
+    #[serde(default)]
+    display_name: String,
+    #[serde(default)]
+    email: String,
     #[serde(flatten)]
     query: LocalFilesQuery,
 }
@@ -1300,6 +1325,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/local-files", get(local_files_page))
         .route("/local-files/tags", post(apply_local_file_tag))
         .route("/local-files/tags/remove", post(remove_local_file_tag))
+        .route("/local-files/owners", post(associate_local_file_owner))
         .route(
             "/ui/local-files-primary-nav",
             get(ui_local_files_primary_nav),
@@ -1505,7 +1531,7 @@ async fn google_cloud_oauth_json() -> impl IntoResponse {
 }
 
 const PERSONS_CSV_TEMPLATE: &str =
-    "name,email,organization,type,status,departure_date,notes,tags\r\n";
+    "name,username,email,organization,type,status,departure_date,notes,tags\r\n";
 
 async fn directory_csv_template() -> impl IntoResponse {
     (
@@ -4875,6 +4901,7 @@ async fn local_files_page(
             &database,
             &root.to_string_lossy(),
             &current_path,
+            &query.q,
             &query.name,
             &query.path_filter,
             &query.item_type,
@@ -4917,6 +4944,8 @@ async fn local_files_page(
         })
         .collect::<Vec<_>>();
     filter_tags.push(no_tags_filter_pill(&query.tag));
+    let persons = database::directory::list_person_choices(&database)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
@@ -4945,6 +4974,7 @@ async fn local_files_page(
         query,
         tags,
         filter_tags,
+        persons,
     })
 }
 
@@ -4991,11 +5021,53 @@ fn change_local_file_tag(
     })?;
     Ok(Redirect::to(&local_files_redirect(&form.query)))
 }
+
+async fn associate_local_file_owner(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<LocalFileOwnerForm>,
+) -> Result<Redirect, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let result = if form.principal_id > 0 {
+        database::directory::associate_username(&database, form.principal_id, &form.username)
+    } else {
+        let display_name = if form.display_name.trim().is_empty() {
+            form.username.trim()
+        } else {
+            form.display_name.trim()
+        };
+        database::directory::save_manual_principal(
+            &database,
+            None,
+            &form.username,
+            &form.email,
+            display_name,
+            "person",
+            "active",
+            "",
+            "",
+            "",
+        )
+        .map(|_| ())
+    };
+    let mut query = form.query;
+    match result {
+        Ok(()) => query.owner_saved = true,
+        Err(error) => {
+            log::warn!("Unable to associate Local Files owner: {error}");
+            query.owner_error = error.to_string();
+        }
+    }
+    Ok(Redirect::to(&local_files_redirect(&query)))
+}
+
 fn local_files_redirect(q: &LocalFilesQuery) -> String {
     format!(
-        "/local-files?root={}&path={}&name={}&path_filter={}&item_type={}&size={}&modified={}&tag={}&duplicates={}&sort={}&direction={}",
+        "/local-files?root={}&path={}&q={}&name={}&path_filter={}&item_type={}&size={}&modified={}&tag={}&duplicates={}&sort={}&direction={}&owner_saved={}&owner_error={}",
         q.root,
         url_component(&q.path),
+        url_component(&q.q),
         url_component(&q.name),
         url_component(&q.path_filter),
         url_component(&q.item_type),
@@ -5004,7 +5076,9 @@ fn local_files_redirect(q: &LocalFilesQuery) -> String {
         url_component(&q.tag),
         q.duplicates,
         url_component(&q.sort),
-        url_component(&q.direction)
+        url_component(&q.direction),
+        q.owner_saved,
+        url_component(&q.owner_error)
     )
 }
 fn url_component(value: &str) -> String {
@@ -5534,20 +5608,22 @@ async fn new_principal_page(
     State(state): State<Arc<AppState>>,
     Query(query): Query<NewPrincipalQuery>,
 ) -> Result<Html<String>, StatusCode> {
-    let submitted = (!query.email.trim().is_empty()).then(|| {
-        (
-            None,
-            PrincipalEditForm {
-                email: query.email.trim().to_string(),
-                display_name: String::new(),
-                principal_type: "person".to_string(),
-                status: "active".to_string(),
-                departure_date: String::new(),
-                organization: String::new(),
-                notes: String::new(),
-            },
-        )
-    });
+    let submitted =
+        (!query.email.trim().is_empty() || !query.username.trim().is_empty()).then(|| {
+            (
+                None,
+                PrincipalEditForm {
+                    username: query.username.trim().to_string(),
+                    email: query.email.trim().to_string(),
+                    display_name: String::new(),
+                    principal_type: "person".to_string(),
+                    status: "active".to_string(),
+                    departure_date: String::new(),
+                    organization: String::new(),
+                    notes: String::new(),
+                },
+            )
+        });
     render_principal_editor(&state, None, submitted, String::new())
 }
 
@@ -5590,6 +5666,7 @@ fn save_principal_editor(
     match database::directory::save_manual_principal(
         &database,
         principal_id,
+        &form.username,
         &form.email,
         &form.display_name,
         &form.principal_type,
@@ -5618,38 +5695,49 @@ fn render_principal_editor(
         .or_else(|| principal.as_ref().map(|value| value.id))
         .unwrap_or(0);
     let is_new = principal_id == 0;
-    let (email, display_name, principal_type, status, departure_date, organization, notes) =
-        if let Some((_, form)) = submitted {
-            (
-                form.email,
-                form.display_name,
-                form.principal_type,
-                form.status,
-                form.departure_date,
-                form.organization,
-                form.notes,
-            )
-        } else if let Some(principal) = principal {
-            (
-                principal.primary_email,
-                principal.display_name,
-                principal.principal_type,
-                principal.status,
-                principal.departure_date,
-                principal.organizations,
-                principal.notes,
-            )
-        } else {
-            (
-                String::new(),
-                String::new(),
-                "person".to_string(),
-                "active".to_string(),
-                String::new(),
-                String::new(),
-                String::new(),
-            )
-        };
+    let (
+        username,
+        email,
+        display_name,
+        principal_type,
+        status,
+        departure_date,
+        organization,
+        notes,
+    ) = if let Some((_, form)) = submitted {
+        (
+            form.username,
+            form.email,
+            form.display_name,
+            form.principal_type,
+            form.status,
+            form.departure_date,
+            form.organization,
+            form.notes,
+        )
+    } else if let Some(principal) = principal {
+        (
+            principal.username,
+            principal.primary_email,
+            principal.display_name,
+            principal.principal_type,
+            principal.status,
+            principal.departure_date,
+            principal.organizations,
+            principal.notes,
+        )
+    } else {
+        (
+            String::new(),
+            String::new(),
+            String::new(),
+            "person".to_string(),
+            "active".to_string(),
+            String::new(),
+            String::new(),
+            String::new(),
+        )
+    };
     let rclone_state = state.rclone_state();
     let google_client_state = state.google_client_state();
     let google_remotes_state = state.google_remotes_state();
@@ -5702,6 +5790,7 @@ fn render_principal_editor(
             format!("/directory/principals/{principal_id}/edit")
         },
         principal_id,
+        username,
         email,
         display_name,
         principal_type,
@@ -7069,7 +7158,7 @@ mod tests {
     fn persons_csv_template_has_supported_import_columns() {
         assert_eq!(
             PERSONS_CSV_TEMPLATE,
-            "name,email,organization,type,status,departure_date,notes,tags\r\n"
+            "name,username,email,organization,type,status,departure_date,notes,tags\r\n"
         );
     }
 

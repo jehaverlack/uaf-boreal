@@ -1,4 +1,6 @@
 use sha2::{Digest, Sha256};
+#[cfg(unix)]
+use std::ffi::CStr;
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -17,6 +19,10 @@ pub struct Item {
     pub size_bytes: u64,
     pub modified_unix: i64,
     pub checksum_sha256: String,
+    pub owner_username: String,
+    pub owner_identifier: String,
+    pub group_name: String,
+    pub group_identifier: String,
 }
 
 #[derive(Debug, Clone)]
@@ -41,8 +47,9 @@ pub fn scan(
     cached: &HashMap<(String, String), (u64, i64, String)>,
 ) -> ScanResult {
     let mut result = ScanResult::default();
+    let mut ownership = OwnershipCache::default();
     for root in &options.roots {
-        walk(root, root, options, &mut result);
+        walk(root, root, options, &mut ownership, &mut result);
     }
     let mut sizes = HashMap::<u64, usize>::new();
     for item in &result.items {
@@ -76,7 +83,19 @@ pub fn scan(
     result
 }
 
-fn walk(root: &Path, directory: &Path, options: &ScanOptions, result: &mut ScanResult) {
+#[derive(Default)]
+struct OwnershipCache {
+    users: HashMap<u32, String>,
+    groups: HashMap<u32, String>,
+}
+
+fn walk(
+    root: &Path,
+    directory: &Path,
+    options: &ScanOptions,
+    ownership: &mut OwnershipCache,
+    result: &mut ScanResult,
+) {
     let entries = match fs::read_dir(directory) {
         Ok(v) => v,
         Err(e) => {
@@ -113,6 +132,8 @@ fn walk(root: &Path, directory: &Path, options: &ScanOptions, result: &mut ScanR
             .and_then(|v| v.duration_since(UNIX_EPOCH).ok())
             .map(|v| v.as_secs() as i64)
             .unwrap_or(0);
+        let (owner_username, owner_identifier, group_name, group_identifier) =
+            file_ownership(&metadata, ownership);
         result.items.push(Item {
             root_path: root.to_string_lossy().into_owned(),
             relative_path: rel.clone(),
@@ -126,10 +147,92 @@ fn walk(root: &Path, directory: &Path, options: &ScanOptions, result: &mut ScanR
             size_bytes: if is_directory { 0 } else { metadata.len() },
             modified_unix,
             checksum_sha256: String::new(),
+            owner_username,
+            owner_identifier,
+            group_name,
+            group_identifier,
         });
         if is_directory {
-            walk(root, &path, options, result);
+            walk(root, &path, options, ownership, result);
         }
+    }
+}
+
+#[cfg(unix)]
+fn file_ownership(
+    metadata: &fs::Metadata,
+    cache: &mut OwnershipCache,
+) -> (String, String, String, String) {
+    use std::os::unix::fs::MetadataExt;
+
+    let uid = metadata.uid();
+    let gid = metadata.gid();
+    let owner = cache
+        .users
+        .entry(uid)
+        .or_insert_with(|| lookup_user(uid))
+        .clone();
+    let group = cache
+        .groups
+        .entry(gid)
+        .or_insert_with(|| lookup_group(gid))
+        .clone();
+    (owner, uid.to_string(), group, gid.to_string())
+}
+
+#[cfg(not(unix))]
+fn file_ownership(
+    _metadata: &fs::Metadata,
+    _cache: &mut OwnershipCache,
+) -> (String, String, String, String) {
+    (String::new(), String::new(), String::new(), String::new())
+}
+
+#[cfg(unix)]
+fn lookup_user(uid: u32) -> String {
+    // getpwuid_r writes both the record and its strings into caller-owned storage.
+    let mut record = unsafe { std::mem::zeroed::<libc::passwd>() };
+    let mut result = std::ptr::null_mut();
+    let mut buffer = vec![0 as libc::c_char; 16 * 1024];
+    let status = unsafe {
+        libc::getpwuid_r(
+            uid,
+            &mut record,
+            buffer.as_mut_ptr(),
+            buffer.len(),
+            &mut result,
+        )
+    };
+    if status == 0 && !result.is_null() && !record.pw_name.is_null() {
+        unsafe { CStr::from_ptr(record.pw_name) }
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        String::new()
+    }
+}
+
+#[cfg(unix)]
+fn lookup_group(gid: u32) -> String {
+    // getgrgid_r writes both the record and its strings into caller-owned storage.
+    let mut record = unsafe { std::mem::zeroed::<libc::group>() };
+    let mut result = std::ptr::null_mut();
+    let mut buffer = vec![0 as libc::c_char; 16 * 1024];
+    let status = unsafe {
+        libc::getgrgid_r(
+            gid,
+            &mut record,
+            buffer.as_mut_ptr(),
+            buffer.len(),
+            &mut result,
+        )
+    };
+    if status == 0 && !result.is_null() && !record.gr_name.is_null() {
+        unsafe { CStr::from_ptr(record.gr_name) }
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        String::new()
     }
 }
 

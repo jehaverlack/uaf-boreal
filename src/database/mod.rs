@@ -191,7 +191,7 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 32,);
+        assert_eq!(migration_count, 33,);
 
         let safe_to_delete_scope_count: i64 = connection
             .query_row(
@@ -775,6 +775,7 @@ mod tests {
         let principal_id = directory::save_manual_principal(
             &database,
             None,
+            "newuser",
             "new.user@example.edu",
             "New User",
             "staff",
@@ -787,6 +788,7 @@ mod tests {
         directory::save_manual_principal(
             &database,
             Some(principal_id),
+            "newuser",
             "new.user@example.edu",
             "Updated User",
             "staff",
@@ -800,11 +802,89 @@ mod tests {
             .expect("identity should load")
             .expect("identity should exist");
         assert_eq!(principal.display_name, "Updated User");
+        assert_eq!(principal.username, "newuser");
         assert_eq!(principal.principal_type, "staff");
         assert_eq!(principal.status, "departing");
         assert_eq!(principal.departure_date, "2026-12-31");
         assert_eq!(principal.organizations, "ACEP");
         assert_eq!(principal.notes, "Updated manually");
+        fs::remove_dir_all(root).expect("temporary database directory should be removable");
+    }
+
+    #[test]
+    fn local_file_search_and_username_associations_span_the_inventory() {
+        let root = temporary_directory();
+        let database = Database::initialize(&runtime(&root)).expect("database should initialize");
+        local_files::synchronize(
+            &database,
+            &[crate::local_files::Item {
+                root_path: "/inventory".to_string(),
+                relative_path: "nested/reports/Annual Report.pdf".to_string(),
+                name: "Annual Report.pdf".to_string(),
+                extension: "pdf".to_string(),
+                is_directory: false,
+                size_bytes: 42,
+                modified_unix: 1,
+                checksum_sha256: String::new(),
+                owner_username: "jsmith".to_string(),
+                owner_identifier: "1001".to_string(),
+                group_name: "research".to_string(),
+                group_identifier: "2001".to_string(),
+            }],
+        )
+        .expect("local inventory should synchronize");
+
+        let matches = local_files::list_children(
+            &database,
+            "/inventory",
+            "",
+            "annual report",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            false,
+            "name",
+            false,
+        )
+        .expect("recursive search should succeed");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].group_name, "research");
+        assert_eq!(matches[0].owner_principal_id, 0);
+
+        let principal_id = directory::save_manual_principal(
+            &database,
+            None,
+            "jsmith",
+            "jsmith@example.edu",
+            "Jamie Smith",
+            "person",
+            "active",
+            "",
+            "",
+            "",
+        )
+        .expect("person with a username should save");
+        let associated = local_files::list_children(
+            &database,
+            "/inventory",
+            "",
+            "annual report",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            false,
+            "name",
+            false,
+        )
+        .expect("associated search should succeed");
+        assert_eq!(associated[0].owner_principal_id, principal_id);
+        assert_eq!(associated[0].owner_display_name, "Jamie Smith");
         fs::remove_dir_all(root).expect("temporary database directory should be removable");
     }
 
