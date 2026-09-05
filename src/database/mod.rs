@@ -2,6 +2,7 @@ pub mod directory;
 pub mod github;
 pub mod inventory;
 pub mod keeper;
+pub mod local_files;
 pub mod migration;
 mod migrations;
 pub mod settings;
@@ -189,7 +190,7 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 29,);
+        assert_eq!(migration_count, 31,);
 
         let safe_to_delete_scope_count: i64 = connection
             .query_row(
@@ -200,16 +201,16 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("migrated tag scopes should be readable");
-        assert_eq!(safe_to_delete_scope_count, 3);
+        assert_eq!(safe_to_delete_scope_count, 4);
 
         for (slug, expected_scope_count) in [
             ("data-loss-risk", 1_i64),
             ("access-review", 1_i64),
-            ("needs-review", 4_i64),
+            ("needs-review", 5_i64),
             ("permission-review", 4_i64),
             ("needs-handoff", 4_i64),
-            ("retain", 4_i64),
-            ("to-delete", 3_i64),
+            ("retain", 5_i64),
+            ("to-delete", 4_i64),
             ("to-migrate", 2_i64),
             ("migrated", 2_i64),
             ("remove-my-permissions", 4_i64),
@@ -342,6 +343,7 @@ mod tests {
             keeper_enabled: true,
             keeper_command: "keeper".to_string(),
             keeper_last_sync_at: String::new(),
+            ..settings::InventorySettings::default()
         };
 
         settings::save(&database, &expected).expect("settings should save");

@@ -22,6 +22,7 @@ mod desktop;
 mod github;
 mod google;
 mod keeper;
+mod local_files;
 mod logging;
 mod rclone;
 mod update;

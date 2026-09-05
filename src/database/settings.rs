@@ -16,6 +16,13 @@ pub struct InventorySettings {
     pub keeper_enabled: bool,
     pub keeper_command: String,
     pub keeper_last_sync_at: String,
+    pub local_files_enabled: bool,
+    pub local_file_roots: String,
+    pub local_exclude_hidden: bool,
+    pub local_exclude_caches: bool,
+    pub local_exclude_temporary: bool,
+    pub local_exclude_patterns: String,
+    pub local_files_last_sync_at: String,
 }
 
 impl Default for InventorySettings {
@@ -33,6 +40,15 @@ impl Default for InventorySettings {
             keeper_enabled: false,
             keeper_command: String::new(),
             keeper_last_sync_at: String::new(),
+            local_files_enabled: false,
+            local_file_roots: dirs::home_dir()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            local_exclude_hidden: true,
+            local_exclude_caches: true,
+            local_exclude_temporary: true,
+            local_exclude_patterns: String::new(),
+            local_files_last_sync_at: String::new(),
         }
     }
 }
@@ -51,6 +67,11 @@ impl InventorySettings {
             return Err(
                 "A Google Sheets URL is required when linked directory import is enabled".into(),
             );
+        }
+        if self.local_files_enabled {
+            let roots = crate::local_files::parse_roots(&self.local_file_roots);
+            crate::local_files::validate_roots(&roots)
+                .map_err(|e| -> DatabaseError { e.into() })?;
         }
 
         Ok(())
@@ -97,6 +118,32 @@ pub fn load(database: &Database) -> Result<InventorySettings, DatabaseError> {
         keeper_command: get(&connection, "keeper.command")?.unwrap_or(defaults.keeper_command),
         keeper_last_sync_at: get(&connection, "keeper.last_sync_at")?
             .unwrap_or(defaults.keeper_last_sync_at),
+        local_files_enabled: get_bool(
+            &connection,
+            "local_files.enabled",
+            defaults.local_files_enabled,
+        )?,
+        local_file_roots: get(&connection, "local_files.roots")?
+            .unwrap_or(defaults.local_file_roots),
+        local_exclude_hidden: get_bool(
+            &connection,
+            "local_files.exclude_hidden",
+            defaults.local_exclude_hidden,
+        )?,
+        local_exclude_caches: get_bool(
+            &connection,
+            "local_files.exclude_caches",
+            defaults.local_exclude_caches,
+        )?,
+        local_exclude_temporary: get_bool(
+            &connection,
+            "local_files.exclude_temporary",
+            defaults.local_exclude_temporary,
+        )?,
+        local_exclude_patterns: get(&connection, "local_files.exclude_patterns")?
+            .unwrap_or(defaults.local_exclude_patterns),
+        local_files_last_sync_at: get(&connection, "local_files.last_sync_at")?
+            .unwrap_or(defaults.local_files_last_sync_at),
     })
 }
 
@@ -152,6 +199,31 @@ pub fn save(database: &Database, settings: &InventorySettings) -> Result<(), Dat
         "keeper.command",
         settings.keeper_command.trim(),
     )?;
+    for (key, value) in [
+        (
+            "local_files.enabled",
+            bool_value(settings.local_files_enabled),
+        ),
+        ("local_files.roots", settings.local_file_roots.trim()),
+        (
+            "local_files.exclude_hidden",
+            bool_value(settings.local_exclude_hidden),
+        ),
+        (
+            "local_files.exclude_caches",
+            bool_value(settings.local_exclude_caches),
+        ),
+        (
+            "local_files.exclude_temporary",
+            bool_value(settings.local_exclude_temporary),
+        ),
+        (
+            "local_files.exclude_patterns",
+            settings.local_exclude_patterns.trim(),
+        ),
+    ] {
+        set(&transaction, key, value)?;
+    }
     transaction.execute(
         "INSERT INTO directory_sources (
             name, source_type, source_location, enabled, refresh_on_metadata_update

@@ -303,7 +303,7 @@
 
 </head>
 
-<body class="d-flex flex-column min-vh-100{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" || active_page == "directory" || active_page == "tags" || active_page == "github" || active_page == "keeper" %} vh-100 overflow-hidden{% endif %}">
+<body class="d-flex flex-column min-vh-100{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" || active_page == "directory" || active_page == "tags" || active_page == "github" || active_page == "keeper" || active_page == "local-files" %} vh-100 overflow-hidden{% endif %}">
 
     <nav
         class="navbar navbar-expand-lg bg-body-tertiary border-bottom"
@@ -352,6 +352,8 @@
                         </a>
 
                     </li>
+
+                    <li id="local-files-primary-navigation" hx-get="/ui/local-files-primary-nav" hx-trigger="load" hx-swap="outerHTML"></li>
 
                     <li class="nav-item">
                         <button
@@ -618,7 +620,7 @@
 
     {% include "partials/alerts.html" %}
 
-    <main class="container-fluid py-4 flex-grow-1{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" || active_page == "directory" || active_page == "tags" || active_page == "github" || active_page == "keeper" %} overflow-hidden{% endif %}">
+    <main class="container-fluid py-4 flex-grow-1{% if active_page == "my-drive" || active_page == "shared-drives" || active_page == "shared-with-me" || active_page == "directory" || active_page == "tags" || active_page == "github" || active_page == "keeper" || active_page == "local-files" %} overflow-hidden{% endif %}">
 
         {% block content %}
         {% endblock %}

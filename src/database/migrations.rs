@@ -154,6 +154,16 @@ const MIGRATIONS: &[Migration] = &[
         name: "keeper_inventory",
         sql: include_str!("migrations/0029_keeper_inventory.sql"),
     },
+    Migration {
+        version: 30,
+        name: "local_file_inventory",
+        sql: include_str!("migrations/0030_local_file_inventory.sql"),
+    },
+    Migration {
+        version: 31,
+        name: "local_file_tags",
+        sql: include_str!("migrations/0031_local_file_tags.sql"),
+    },
 ];
 
 pub fn apply(connection: &mut Connection) -> Result<(), DatabaseError> {

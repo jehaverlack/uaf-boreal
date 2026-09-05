@@ -5,15 +5,22 @@
 | **Name** | boreal |
 | **Author** | John Haverlack |
 | **License** | MIT |
-| **Version** | 1.1.0 |
+| **Version** | 1.1.1 |
 | **Maturity** | STABLE |
-| **Date** | 2026-09-03 |
+| **Date** | 2026-09-04 |
+
+## v1.1.1 - 2026-09-04 (STABLE)
+
+- Start v1.1.1
+- Adding security policy
 
 ## v1.1.0 - 2026-09-03 (STABLE)
 
 **Summary**
 Added GitHub and Keeper Support
 
+- b1.1.0
+- b1.1.0
 - Cleaning up Github Summary
 - Fixing Keeper Integration
 - Updating Docs
@@ -297,12 +304,6 @@ Added Migration Assitant and Polished Interfaces
 **Summary**
 Project Initialization
 
-- Cleaning up Github Summary
-- Fixing Keeper Integration
-- Updating Docs
-- Adding Keeper Integration
-- Fixed Github PDF Exporter
-- github token assistance widget
-- Adding GitHub Integration
-- Start v1.1.0
+- Start v1.1.1
+- Adding security policy
 

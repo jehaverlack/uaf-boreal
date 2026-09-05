@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     path::{Path as FsPath, PathBuf},
     process::Command,
     sync::{Arc, OnceLock},
@@ -151,6 +152,8 @@ struct DashboardTemplate {
     github_summary: database::github::Summary,
     keeper_enabled: bool,
     keeper_summary: database::keeper::Summary,
+    local_files_enabled: bool,
+    local_files_summary: database::local_files::Summary,
 }
 
 #[allow(dead_code)]
@@ -594,6 +597,29 @@ struct KeeperTemplate {
     query: KeeperQuery,
 }
 
+#[derive(Template)]
+#[template(path = "local-files.html", config = "askama.toml")]
+struct LocalFilesTemplate {
+    title: &'static str,
+    active_page: &'static str,
+    alerts: Vec<AlertItem>,
+    status_items: Vec<StatusItem>,
+    poll_rclone: bool,
+    roots: Vec<LocalRootView>,
+    summary: database::local_files::Summary,
+    query: LocalFilesQuery,
+    tags: Vec<database::inventory::Tag>,
+    filter_tags: Vec<TagFilterPill>,
+}
+
+struct LocalRootView {
+    index: usize,
+    root_path: String,
+    current_path: String,
+    parent_path: String,
+    items: Vec<database::local_files::Row>,
+}
+
 #[allow(dead_code)]
 #[derive(Template)]
 #[template(path = "directory.html", config = "askama.toml")]
@@ -709,6 +735,7 @@ struct MetadataUpdateModalTemplate {
     directory_available: bool,
     github_available: bool,
     keeper_available: bool,
+    local_files_available: bool,
 }
 
 #[allow(dead_code)]
@@ -732,6 +759,8 @@ struct DriveSummariesTemplate {
     github_summary: database::github::Summary,
     keeper_enabled: bool,
     keeper_summary: database::keeper::Summary,
+    local_files_enabled: bool,
+    local_files_summary: database::local_files::Summary,
 }
 
 #[derive(serde::Deserialize)]
@@ -915,6 +944,8 @@ struct TagForm {
     github_repositories: Option<String>,
     #[serde(default)]
     keeper_shared_folders: Option<String>,
+    #[serde(default)]
+    local_files: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -932,6 +963,18 @@ struct SettingsForm {
     keeper_enabled: Option<String>,
     #[serde(default)]
     keeper_command: String,
+    #[serde(default)]
+    local_files_enabled: Option<String>,
+    #[serde(default)]
+    local_file_roots: String,
+    #[serde(default)]
+    local_exclude_hidden: Option<String>,
+    #[serde(default)]
+    local_exclude_caches: Option<String>,
+    #[serde(default)]
+    local_exclude_temporary: Option<String>,
+    #[serde(default)]
+    local_exclude_patterns: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -1071,6 +1114,42 @@ struct MetadataUpdateForm {
     github: Option<String>,
     #[serde(default)]
     keeper: Option<String>,
+    #[serde(default)]
+    local_files: Option<String>,
+}
+
+#[derive(Default, Clone, serde::Deserialize)]
+struct LocalFilesQuery {
+    #[serde(default)]
+    root: usize,
+    #[serde(default)]
+    path: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    path_filter: String,
+    #[serde(default)]
+    item_type: String,
+    #[serde(default)]
+    size: String,
+    #[serde(default)]
+    modified: String,
+    #[serde(default)]
+    tag: String,
+    #[serde(default)]
+    duplicates: bool,
+    #[serde(default)]
+    sort: String,
+    #[serde(default)]
+    direction: String,
+}
+
+#[derive(serde::Deserialize)]
+struct LocalFileTagForm {
+    selected_item_ids: String,
+    tag: String,
+    #[serde(flatten)]
+    query: LocalFilesQuery,
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -1190,6 +1269,13 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/keeper/tags/remove", post(remove_keeper_tag))
         .route("/ui/keeper-primary-nav", get(ui_keeper_primary_nav))
         .route("/ui/keeper-launcher", get(ui_keeper_launcher))
+        .route("/local-files", get(local_files_page))
+        .route("/local-files/tags", post(apply_local_file_tag))
+        .route("/local-files/tags/remove", post(remove_local_file_tag))
+        .route(
+            "/ui/local-files-primary-nav",
+            get(ui_local_files_primary_nav),
+        )
         .route("/migrations", get(migrations_page))
         .route("/migrations/new", post(create_migration))
         .route("/migrations/download", post(create_download_migration))
@@ -1255,6 +1341,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/directory/import/csv", post(import_directory_csv))
         .route("/tags/create", post(create_tag))
         .route("/tags/update", post(update_tag))
+        .route("/tags/scopes", post(update_tag_scopes))
         .route("/tags/delete", post(delete_tag))
         .route("/settings", get(settings_page).post(save_settings))
         .route("/settings/keeper/test", post(test_keeper_connection))
@@ -1440,6 +1527,12 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         .ok()
         .and_then(|database| database::keeper::summary(&database).ok())
         .unwrap_or_default();
+    let local_files_is_enabled = setup_settings.local_files_enabled;
+    let local_files_summary = state
+        .database()
+        .ok()
+        .and_then(|database| database::local_files::summary(&database).ok())
+        .unwrap_or_default();
 
     let poll_rclone = should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state);
 
@@ -1468,6 +1561,8 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         github_summary,
         keeper_enabled: keeper_is_enabled,
         keeper_summary,
+        local_files_enabled: local_files_is_enabled,
+        local_files_summary,
     };
 
     render_template(&template)
@@ -1814,6 +1909,12 @@ async fn save_settings(
     } else {
         form.keeper_command.trim().to_string()
     };
+    inventory_settings.local_files_enabled = form.local_files_enabled.is_some();
+    inventory_settings.local_file_roots = form.local_file_roots.trim().to_string();
+    inventory_settings.local_exclude_hidden = form.local_exclude_hidden.is_some();
+    inventory_settings.local_exclude_caches = form.local_exclude_caches.is_some();
+    inventory_settings.local_exclude_temporary = form.local_exclude_temporary.is_some();
+    inventory_settings.local_exclude_patterns = form.local_exclude_patterns.trim().to_string();
     if inventory_settings.github_enabled && !crate::github::client::configured(&state.runtime) {
         return render_settings(
             &state,
@@ -4547,6 +4648,197 @@ async fn keeper_page(
     })
 }
 
+fn local_files_enabled(state: &AppState) -> bool {
+    state
+        .database()
+        .ok()
+        .and_then(|d| database::settings::load(&d).ok())
+        .is_some_and(|s| s.local_files_enabled)
+}
+
+async fn ui_local_files_primary_nav(State(state): State<Arc<AppState>>) -> Html<String> {
+    if local_files_enabled(&state) {
+        Html("<li id=\"local-files-primary-navigation\" class=\"nav-item\"><a class=\"nav-link\" href=\"/local-files\" title=\"Explore local file metadata\"><i class=\"bi bi-folder2-open me-1\"></i>Local Files</a></li>".to_string())
+    } else {
+        Html("<li id=\"local-files-primary-navigation\" class=\"d-none\"></li>".to_string())
+    }
+}
+
+async fn local_files_page(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<LocalFilesQuery>,
+) -> Result<Html<String>, StatusCode> {
+    if !local_files_enabled(&state) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let settings =
+        database::settings::load(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let configured_roots = crate::local_files::parse_roots(&settings.local_file_roots);
+    let safe_path = normalize_local_explorer_path(&query.path).ok_or(StatusCode::BAD_REQUEST)?;
+    let mut roots = Vec::new();
+    for (index, root) in configured_roots.iter().enumerate() {
+        let current_path = if index == query.root {
+            safe_path.clone()
+        } else {
+            String::new()
+        };
+        let parent_path = current_path
+            .rsplit_once('/')
+            .map(|(p, _)| p)
+            .unwrap_or("")
+            .to_string();
+        let items = database::local_files::list_children(
+            &database,
+            &root.to_string_lossy(),
+            &current_path,
+            &query.name,
+            &query.path_filter,
+            &query.item_type,
+            &query.size,
+            &query.modified,
+            &query.tag,
+            query.duplicates,
+            &query.sort,
+            query.direction == "desc",
+        )
+        .map_err(|error| {
+            log::error!("Unable to list local files: {error}");
+            StatusCode::BAD_REQUEST
+        })?;
+        roots.push(LocalRootView {
+            index,
+            root_path: root.to_string_lossy().into_owned(),
+            current_path,
+            parent_path,
+            items,
+        });
+    }
+    let summary =
+        database::local_files::summary(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tags = database::inventory::list_tags_for_scope(
+        &database,
+        database::inventory::TagScope::LocalFiles,
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut filter_tags = tags
+        .iter()
+        .map(|tag| TagFilterPill {
+            slug: tag.slug.clone(),
+            name: tag.name.clone(),
+            description: tag.description.clone(),
+            color: tag.color.clone(),
+            text_color: tag_text_color(&tag.color),
+            selected: query.tag == tag.slug,
+            excluded: false,
+        })
+        .collect::<Vec<_>>();
+    filter_tags.push(no_tags_filter_pill(&query.tag));
+    let rclone_state = state.rclone_state();
+    let google_client_state = state.google_client_state();
+    let google_remotes_state = state.google_remotes_state();
+    let metadata_state = state.metadata_state();
+    render_template(&LocalFilesTemplate {
+        title: "Local Files - BOREAL",
+        active_page: "local-files",
+        alerts: build_alerts(
+            &rclone_state,
+            &google_client_state,
+            bookmark_reminder_visible(&state),
+        ),
+        status_items: build_status_items(
+            &state.download_state(),
+            &rclone_state,
+            &google_client_state,
+            &google_remotes_state,
+            &metadata_state,
+            configured_remote_count(&state.runtime, &rclone_state),
+            authenticated_google_email(&state),
+            &state.update_state(),
+        ),
+        poll_rclone: should_poll_ui(&rclone_state, &google_remotes_state, &metadata_state),
+        roots,
+        summary,
+        query,
+        tags,
+        filter_tags,
+    })
+}
+
+fn normalize_local_explorer_path(path: &str) -> Option<String> {
+    let normalized = path.replace('\\', "/").trim_matches('/').to_string();
+    if normalized
+        .split('/')
+        .any(|part| part == ".." || part == ".")
+    {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+async fn apply_local_file_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<LocalFileTagForm>,
+) -> Result<Redirect, StatusCode> {
+    change_local_file_tag(&state, form, false)
+}
+async fn remove_local_file_tag(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<LocalFileTagForm>,
+) -> Result<Redirect, StatusCode> {
+    change_local_file_tag(&state, form, true)
+}
+fn change_local_file_tag(
+    state: &AppState,
+    form: LocalFileTagForm,
+    remove: bool,
+) -> Result<Redirect, StatusCode> {
+    let ids = form
+        .selected_item_ids
+        .split(',')
+        .filter_map(|v| v.trim().parse().ok())
+        .collect::<Vec<i64>>();
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    database::local_files::change_tags(&database, &ids, &form.tag, remove).map_err(|error| {
+        log::error!("Unable to change Local Files tags: {error}");
+        StatusCode::BAD_REQUEST
+    })?;
+    Ok(Redirect::to(&local_files_redirect(&form.query)))
+}
+fn local_files_redirect(q: &LocalFilesQuery) -> String {
+    format!(
+        "/local-files?root={}&path={}&name={}&path_filter={}&item_type={}&size={}&modified={}&tag={}&duplicates={}&sort={}&direction={}",
+        q.root,
+        url_component(&q.path),
+        url_component(&q.name),
+        url_component(&q.path_filter),
+        url_component(&q.item_type),
+        url_component(&q.size),
+        url_component(&q.modified),
+        url_component(&q.tag),
+        q.duplicates,
+        url_component(&q.sort),
+        url_component(&q.direction)
+    )
+}
+fn url_component(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
+}
+
 async fn apply_keeper_tag(
     State(state): State<Arc<AppState>>,
     Form(form): Form<KeeperTagForm>,
@@ -5390,6 +5682,55 @@ async fn update_tag(
     Ok(Redirect::to("/tags?saved=true"))
 }
 
+async fn update_tag_scopes(
+    State(state): State<Arc<AppState>>,
+    Form(fields): Form<HashMap<String, String>>,
+) -> Result<Redirect, StatusCode> {
+    let database = state
+        .database()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let tags =
+        database::inventory::list_tags(&database).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let definitions = [
+        ("directory", database::inventory::TagScope::Directory),
+        ("my_drive", database::inventory::TagScope::MyDrive),
+        ("shared_drives", database::inventory::TagScope::SharedDrives),
+        (
+            "shared_with_me",
+            database::inventory::TagScope::SharedWithMe,
+        ),
+        (
+            "github_repositories",
+            database::inventory::TagScope::GitHubRepositories,
+        ),
+        (
+            "keeper_shared_folders",
+            database::inventory::TagScope::KeeperSharedFolders,
+        ),
+        ("local_files", database::inventory::TagScope::LocalFiles),
+    ];
+    let updates = tags
+        .into_iter()
+        .map(|tag| {
+            let scopes = definitions
+                .iter()
+                .filter_map(|(field, scope)| {
+                    fields
+                        .contains_key(&format!("{field}__{}", tag.slug))
+                        .then_some(*scope)
+                })
+                .collect();
+            (tag.slug, scopes)
+        })
+        .collect::<Vec<_>>();
+    database::inventory::update_tag_scopes_bulk(&database, &updates).map_err(|error| {
+        log::error!("Unable to update tag scopes: {error}");
+        StatusCode::BAD_REQUEST
+    })?;
+    log::info!("Tag scopes updated in bulk: tags={}", updates.len());
+    Ok(Redirect::to("/tags?saved=true"))
+}
+
 async fn delete_tag(
     State(state): State<Arc<AppState>>,
     Form(form): Form<DeleteTagForm>,
@@ -5424,6 +5765,9 @@ fn tag_form_scopes(form: &TagForm) -> Vec<database::inventory::TagScope> {
     }
     if form.keeper_shared_folders.is_some() {
         scopes.push(database::inventory::TagScope::KeeperSharedFolders);
+    }
+    if form.local_files.is_some() {
+        scopes.push(database::inventory::TagScope::LocalFiles);
     }
     scopes
 }
@@ -5584,6 +5928,12 @@ async fn ui_drive_summaries(
         .ok()
         .and_then(|database| database::keeper::summary(&database).ok())
         .unwrap_or_default();
+    let local_files_is_enabled = local_files_enabled(&state);
+    let local_files_summary = state
+        .database()
+        .ok()
+        .and_then(|database| database::local_files::summary(&database).ok())
+        .unwrap_or_default();
     let template = DriveSummariesTemplate {
         metadata: build_metadata_view(
             &metadata_state,
@@ -5598,6 +5948,8 @@ async fn ui_drive_summaries(
         github_summary,
         keeper_enabled: keeper_is_enabled,
         keeper_summary,
+        local_files_enabled: local_files_is_enabled,
+        local_files_summary,
     };
     render_template(&template)
 }
@@ -5660,6 +6012,11 @@ async fn ui_metadata_update_modal(
             .is_some_and(|settings| settings.github_enabled)
             && crate::github::client::configured(&state.runtime),
         keeper_available: keeper_enabled(&state),
+        local_files_available: state
+            .database()
+            .ok()
+            .and_then(|d| database::settings::load(&d).ok())
+            .is_some_and(|s| s.local_files_enabled),
     })
 }
 
@@ -5739,6 +6096,11 @@ fn metadata_scope_progress_views(
     } else {
         (false, false, 0, "Waiting".to_string())
     };
+    let local_files = if phase == "Scanning local files" {
+        (true, false, 50, phase.to_string())
+    } else {
+        (false, false, 0, "Waiting".to_string())
+    };
 
     [
         ("Persons", selection.directory_info, "", directory),
@@ -5757,6 +6119,7 @@ fn metadata_scope_progress_views(
         ),
         ("GitHub", selection.github, "", github),
         ("Keeper", selection.keeper, "", keeper),
+        ("Local Files", selection.local_files, "", local_files),
     ]
     .into_iter()
     .map(
@@ -5998,6 +6361,7 @@ async fn start_metadata_update(
         directory_info: form.directory_info.is_some(),
         github: form.github.is_some(),
         keeper: form.keeper.is_some(),
+        local_files: form.local_files.is_some(),
     };
     if let Ok(database) = state.database() {
         database::settings::set_metadata_setup_skipped(&database, false)
@@ -6472,6 +6836,7 @@ mod tests {
                 directory_info: false,
                 github: false,
                 keeper: false,
+                local_files: false,
             },
             phase: "Scanning Shared Drive 1 of 1: Research".to_string(),
             files_scanned: 500,

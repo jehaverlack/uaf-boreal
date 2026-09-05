@@ -133,6 +133,7 @@ pub struct MetadataUpdateSelection {
     pub directory_info: bool,
     pub github: bool,
     pub keeper: bool,
+    pub local_files: bool,
 }
 
 impl AppState {
@@ -259,7 +260,13 @@ impl AppState {
                                         RcloneState::Ready(status)
                                     }
 
-                                    Err(error) => RcloneState::Error(error.to_string()),
+                                    Err(error) => {
+                                        log::warn!(
+                                            "Rclone WebGUI is unavailable; core Rclone features remain ready: {error}"
+                                        );
+                                        state.refresh_google_remotes(&status.path);
+                                        RcloneState::Ready(status)
+                                    }
                                 }
                             }
                         }
@@ -769,6 +776,7 @@ impl AppState {
             && !selection.directory_info
             && !selection.github
             && !selection.keeper
+            && !selection.local_files
         {
             return Err("Select at least one metadata source".to_string());
         }
@@ -835,6 +843,10 @@ impl AppState {
                 "Keeper metadata requires a configured Keeper Commander connection".to_string(),
             );
         }
+        if selection.local_files && !inventory_settings.local_files_enabled {
+            state.finish_metadata_job();
+            return Err("Local Files metadata is not enabled in Settings".to_string());
+        }
         let scan_id = match if selection.my_drive {
             database.start_scan_run("my-drive")
         } else {
@@ -873,13 +885,14 @@ impl AppState {
         };
 
         println!(
-            "Metadata update started: my_drive={}, shared_drives={}, shared_with_me={}, directory_info={}, github={}, keeper={}, remote=my-drive-ro, permissions={permission_scanning}",
+            "Metadata update started: my_drive={}, shared_drives={}, shared_with_me={}, directory_info={}, github={}, keeper={}, local_files={}, remote=my-drive-ro, permissions={permission_scanning}",
             selection.my_drive,
             selection.shared_drives,
             selection.shared_with_me,
             selection.directory_info,
             selection.github,
             selection.keeper,
+            selection.local_files,
         );
 
         state.set_metadata_state(MetadataState::Updating(MetadataProgress {
@@ -1219,6 +1232,16 @@ impl AppState {
                         crate::database::keeper::synchronize(&database, &folders)?;
                         log::info!("Keeper shared-folder metadata updated: folders={}", folders.len());
                     }
+                    if selection.local_files {
+                        worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress { selection, phase:"Scanning local files".to_string(), files_scanned:0, folders_scanned:0, permissions_scanned:0, bytes_discovered:0, errors:0 }));
+                        let roots=crate::local_files::parse_roots(&inventory_settings.local_file_roots);
+                        crate::local_files::validate_roots(&roots).map_err(|e| -> crate::database::DatabaseError { e.into() })?;
+                        let options=crate::local_files::ScanOptions{roots,exclude_hidden:inventory_settings.local_exclude_hidden,exclude_caches:inventory_settings.local_exclude_caches,exclude_temporary:inventory_settings.local_exclude_temporary,exclude_patterns:inventory_settings.local_exclude_patterns.lines().map(str::trim).filter(|v|!v.is_empty()).map(str::to_string).collect(),boreal_home:worker_state.runtime.boreal_home.clone()};
+                        let cache=crate::database::local_files::checksum_cache(&database)?;
+                        let scan=crate::local_files::scan(&options,&cache);
+                        crate::database::local_files::synchronize(&database,&scan.items)?;
+                        log::info!("Local Files metadata updated: items={}, skipped={}, errors={}",scan.items.len(),scan.skipped,scan.errors.len());
+                    }
                     Ok::<_, crate::database::DatabaseError>((my_drive_summary, shared_drives_summary, shared_summary))
                 }).await;
 
@@ -1347,6 +1370,7 @@ impl AppState {
             directory_info: false,
             github: false,
             keeper: false,
+            local_files: false,
         };
         state.set_metadata_state(MetadataState::Updating(MetadataProgress {
             selection,
