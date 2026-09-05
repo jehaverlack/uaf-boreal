@@ -156,6 +156,7 @@ struct DashboardTemplate {
     keeper_summary: database::keeper::Summary,
     local_files_enabled: bool,
     local_files_summary: database::local_files::Summary,
+    directory_summary: database::directory::DirectorySummary,
     s3_enabled: bool,
     s3_summary: database::s3::Summary,
 }
@@ -768,6 +769,7 @@ struct DriveSummariesTemplate {
     keeper_summary: database::keeper::Summary,
     local_files_enabled: bool,
     local_files_summary: database::local_files::Summary,
+    directory_summary: database::directory::DirectorySummary,
     s3_enabled: bool,
     s3_summary: database::s3::Summary,
 }
@@ -1235,6 +1237,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/assets/uaf-logo.png", get(uaf_logo))
         .route("/assets/acep-logo.png", get(acep_logo))
         .route("/assets/rclone-logo.svg", get(rclone_logo))
+        .route("/assets/google-drive-logo.svg", get(google_drive_logo))
         .route(
             "/assets/google-cloud-project-selection.png",
             get(google_cloud_project_selection),
@@ -1449,6 +1452,16 @@ async fn rclone_logo() -> impl IntoResponse {
     )
 }
 
+async fn google_drive_logo() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/svg+xml"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_bytes!("../../tmpl/html/img/google-drive-logo.svg").as_slice(),
+    )
+}
+
 async fn google_cloud_project_selection() -> impl IntoResponse {
     (
         [
@@ -1575,6 +1588,11 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         .ok()
         .and_then(|database| database::local_files::summary(&database).ok())
         .unwrap_or_default();
+    let directory_summary = state
+        .database()
+        .ok()
+        .and_then(|database| database::directory::summary(&database).ok())
+        .unwrap_or_default();
     let s3_summary = state
         .database()
         .ok()
@@ -1616,6 +1634,7 @@ async fn index(State(state): State<Arc<AppState>>) -> Result<Html<String>, Statu
         keeper_summary,
         local_files_enabled: local_files_is_enabled,
         local_files_summary,
+        directory_summary,
         s3_enabled: setup_settings.s3_enabled,
         s3_summary,
     };
@@ -4674,7 +4693,7 @@ async fn ui_google_drive_primary_nav(State(state): State<Arc<AppState>>) -> Html
         );
     }
     Html(r##"<li id="google-drive-primary-navigation" class="nav-item dropdown">
-<a class="nav-link dropdown-toggle boreal-drive-nav" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" title="Google Drive"><i class="bi bi-google me-1"></i>GDrive</a>
+<a class="nav-link dropdown-toggle boreal-drive-nav" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" title="Google Drive"><img class="boreal-service-icon me-1" src="/assets/google-drive-logo.svg" alt="">GDrive</a>
 <ul class="dropdown-menu">
 <li><a class="dropdown-item boreal-drive-nav" href="/my-drive"><i class="bi bi-person-workspace me-2"></i>My Drive</a></li>
 <li><a class="dropdown-item boreal-drive-nav" href="/shared-drives"><i class="bi bi-people-fill me-2"></i>Shared Drives</a></li>
@@ -4686,7 +4705,7 @@ async fn ui_google_drive_primary_nav(State(state): State<Arc<AppState>>) -> Html
 
 async fn ui_google_drive_launcher(State(state): State<Arc<AppState>>) -> Html<String> {
     if google_drive_enabled(&state) {
-        Html(r#"<li id="google-drive-launcher" class="nav-item"><a class="nav-link boreal-drive-nav" href="https://drive.google.com/drive/quota" target="_blank" rel="noopener noreferrer" title="Open Google Drive in a new tab" aria-label="Open Google Drive in a new tab"><i class="bi bi-google" aria-hidden="true"></i></a></li>"#.to_string())
+        Html(r#"<li id="google-drive-launcher" class="nav-item"><a class="nav-link boreal-drive-nav" href="https://drive.google.com/drive/quota" target="_blank" rel="noopener noreferrer" title="Open Google Drive in a new tab" aria-label="Open Google Drive in a new tab"><img class="boreal-service-icon" src="/assets/google-drive-logo.svg" alt="" aria-hidden="true"></a></li>"#.to_string())
     } else {
         Html("<li id=\"google-drive-launcher\" class=\"d-none\"></li>".to_string())
     }
@@ -6115,6 +6134,11 @@ async fn ui_drive_summaries(
         keeper_summary,
         local_files_enabled: local_files_is_enabled,
         local_files_summary,
+        directory_summary: state
+            .database()
+            .ok()
+            .and_then(|database| database::directory::summary(&database).ok())
+            .unwrap_or_default(),
         s3_enabled: state
             .database()
             .ok()

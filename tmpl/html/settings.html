@@ -40,7 +40,7 @@
             <div class="d-flex flex-column">
 
             <div class="card mb-3 order-3">
-                <div class="card-header fw-semibold"><i class="bi bi-google me-1"></i>Google Drive <span class="badge text-bg-secondary ms-1">Optional</span></div>
+                <div class="card-header fw-semibold boreal-google-drive-color"><img class="boreal-service-icon me-1" src="/assets/google-drive-logo.svg" alt="">Google Drive <span class="badge text-bg-secondary ms-1">Optional</span></div>
                 <div class="card-body">
                     <div class="form-check form-switch">
                         <input class="form-check-input" type="checkbox" role="switch" id="googleDriveEnabled" name="google_drive_enabled" value="true" {% if settings.google_drive_enabled %}checked{% endif %}>
@@ -52,7 +52,7 @@
 
             {% if settings.google_drive_enabled %}
             <div class="card mb-3 order-2">
-                <div class="card-header fw-semibold"><i class="bi bi-person-vcard me-1"></i>Persons</div>
+                <div class="card-header fw-semibold boreal-person-color"><i class="bi bi-person-vcard me-1"></i>Persons</div>
                 <div class="card-body">
                     <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
                         <span class="small text-body-secondary">Need a persons spreadsheet?</span>
@@ -95,7 +95,7 @@
             {% endif %}
 
             <div class="card mb-3 order-4">
-                <div class="card-header fw-semibold"><i class="bi bi-github me-1"></i>GitHub integration <span class="badge text-bg-secondary ms-1">Optional</span></div>
+                <div class="card-header fw-semibold boreal-github-color"><i class="bi bi-github me-1"></i>GitHub integration <span class="badge text-bg-secondary ms-1">Optional</span></div>
                 <div class="card-body">
                     <div class="form-check form-switch mb-3">
                         <input class="form-check-input" type="checkbox" role="switch" id="githubEnabled" name="github_enabled" value="true" {% if settings.github_enabled %}checked{% endif %}>
@@ -130,7 +130,7 @@
             </div>
 
             <div class="card mb-3" style="order: 6">
-                <div class="card-header fw-semibold"><i class="bi bi-shield-lock-fill me-1"></i>Keeper integration <span class="badge text-bg-secondary ms-1">Optional</span></div>
+                <div class="card-header fw-semibold boreal-keeper-color"><i class="bi bi-shield-lock-fill me-1"></i>Keeper integration <span class="badge text-bg-secondary ms-1">Optional</span></div>
                 <div class="card-body">
                     <div class="form-check form-switch mb-3">
                         <input class="form-check-input" type="checkbox" role="switch" id="keeperEnabled" name="keeper_enabled" value="true" {% if settings.keeper_enabled %}checked{% endif %}>
@@ -149,7 +149,7 @@
             </div>
 
             <div class="card mb-3 order-1" id="local-files">
-                <div class="card-header fw-semibold"><i class="bi bi-folder2-open me-1"></i>Local Files <span class="badge text-bg-secondary ms-1">Optional</span></div>
+                <div class="card-header fw-semibold boreal-local-files-color"><i class="bi bi-folder2-open me-1"></i>Local Files <span class="badge text-bg-secondary ms-1">Optional</span></div>
                 <div class="card-body">
                     <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" id="localFilesEnabled" name="local_files_enabled" value="true" {% if settings.local_files_enabled %}checked{% endif %}><label class="form-check-label" for="localFilesEnabled">Enable local file metadata</label></div>
                     <label class="form-label" for="localFileRoots">Folders to inventory</label><textarea class="form-control font-monospace" id="localFileRoots" name="local_file_roots" rows="3" placeholder="One absolute folder per line">{{ settings.local_file_roots }}</textarea>
@@ -162,7 +162,7 @@
             </div>
 
             <div class="card mb-3 order-5" id="s3">
-                <div class="card-header fw-semibold"><i class="bi bi-bucket me-1"></i>S3-compatible storage <span class="badge text-bg-secondary ms-1">Optional</span></div>
+                <div class="card-header fw-semibold boreal-s3-color"><i class="bi bi-bucket me-1"></i>S3-compatible storage <span class="badge text-bg-secondary ms-1">Optional</span></div>
                 <div class="card-body">
                     <div class="form-check form-switch mb-3">
                         <input class="form-check-input" type="checkbox" id="s3Enabled" name="s3_enabled" value="true" {% if settings.s3_enabled %}checked{% endif %}>

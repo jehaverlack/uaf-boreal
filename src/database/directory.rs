@@ -10,7 +10,7 @@ pub struct ImportSummary {
     pub rows_rejected: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DirectorySummary {
     pub principals: u64,
     pub organizations: u64,
