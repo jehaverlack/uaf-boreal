@@ -12,6 +12,7 @@ pub struct Row {
     pub relative_path: String,
     pub name: String,
     pub extension: String,
+    pub type_label: String,
     pub is_directory: bool,
     pub size_bytes: u64,
     pub size_label: String,
@@ -88,6 +89,8 @@ pub fn list_children(
     item_type: &str,
     size: &str,
     modified: &str,
+    owner: &str,
+    group: &str,
     tag: &str,
     duplicates_only: bool,
     sort: &str,
@@ -106,8 +109,10 @@ pub fn list_children(
         _ => "i.name COLLATE NOCASE",
     };
     let direction = if descending { "DESC" } else { "ASC" };
+    let type_expression = "(CASE WHEN i.is_directory=1 THEN 'folder' WHEN i.extension<>'' THEN i.extension ELSE 'file' END)||(CASE WHEN i.is_symlink=1 THEN ' symlink' ELSE '' END)";
+    let size_expression = "CASE WHEN i.size_bytes>=1000000000000 THEN printf('%.1f TB',i.size_bytes/1000000000000.0) WHEN i.size_bytes>=1000000000 THEN printf('%.1f GB',i.size_bytes/1000000000.0) WHEN i.size_bytes>=1000000 THEN printf('%.1f MB',i.size_bytes/1000000.0) WHEN i.size_bytes>=1000 THEN printf('%.1f KB',i.size_bytes/1000.0) ELSE CAST(i.size_bytes AS TEXT)||' B' END";
     let sql = format!(
-        "SELECT i.id,i.root_path,i.relative_path,i.name,i.extension,i.is_directory,i.size_bytes,i.modified_unix,i.checksum_sha256,CASE WHEN i.checksum_sha256='' THEN 0 ELSE (SELECT COUNT(*) FROM local_file_items d WHERE d.is_accessible=1 AND d.checksum_sha256=i.checksum_sha256) END copies,(SELECT group_concat(t.slug||char(30)||t.name||char(30)||t.color||char(30)||t.description,char(31)) FROM local_file_tags lft JOIN tags t ON t.id=lft.tag_id WHERE lft.local_file_id=i.id),i.owner_username,i.owner_identifier,COALESCE(p.id,0),COALESCE(p.display_name,''),i.group_name,i.group_identifier,i.is_symlink,i.symlink_target FROM local_file_items i LEFT JOIN principals p ON lower(p.username)=lower(i.owner_username) WHERE i.is_accessible=1 AND i.root_path=?1 AND ((?10='' AND ((?2='' AND instr(i.relative_path,'/')=0) OR (?2<>'' AND i.relative_path LIKE ?2||'/%' AND instr(substr(i.relative_path,length(?2)+2),'/')=0))) OR (?10<>'' AND (instr(lower(i.name),lower(?10))>0 OR instr(lower(i.relative_path),lower(?10))>0))) AND (?3='' OR instr(lower(i.name),lower(?3))>0) AND (?4='' OR instr(lower(i.relative_path),lower(?4))>0) AND (?5='' OR (?5='folder' AND i.is_directory=1) OR (?5='file' AND i.is_directory=0) OR lower(i.extension)=lower(?5)) AND (?6='' OR CAST(i.size_bytes AS TEXT) LIKE '%'||?6||'%') AND (?11=0 OR (?11=1 AND datetime(i.modified_unix,'unixepoch','localtime') > replace(?7,'T',' ')) OR (?11=2 AND datetime(i.modified_unix,'unixepoch','localtime') >= replace(?7,'T',' ')) OR (?11=3 AND datetime(i.modified_unix,'unixepoch','localtime') < replace(?7,'T',' ')) OR (?11=4 AND datetime(i.modified_unix,'unixepoch','localtime') <= replace(?7,'T',' ')) OR (?11=5 AND substr(datetime(i.modified_unix,'unixepoch','localtime'),1,length(?7))=replace(?7,'T',' '))) AND (?8='' OR (?8='__untagged__' AND NOT EXISTS(SELECT 1 FROM local_file_tags x WHERE x.local_file_id=i.id)) OR EXISTS(SELECT 1 FROM local_file_tags x JOIN tags xt ON xt.id=x.tag_id WHERE x.local_file_id=i.id AND xt.slug=?8)) AND (?9=0 OR (i.checksum_sha256<>'' AND (SELECT COUNT(*) FROM local_file_items d WHERE d.is_accessible=1 AND d.checksum_sha256=i.checksum_sha256)>1)) ORDER BY i.is_directory DESC,{order} {direction}"
+        "SELECT i.id,i.root_path,i.relative_path,i.name,i.extension,i.is_directory,i.size_bytes,i.modified_unix,i.checksum_sha256,CASE WHEN i.checksum_sha256='' THEN 0 ELSE (SELECT COUNT(*) FROM local_file_items d WHERE d.is_accessible=1 AND d.checksum_sha256=i.checksum_sha256) END copies,(SELECT group_concat(t.slug||char(30)||t.name||char(30)||t.color||char(30)||t.description,char(31)) FROM local_file_tags lft JOIN tags t ON t.id=lft.tag_id WHERE lft.local_file_id=i.id),i.owner_username,i.owner_identifier,COALESCE(p.id,0),COALESCE(p.display_name,''),i.group_name,i.group_identifier,i.is_symlink,i.symlink_target FROM local_file_items i LEFT JOIN principals p ON lower(p.username)=lower(i.owner_username) WHERE i.is_accessible=1 AND i.root_path=?1 AND ((?10='' AND ((?2='' AND instr(i.relative_path,'/')=0) OR (?2<>'' AND i.relative_path LIKE ?2||'/%' AND instr(substr(i.relative_path,length(?2)+2),'/')=0))) OR (?10<>'' AND (instr(lower(i.name),lower(?10))>0 OR instr(lower(i.relative_path),lower(?10))>0 OR instr(lower({type_expression}),lower(?10))>0 OR instr(lower(CAST(i.size_bytes AS TEXT)),lower(?10))>0 OR instr(lower({size_expression}),lower(?10))>0 OR instr(lower(replace(datetime(i.modified_unix,'unixepoch','localtime'),' ','T')),lower(?10))>0 OR instr(lower(i.owner_username),lower(?10))>0 OR instr(lower(i.owner_identifier),lower(?10))>0 OR instr(lower(COALESCE(p.display_name,'')),lower(?10))>0 OR instr(lower(i.group_name),lower(?10))>0 OR instr(lower(i.group_identifier),lower(?10))>0))) AND (?3='' OR instr(lower(i.name),lower(?3))>0) AND (?4='' OR instr(lower(i.relative_path),lower(?4))>0) AND (?5='' OR instr(lower({type_expression}),lower(?5))>0) AND (?6='' OR instr(lower(CAST(i.size_bytes AS TEXT)),lower(?6))>0 OR instr(lower({size_expression}),lower(?6))>0) AND (?11=0 OR (?11=1 AND datetime(i.modified_unix,'unixepoch','localtime') > replace(?7,'T',' ')) OR (?11=2 AND datetime(i.modified_unix,'unixepoch','localtime') >= replace(?7,'T',' ')) OR (?11=3 AND datetime(i.modified_unix,'unixepoch','localtime') < replace(?7,'T',' ')) OR (?11=4 AND datetime(i.modified_unix,'unixepoch','localtime') <= replace(?7,'T',' ')) OR (?11=5 AND substr(datetime(i.modified_unix,'unixepoch','localtime'),1,length(?7))=replace(?7,'T',' '))) AND (?12='' OR instr(lower(i.owner_username),lower(?12))>0 OR instr(lower(i.owner_identifier),lower(?12))>0 OR instr(lower(COALESCE(p.display_name,'')),lower(?12))>0) AND (?13='' OR instr(lower(i.group_name),lower(?13))>0 OR instr(lower(i.group_identifier),lower(?13))>0) AND (?8='' OR (?8='__untagged__' AND NOT EXISTS(SELECT 1 FROM local_file_tags x WHERE x.local_file_id=i.id)) OR EXISTS(SELECT 1 FROM local_file_tags x JOIN tags xt ON xt.id=x.tag_id WHERE x.local_file_id=i.id AND xt.slug=?8)) AND (?9=0 OR (i.checksum_sha256<>'' AND (SELECT COUNT(*) FROM local_file_items d WHERE d.is_accessible=1 AND d.checksum_sha256=i.checksum_sha256)>1)) ORDER BY i.is_directory DESC,{order} {direction}"
     );
     let mut s = c.prepare(&sql)?;
     let rows = s.query_map(
@@ -122,7 +127,9 @@ pub fn list_children(
             tag,
             duplicates_only,
             search,
-            modified_comparison
+            modified_comparison,
+            owner,
+            group
         ],
         |r| {
             let bytes = r.get::<_, i64>(6)? as u64;
@@ -140,6 +147,7 @@ pub fn list_children(
                 relative_path,
                 name: r.get(3)?,
                 icon_class: file_icon_class(&extension),
+                type_label: item_type_label(is_directory, r.get(17)?, &extension),
                 extension,
                 is_directory,
                 size_bytes: bytes,
@@ -161,6 +169,21 @@ pub fn list_children(
         },
     )?;
     Ok(rows.collect::<Result<_, _>>()?)
+}
+
+fn item_type_label(is_directory: bool, is_symlink: bool, extension: &str) -> String {
+    let base = if is_directory {
+        "Folder".to_string()
+    } else if extension.is_empty() {
+        "File".to_string()
+    } else {
+        extension.to_ascii_uppercase()
+    };
+    if is_symlink {
+        format!("{base} symlink")
+    } else {
+        base
+    }
 }
 
 fn parse_modified_filter(filter: &str) -> Result<(i64, String), DatabaseError> {

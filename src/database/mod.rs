@@ -929,6 +929,8 @@ mod tests {
             "",
             "",
             "",
+            "",
+            "",
             false,
             "name",
             false,
@@ -947,6 +949,8 @@ mod tests {
             "",
             "",
             "",
+            "",
+            "",
             false,
             "name",
             false,
@@ -955,6 +959,69 @@ mod tests {
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].group_name, "research");
         assert_eq!(matches[0].owner_principal_id, 0);
+
+        for (search, expected) in [
+            ("PDF", 1),
+            ("42 B", 2),
+            ("jsmith", 2),
+            ("research", 2),
+            (matches[0].modified_label.as_str(), 2),
+        ] {
+            let broad_matches = local_files::list_children(
+                &database,
+                "/inventory",
+                "",
+                search,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                false,
+                "name",
+                false,
+            )
+            .expect("full-tree detail search should succeed");
+            assert_eq!(
+                broad_matches.len(),
+                expected,
+                "search should match: {search}"
+            );
+        }
+
+        for (label, item_type, owner, group, expected) in [
+            ("type", "pdf", "", "", 1),
+            ("owner", "", "jsmith", "", 1),
+            ("group", "", "", "research", 1),
+            ("combined", "pdf", "jsmith", "research", 1),
+        ] {
+            let filtered = local_files::list_children(
+                &database,
+                "/inventory",
+                "nested/reports",
+                "",
+                "",
+                "",
+                item_type,
+                "",
+                "",
+                owner,
+                group,
+                "",
+                false,
+                "name",
+                false,
+            )
+            .expect("type, owner, and group filters should succeed");
+            assert_eq!(
+                filtered.len(),
+                expected,
+                "column filter should match: {label}"
+            );
+        }
 
         let principal_id = directory::save_manual_principal(
             &database,
@@ -974,6 +1041,8 @@ mod tests {
             "/inventory",
             "",
             "annual report",
+            "",
+            "",
             "",
             "",
             "",

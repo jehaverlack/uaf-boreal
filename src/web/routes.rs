@@ -1179,6 +1179,10 @@ struct LocalFilesQuery {
     #[serde(default)]
     modified: String,
     #[serde(default)]
+    owner: String,
+    #[serde(default)]
+    group: String,
+    #[serde(default)]
     tag: String,
     #[serde(default)]
     duplicates: bool,
@@ -4922,6 +4926,8 @@ async fn local_files_page(
             &query.item_type,
             &query.size,
             &query.modified,
+            &query.owner,
+            &query.group,
             &query.tag,
             query.duplicates,
             &query.sort,
@@ -5079,7 +5085,7 @@ async fn associate_local_file_owner(
 
 fn local_files_redirect(q: &LocalFilesQuery) -> String {
     format!(
-        "/local-files?root={}&path={}&q={}&name={}&path_filter={}&item_type={}&size={}&modified={}&tag={}&duplicates={}&sort={}&direction={}&owner_saved={}&owner_error={}",
+        "/local-files?root={}&path={}&q={}&name={}&path_filter={}&item_type={}&size={}&modified={}&owner={}&group={}&tag={}&duplicates={}&sort={}&direction={}&owner_saved={}&owner_error={}",
         q.root,
         url_component(&q.path),
         url_component(&q.q),
@@ -5088,6 +5094,8 @@ fn local_files_redirect(q: &LocalFilesQuery) -> String {
         url_component(&q.item_type),
         url_component(&q.size),
         url_component(&q.modified),
+        url_component(&q.owner),
+        url_component(&q.group),
         url_component(&q.tag),
         q.duplicates,
         url_component(&q.sort),
