@@ -11,6 +11,66 @@ use crate::bootstrap::Runtime;
 
 use super::{RcloneError, config};
 
+/// Detect Rclone processes which already exist before BOREAL starts its own
+/// managed WebGUI. This is advisory only: BOREAL must not terminate a process
+/// which may belong to the user or another application.
+pub fn existing_process_warning(executable: &Path) -> Option<String> {
+    let processes = existing_processes(executable);
+    (!processes.is_empty()).then(|| {
+        format!(
+            "Existing Rclone process{} detected before BOREAL startup ({}). Stop stale processes before restarting BOREAL; click for safe instructions.",
+            if processes.len() == 1 { "" } else { "es" },
+            processes.join(", ")
+        )
+    })
+}
+
+#[cfg(unix)]
+fn existing_processes(executable: &Path) -> Vec<String> {
+    let output = Command::new("ps").args(["-axo", "pid=,command="]).output();
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    let executable_name = executable
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("rclone");
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            let (pid, command) = trimmed.split_once(char::is_whitespace)?;
+            let program = command.trim_start().split_whitespace().next().unwrap_or("");
+            (Path::new(program)
+                .file_name()
+                .and_then(|name| name.to_str())
+                == Some(executable_name))
+            .then(|| format!("PID {pid}"))
+        })
+        .take(5)
+        .collect()
+}
+
+#[cfg(windows)]
+fn existing_processes(_executable: &Path) -> Vec<String> {
+    let output = Command::new("tasklist")
+        .args(["/FI", "IMAGENAME eq rclone.exe", "/FO", "CSV", "/NH"])
+        .output();
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| line.to_ascii_lowercase().contains("rclone.exe"))
+        .filter_map(|line| {
+            line.split(',')
+                .nth(1)
+                .map(|pid| format!("PID {}", pid.trim_matches('"')))
+        })
+        .take(5)
+        .collect()
+}
+
 /// Start Rclone's WebGUI as a child of BOREAL.
 pub fn start(runtime: &Runtime, executable: &Path) -> Result<(Child, String), RcloneError> {
     let config_path = config::path(runtime)?;

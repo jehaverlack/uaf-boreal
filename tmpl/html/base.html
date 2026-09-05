@@ -631,6 +631,20 @@
 
     {% include "partials/google-client-modal.html" %}
 
+    <div class="modal fade" id="rcloneProcessHelpModal" tabindex="-1" aria-labelledby="rcloneProcessHelpTitle" aria-hidden="true">
+        <div class="modal-dialog modal-lg"><div class="modal-content">
+            <div class="modal-header"><h2 class="modal-title fs-5" id="rcloneProcessHelpTitle"><i class="bi bi-exclamation-triangle text-warning me-2"></i>Existing Rclone process detected</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+            <div class="modal-body">
+                <p>An Rclone process was already running before this BOREAL session. It may be left over from an earlier BOREAL run, but it could also belong to another application or an active transfer.</p>
+                <div class="alert alert-warning"><strong>Before stopping it:</strong> confirm that no Rclone transfer, mount, or other application is using the process. BOREAL will not stop it automatically.</div>
+                <h3 class="h6">Linux or macOS</h3><p>Open Terminal and identify the process:</p><pre class="border rounded bg-body-tertiary p-2"><code>ps -ax -o pid=,command= | grep '[r]clone'</code></pre><p>After confirming the PID is stale, request a normal shutdown:</p><pre class="border rounded bg-body-tertiary p-2"><code>kill -TERM &lt;PID&gt;</code></pre>
+                <h3 class="h6">Windows PowerShell</h3><p>Identify existing Rclone processes:</p><pre class="border rounded bg-body-tertiary p-2"><code>Get-Process rclone</code></pre><p>After confirming the PID is stale, request that it stop:</p><pre class="border rounded bg-body-tertiary p-2"><code>Stop-Process -Id &lt;PID&gt;</code></pre>
+                <p class="mb-0">After the stale process has stopped, quit and restart BOREAL. If the process belongs to another application, leave it running; current BOREAL builds use automatically selected WebGUI ports.</p>
+            </div>
+            <div class="modal-footer"><button type="button" class="btn btn-primary" data-bs-dismiss="modal">Close</button></div>
+        </div></div>
+    </div>
+
     <div
         class="modal fade"
         id="metadataUpdateModal"

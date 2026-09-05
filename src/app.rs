@@ -242,6 +242,9 @@ impl AppState {
 
                     println!("Rclone path: {}", status.path.display());
 
+                    status.existing_process_warning =
+                        rclone::gui::existing_process_warning(&status.path).unwrap_or_default();
+
                     match state.rclone_gui.lock() {
                         Ok(mut gui) => {
                             if *state.shutdown_tx.borrow() {

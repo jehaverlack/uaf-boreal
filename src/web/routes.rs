@@ -6465,7 +6465,17 @@ fn build_alerts(
             });
         }
 
-        RcloneState::Ready(_) => {}
+        RcloneState::Ready(status) => {
+            if !status.existing_process_warning.is_empty() {
+                alerts.push(AlertItem {
+                    level: "warning",
+                    icon: "bi-exclamation-triangle",
+                    message: status.existing_process_warning.clone(),
+                    modal_target: "rcloneProcessHelpModal",
+                    dismiss_action: "",
+                });
+            }
+        }
 
         RcloneState::Error(error) => {
             alerts.push(AlertItem {
