@@ -29,6 +29,12 @@ pub struct Database {
     path: PathBuf,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MetadataTimingEstimate {
+    pub average_seconds: u64,
+    pub sample_count: u64,
+}
+
 impl Database {
     /// Initialize BOREAL's SQLite database and apply all pending migrations.
     pub fn initialize(runtime: &Runtime) -> Result<Self, DatabaseError> {
@@ -115,6 +121,39 @@ impl Database {
         )?;
         Ok(())
     }
+
+    pub fn record_metadata_timing(
+        &self,
+        source: &str,
+        duration_seconds: u64,
+    ) -> Result<(), DatabaseError> {
+        let connection = self.connect()?;
+        connection.execute(
+            "INSERT INTO metadata_timing_history(source, duration_seconds)
+             VALUES (?1, ?2)",
+            params![source, duration_seconds.max(1) as i64],
+        )?;
+        Ok(())
+    }
+
+    pub fn metadata_timing_estimate(
+        &self,
+        source: &str,
+    ) -> Result<Option<MetadataTimingEstimate>, DatabaseError> {
+        let connection = self.connect()?;
+        let (average, count) = connection.query_row(
+            "SELECT COALESCE(AVG(duration_seconds), 0), COUNT(*) FROM (
+                 SELECT duration_seconds FROM metadata_timing_history
+                 WHERE source = ?1 ORDER BY id DESC LIMIT 5
+             )",
+            [source],
+            |row| Ok((row.get::<_, f64>(0)?, row.get::<_, i64>(1)?)),
+        )?;
+        Ok((count > 0).then_some(MetadataTimingEstimate {
+            average_seconds: average.round() as u64,
+            sample_count: count as u64,
+        }))
+    }
 }
 
 fn path(runtime: &Runtime) -> Result<PathBuf, DatabaseError> {
@@ -191,7 +230,7 @@ mod tests {
             })
             .expect("migration count should be readable");
 
-        assert_eq!(migration_count, 33,);
+        assert_eq!(migration_count, 35,);
 
         let safe_to_delete_scope_count: i64 = connection
             .query_row(
@@ -202,16 +241,16 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("migrated tag scopes should be readable");
-        assert_eq!(safe_to_delete_scope_count, 4);
+        assert_eq!(safe_to_delete_scope_count, 5);
 
         for (slug, expected_scope_count) in [
             ("data-loss-risk", 1_i64),
             ("access-review", 1_i64),
-            ("needs-review", 5_i64),
-            ("permission-review", 4_i64),
-            ("needs-handoff", 4_i64),
-            ("retain", 5_i64),
-            ("to-delete", 4_i64),
+            ("needs-review", 6_i64),
+            ("permission-review", 5_i64),
+            ("needs-handoff", 6_i64),
+            ("retain", 6_i64),
+            ("to-delete", 5_i64),
             ("to-migrate", 2_i64),
             ("migrated", 2_i64),
             ("remove-my-permissions", 4_i64),
@@ -238,7 +277,7 @@ mod tests {
         assert_eq!(safe_to_delete_tag.0, "Safe to Delete");
         assert_eq!(
             safe_to_delete_tag.1,
-            "Content the user has reviewed and marked as ready for manual deletion from Google Drive."
+            "Content the user has reviewed and marked as ready for manual deletion from its source location."
         );
         assert_eq!(safe_to_delete_tag.2, "#198754");
 
@@ -300,6 +339,7 @@ mod tests {
             "directory_sources",
             "directory_import_runs",
             "remote_accounts",
+            "metadata_timing_history",
             "s3_objects",
             "shared_drives",
             "shared_drive_tags",
@@ -769,6 +809,30 @@ mod tests {
     }
 
     #[test]
+    fn averages_the_five_most_recent_metadata_timings() {
+        let root = temporary_directory();
+        let database = Database::initialize(&runtime(&root)).expect("database should initialize");
+        for seconds in [10, 20, 30, 40, 50, 60] {
+            database
+                .record_metadata_timing("local-files", seconds)
+                .expect("timing should save");
+        }
+        let estimate = database
+            .metadata_timing_estimate("local-files")
+            .expect("estimate should load")
+            .expect("history should produce an estimate");
+        assert_eq!(estimate.average_seconds, 40);
+        assert_eq!(estimate.sample_count, 5);
+        assert!(
+            database
+                .metadata_timing_estimate("unknown")
+                .expect("missing estimate should load")
+                .is_none()
+        );
+        fs::remove_dir_all(root).expect("temporary database directory should be removable");
+    }
+
+    #[test]
     fn manual_directory_entries_can_be_created_and_edited() {
         let root = temporary_directory();
         let database = Database::initialize(&runtime(&root)).expect("database should initialize");
@@ -817,22 +881,60 @@ mod tests {
         let database = Database::initialize(&runtime(&root)).expect("database should initialize");
         local_files::synchronize(
             &database,
-            &[crate::local_files::Item {
-                root_path: "/inventory".to_string(),
-                relative_path: "nested/reports/Annual Report.pdf".to_string(),
-                name: "Annual Report.pdf".to_string(),
-                extension: "pdf".to_string(),
-                is_directory: false,
-                size_bytes: 42,
-                modified_unix: 1,
-                checksum_sha256: String::new(),
-                owner_username: "jsmith".to_string(),
-                owner_identifier: "1001".to_string(),
-                group_name: "research".to_string(),
-                group_identifier: "2001".to_string(),
-            }],
+            &[
+                crate::local_files::Item {
+                    root_path: "/inventory".to_string(),
+                    relative_path: "nested".to_string(),
+                    name: "nested".to_string(),
+                    extension: String::new(),
+                    is_directory: true,
+                    size_bytes: 0,
+                    modified_unix: 1,
+                    checksum_sha256: String::new(),
+                    is_symlink: false,
+                    symlink_target: String::new(),
+                    owner_username: "jsmith".to_string(),
+                    owner_identifier: "1001".to_string(),
+                    group_name: "research".to_string(),
+                    group_identifier: "2001".to_string(),
+                },
+                crate::local_files::Item {
+                    root_path: "/inventory".to_string(),
+                    relative_path: "nested/reports/Annual Report.pdf".to_string(),
+                    name: "Annual Report.pdf".to_string(),
+                    extension: "pdf".to_string(),
+                    is_directory: false,
+                    size_bytes: 42,
+                    modified_unix: 1,
+                    checksum_sha256: String::new(),
+                    is_symlink: false,
+                    symlink_target: String::new(),
+                    owner_username: "jsmith".to_string(),
+                    owner_identifier: "1001".to_string(),
+                    group_name: "research".to_string(),
+                    group_identifier: "2001".to_string(),
+                },
+            ],
         )
         .expect("local inventory should synchronize");
+
+        let root_items = local_files::list_children(
+            &database,
+            "/inventory",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            false,
+            "name",
+            false,
+        )
+        .expect("root directory should load");
+        assert_eq!(root_items[0].size_bytes, 42);
 
         let matches = local_files::list_children(
             &database,

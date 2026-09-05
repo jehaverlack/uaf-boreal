@@ -90,6 +90,8 @@
         .boreal-col-modified { width: 12rem; }
         .boreal-col-owner { width: 11rem; }
         .boreal-col-permissions { width: 14rem; }
+        .boreal-local-select-col { width: 2.5rem; }
+        .boreal-local-name-col { width: 42%; }
         .boreal-shared-name { width: 30%; }
         .boreal-shared-tags { width: 9rem; }
         .boreal-shared-count { width: 5.5rem; }
@@ -831,7 +833,11 @@
             const metadataModal = metadataModalElement
                 ? bootstrap.Modal.getOrCreateInstance(metadataModalElement)
                 : null;
-            let metadataModalDismissed = false;
+            const metadataBackgroundKey = "boreal.metadata.continueInBackground";
+            let metadataModalDismissed = (() => {
+                try { return window.sessionStorage.getItem(metadataBackgroundKey) === "true"; }
+                catch (_error) { return false; }
+            })();
             let metadataRefreshPending = false;
 
             async function replaceFromEndpoint(url, selector) {
@@ -852,6 +858,40 @@
                     "/ui/download-status-item",
                     '[data-status-label="Download"]',
                 );
+
+            function refreshMetadataEstimate() {
+                if (!metadataModalElement) return;
+                const output = metadataModalElement.querySelector("#metadata-selected-estimate");
+                if (!output) return;
+                const selected = Array.from(
+                    metadataModalElement.querySelectorAll('input[type="checkbox"][data-estimated-seconds]:checked'),
+                );
+                const specificDrive = metadataModalElement.querySelector(
+                    'input[name="specific_shared_drive_url"][data-estimated-seconds]',
+                );
+                if (specificDrive?.value.trim()) selected.push(specificDrive);
+                if (selected.length === 0) {
+                    output.textContent = "Select a metadata source";
+                    return;
+                }
+                const seconds = selected.reduce(
+                    (total, input) => total + Number(input.dataset.estimatedSeconds || 0),
+                    0,
+                );
+                const missing = selected.filter(
+                    (input) => Number(input.dataset.estimatedSeconds || 0) <= 0,
+                ).length;
+                const duration = seconds >= 3600
+                    ? `${Math.floor(seconds / 3600)}h ${Math.ceil((seconds % 3600) / 60)}m`
+                    : seconds >= 60
+                        ? `${Math.ceil(seconds / 60)} minutes`
+                        : `${Math.max(1, seconds)} seconds`;
+                output.textContent = seconds === 0
+                    ? "Learning from completed updates"
+                    : missing > 0
+                        ? `About ${duration}, plus ${missing} source${missing === 1 ? "" : "s"} without history`
+                        : `About ${duration}`;
+            }
 
             async function refreshMetadataUi() {
                 if (!document.querySelector("#boreal-drive-summaries")) {
@@ -881,11 +921,21 @@
                     const isUpdating = parsed
                         .querySelector("#metadata-update-modal-content")
                         ?.dataset.updating === "true";
+                    const wasBackgrounded = metadataModalDismissed;
+                    if (!isUpdating) {
+                        try { window.sessionStorage.removeItem(metadataBackgroundKey); } catch (_error) {}
+                    }
                     const completed = parsed
                         .querySelector("#metadata-update-modal-content")
                         ?.dataset.complete === "true";
                     modalContent.innerHTML = responseHtml;
+                    refreshMetadataEstimate();
                     if (wasUpdating && !isUpdating && completed) {
+                        metadataModalDismissed = false;
+                        if (wasBackgrounded) {
+                            if (document.querySelector("#boreal-drive-summaries")) refreshMetadataUi();
+                            return;
+                        }
                         metadataRefreshPending = true;
                         modalContent.innerHTML = `
                             <div class="modal-header">
@@ -896,6 +946,7 @@
                             <div class="modal-footer"><button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button></div>`;
                         return;
                     }
+                    if (!isUpdating) metadataModalDismissed = false;
                     const updating = metadataModalElement
                         .querySelector("#metadata-update-modal-content")
                         ?.dataset.updating === "true";
@@ -906,6 +957,13 @@
             }
 
             if (metadataModalElement) {
+                metadataModalElement.addEventListener("input", refreshMetadataEstimate);
+                metadataModalElement.addEventListener("change", refreshMetadataEstimate);
+                metadataModalElement.addEventListener("click", (event) => {
+                    if (!event.target.closest("[data-metadata-background]")) return;
+                    metadataModalDismissed = true;
+                    try { window.sessionStorage.setItem(metadataBackgroundKey, "true"); } catch (_error) {}
+                });
                 metadataModalElement.addEventListener("hide.bs.modal", () => {
                     metadataModalDismissed = true;
                 });
@@ -924,7 +982,10 @@
                     const button = event.target.querySelector("button[type=submit]");
                     const selectedSources = Array.from(event.target.elements)
                         .filter((control) => control.type === "checkbox" && control.checked);
-                    if (selectedSources.length === 0) {
+                    const specificDriveSelected = String(
+                        new FormData(event.target).get("specific_shared_drive_url") || "",
+                    ).trim().length > 0;
+                    if (selectedSources.length === 0 && !specificDriveSelected) {
                         button.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Select at least one';
                         return;
                     }
@@ -937,6 +998,7 @@
                         });
                         if (!response.ok) throw new Error("Unable to start metadata update");
                         metadataModalDismissed = false;
+                        try { window.sessionStorage.removeItem(metadataBackgroundKey); } catch (_error) {}
                         await refreshMetadataModal(false);
                     } catch (_error) {
                         button.disabled = false;

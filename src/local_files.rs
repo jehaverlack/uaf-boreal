@@ -19,6 +19,8 @@ pub struct Item {
     pub size_bytes: u64,
     pub modified_unix: i64,
     pub checksum_sha256: String,
+    pub is_symlink: bool,
+    pub symlink_target: String,
     pub owner_username: String,
     pub owner_identifier: String,
     pub group_name: String,
@@ -49,7 +51,15 @@ pub fn scan(
     let mut result = ScanResult::default();
     let mut ownership = OwnershipCache::default();
     for root in &options.roots {
-        walk(root, root, options, &mut ownership, &mut result);
+        let mut visited = HashSet::new();
+        walk(
+            root,
+            root,
+            options,
+            &mut ownership,
+            &mut visited,
+            &mut result,
+        );
     }
     let mut sizes = HashMap::<u64, usize>::new();
     for item in &result.items {
@@ -94,13 +104,23 @@ fn walk(
     directory: &Path,
     options: &ScanOptions,
     ownership: &mut OwnershipCache,
+    visited: &mut HashSet<PathBuf>,
     result: &mut ScanResult,
 ) {
+    let canonical_directory = directory.canonicalize().ok();
+    if let Some(canonical) = &canonical_directory {
+        if canonical.starts_with(&options.boreal_home) || !visited.insert(canonical.clone()) {
+            return;
+        }
+    }
     let entries = match fs::read_dir(directory) {
         Ok(v) => v,
         Err(e) => {
             result.skipped += 1;
             result.errors.push(format!("{}: {e}", directory.display()));
+            if let Some(canonical) = &canonical_directory {
+                visited.remove(canonical);
+            }
             return;
         }
     };
@@ -113,7 +133,7 @@ fn walk(
             result.skipped += 1;
             continue;
         }
-        let metadata = match fs::symlink_metadata(&path) {
+        let link_metadata = match fs::symlink_metadata(&path) {
             Ok(v) => v,
             Err(e) => {
                 result.skipped += 1;
@@ -121,10 +141,17 @@ fn walk(
                 continue;
             }
         };
-        if metadata.file_type().is_symlink() {
-            result.skipped += 1;
-            continue;
-        }
+        let is_symlink = link_metadata.file_type().is_symlink();
+        let symlink_target = if is_symlink {
+            symlink_target(&path)
+        } else {
+            String::new()
+        };
+        let metadata = if is_symlink {
+            fs::metadata(&path).unwrap_or(link_metadata)
+        } else {
+            link_metadata
+        };
         let is_directory = metadata.is_dir();
         let modified_unix = metadata
             .modified()
@@ -147,15 +174,36 @@ fn walk(
             size_bytes: if is_directory { 0 } else { metadata.len() },
             modified_unix,
             checksum_sha256: String::new(),
+            is_symlink,
+            symlink_target,
             owner_username,
             owner_identifier,
             group_name,
             group_identifier,
         });
         if is_directory {
-            walk(root, &path, options, ownership, result);
+            walk(root, &path, options, ownership, visited, result);
         }
     }
+    if let Some(canonical) = &canonical_directory {
+        visited.remove(canonical);
+    }
+}
+
+fn symlink_target(path: &Path) -> String {
+    let Ok(target) = fs::read_link(path) else {
+        return String::new();
+    };
+    let resolved = if target.is_absolute() {
+        target
+    } else {
+        path.parent().unwrap_or_else(|| Path::new("")).join(target)
+    };
+    resolved
+        .canonicalize()
+        .unwrap_or(resolved)
+        .to_string_lossy()
+        .into_owned()
 }
 
 #[cfg(unix)]
@@ -376,5 +424,54 @@ mod tests {
     fn rejects_missing_roots() {
         let path = std::env::temp_dir().join(format!("boreal-missing-{}", std::process::id()));
         assert!(validate_roots(&[path]).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn inventories_and_follows_directory_symlinks_without_cycles() {
+        use std::os::unix::fs::symlink;
+
+        let parent = std::env::temp_dir().join(format!(
+            "boreal-symlink-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock should be valid")
+                .as_nanos()
+        ));
+        let root = parent.join("root");
+        let target = parent.join("target");
+        fs::create_dir_all(&root).expect("root should be created");
+        fs::create_dir_all(&target).expect("target should be created");
+        fs::write(target.join("note.txt"), b"hello").expect("target file should be written");
+        symlink(&target, root.join("linked")).expect("directory symlink should be created");
+        symlink(&root, target.join("cycle")).expect("cycle symlink should be created");
+
+        let result = scan(
+            &ScanOptions {
+                roots: vec![root],
+                exclude_hidden: false,
+                exclude_caches: false,
+                exclude_temporary: false,
+                exclude_patterns: Vec::new(),
+                boreal_home: parent.join("boreal-home"),
+            },
+            &HashMap::new(),
+        );
+        let link = result
+            .items
+            .iter()
+            .find(|item| item.relative_path == "linked")
+            .expect("symlink should be inventoried");
+        assert!(link.is_symlink);
+        assert!(link.is_directory);
+        assert_eq!(link.symlink_target, target.to_string_lossy());
+        assert!(
+            result
+                .items
+                .iter()
+                .any(|item| item.relative_path == "linked/note.txt")
+        );
+        fs::remove_dir_all(parent).expect("test directory should be removable");
     }
 }

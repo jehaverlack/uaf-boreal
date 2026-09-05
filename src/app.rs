@@ -2,6 +2,7 @@ use std::{
     collections::HashSet,
     path::PathBuf,
     sync::{Arc, Mutex, RwLock},
+    time::Instant,
 };
 
 use std::process::Child;
@@ -965,6 +966,8 @@ impl AppState {
                     }
                     }
                     if let Some(sheet_url) = directory_sheet_url.as_deref() {
+                        let timing_started = Instant::now();
+                        let mut timing_complete = false;
                         worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
                             selection,
                             phase: "Downloading directory spreadsheet".to_string(),
@@ -993,15 +996,18 @@ impl AppState {
                                     sheet_url,
                                     &csv,
                                 ) {
-                                    Ok(summary) => log::info!(
-                                        "Linked directory spreadsheet imported: spreadsheet_id={}, gid={}, rows={}, created={}, updated={}, rejected={}",
-                                        location.spreadsheet_id,
-                                        location.gid,
-                                        summary.rows_seen,
-                                        summary.rows_created,
-                                        summary.rows_updated,
-                                        summary.rows_rejected,
-                                    ),
+                                    Ok(summary) => {
+                                        timing_complete = true;
+                                        log::info!(
+                                            "Linked directory spreadsheet imported: spreadsheet_id={}, gid={}, rows={}, created={}, updated={}, rejected={}",
+                                            location.spreadsheet_id,
+                                            location.gid,
+                                            summary.rows_seen,
+                                            summary.rows_created,
+                                            summary.rows_updated,
+                                            summary.rows_rejected,
+                                        )
+                                    },
                                     Err(error) => {
                                         log::error!("Linked directory spreadsheet import failed: {error}");
                                         let _ = database::directory::record_linked_sheet_failure(
@@ -1021,7 +1027,14 @@ impl AppState {
                                 );
                             }
                         }
+                        if timing_complete {
+                            let _ = database.record_metadata_timing(
+                                "directory",
+                                timing_started.elapsed().as_secs(),
+                            );
+                        }
                     }
+                    let my_drive_timing = selection.my_drive.then(Instant::now);
                     let items = if selection.my_drive {
                         worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
                             selection,
@@ -1074,6 +1087,10 @@ impl AppState {
                         permission_scanning,
                     )?
                     } else { database::inventory::latest_summary(&database)?.unwrap_or_default() };
+                    if let Some(started) = my_drive_timing {
+                        let _ = database.record_metadata_timing("my-drive", started.elapsed().as_secs());
+                    }
+                    let shared_with_me_timing = selection.shared_with_me.then(Instant::now);
                     let shared_items = if selection.shared_with_me {
                     worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
                         selection,
@@ -1111,8 +1128,12 @@ impl AppState {
                     } else {
                         database::inventory::latest_summary_for(&database, "shared-with-me")?.unwrap_or_default()
                     };
+                    if let Some(started) = shared_with_me_timing {
+                        let _ = database.record_metadata_timing("shared-with-me", started.elapsed().as_secs());
+                    }
                     let mut shared_drives_summary = database::inventory::InventorySummary::default();
                     if selection.shared_drives || selection.specific_shared_drive {
+                    let shared_drives_timing = Instant::now();
                     worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
                         selection,
                         phase: "Discovering Shared Drives".to_string(),
@@ -1250,8 +1271,18 @@ impl AppState {
                     if selection.shared_drives {
                         database.complete_scan_run(shared_drives_scan_id, &shared_drives_summary)?;
                     }
+                    let timing_source = if selection.specific_shared_drive {
+                        "specific-shared-drive"
+                    } else {
+                        "shared-drives"
+                    };
+                    let _ = database.record_metadata_timing(
+                        timing_source,
+                        shared_drives_timing.elapsed().as_secs(),
+                    );
                     }
                     if selection.github {
+                        let timing_started = Instant::now();
                         worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
                             selection,
                             phase: "Fetching GitHub repository metadata".to_string(),
@@ -1264,9 +1295,11 @@ impl AppState {
                         let repositories = crate::github::client::repositories(&worker_state.runtime)
                             .map_err(|error| -> crate::database::DatabaseError { error })?;
                         database::github::synchronize(&database, &repositories)?;
+                        let _ = database.record_metadata_timing("github", timing_started.elapsed().as_secs());
                         log::info!("GitHub repository metadata updated: repositories={}", repositories.len());
                     }
                     if selection.keeper {
+                        let timing_started = Instant::now();
                         worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
                             selection,
                             phase: "Fetching Keeper shared-folder metadata".to_string(),
@@ -1282,9 +1315,11 @@ impl AppState {
                         )
                         .map_err(|error| -> crate::database::DatabaseError { error })?;
                         crate::database::keeper::synchronize(&database, &folders)?;
+                        let _ = database.record_metadata_timing("keeper", timing_started.elapsed().as_secs());
                         log::info!("Keeper shared-folder metadata updated: folders={}", folders.len());
                     }
                     if selection.local_files {
+                        let timing_started = Instant::now();
                         worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress { selection, phase:"Scanning local files".to_string(), files_scanned:0, folders_scanned:0, permissions_scanned:0, bytes_discovered:0, errors:0 }));
                         let roots=crate::local_files::parse_roots(&inventory_settings.local_file_roots);
                         crate::local_files::validate_roots(&roots).map_err(|e| -> crate::database::DatabaseError { e.into() })?;
@@ -1292,9 +1327,11 @@ impl AppState {
                         let cache=crate::database::local_files::checksum_cache(&database)?;
                         let scan=crate::local_files::scan(&options,&cache);
                         crate::database::local_files::synchronize(&database,&scan.items)?;
+                        let _ = database.record_metadata_timing("local-files", timing_started.elapsed().as_secs());
                         log::info!("Local Files metadata updated: items={}, skipped={}, errors={}",scan.items.len(),scan.skipped,scan.errors.len());
                     }
                     if selection.s3 {
+                        let timing_started = Instant::now();
                         worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress { selection, phase:"Fetching S3 object metadata".to_string(), files_scanned:0, folders_scanned:0, permissions_scanned:0, bytes_discovered:0, errors:0 }));
                         let objects = crate::s3::inventory(
                             &worker_state.runtime,
@@ -1306,6 +1343,7 @@ impl AppState {
                             inventory_settings.s3_remote_name.trim().trim_end_matches(':'),
                             &objects,
                         )?;
+                        let _ = database.record_metadata_timing("s3", timing_started.elapsed().as_secs());
                         log::info!("S3 metadata updated: remote={}, objects={}", inventory_settings.s3_remote_name, objects.len());
                     }
                     Ok::<_, crate::database::DatabaseError>((my_drive_summary, shared_drives_summary, shared_summary))

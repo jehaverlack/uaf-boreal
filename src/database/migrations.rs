@@ -174,6 +174,16 @@ const MIGRATIONS: &[Migration] = &[
         name: "local_file_ownership",
         sql: include_str!("migrations/0033_local_file_ownership.sql"),
     },
+    Migration {
+        version: 34,
+        name: "local_file_details_and_tag_scopes",
+        sql: include_str!("migrations/0034_local_file_details_and_tag_scopes.sql"),
+    },
+    Migration {
+        version: 35,
+        name: "metadata_timing_history",
+        sql: include_str!("migrations/0035_metadata_timing_history.sql"),
+    },
 ];
 
 pub fn apply(connection: &mut Connection) -> Result<(), DatabaseError> {

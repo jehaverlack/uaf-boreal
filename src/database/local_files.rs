@@ -2,6 +2,7 @@ use super::{Database, DatabaseError, inventory::Tag};
 use crate::local_files::Item;
 use rusqlite::params;
 use std::collections::HashMap;
+use std::path::Path;
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -17,6 +18,10 @@ pub struct Row {
     pub modified_unix: i64,
     pub modified_label: String,
     pub checksum_sha256: String,
+    pub is_symlink: bool,
+    pub symlink_target: String,
+    pub full_path: String,
+    pub icon_class: &'static str,
     pub owner_username: String,
     pub owner_identifier: String,
     pub owner_principal_id: i64,
@@ -55,8 +60,20 @@ pub fn synchronize(db: &Database, items: &[Item]) -> Result<(), DatabaseError> {
     let tx = c.transaction()?;
     tx.execute("UPDATE local_file_items SET is_accessible=0", [])?;
     for i in items {
-        tx.execute("INSERT INTO local_file_items(root_path,relative_path,name,extension,is_directory,size_bytes,modified_unix,checksum_sha256,owner_username,owner_identifier,group_name,group_identifier,is_accessible,last_seen_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,1,CURRENT_TIMESTAMP) ON CONFLICT(root_path,relative_path) DO UPDATE SET name=excluded.name,extension=excluded.extension,is_directory=excluded.is_directory,size_bytes=excluded.size_bytes,modified_unix=excluded.modified_unix,checksum_sha256=excluded.checksum_sha256,owner_username=excluded.owner_username,owner_identifier=excluded.owner_identifier,group_name=excluded.group_name,group_identifier=excluded.group_identifier,is_accessible=1,last_seen_at=CURRENT_TIMESTAMP",params![i.root_path,i.relative_path,i.name,i.extension,i.is_directory,i.size_bytes as i64,i.modified_unix,i.checksum_sha256,i.owner_username,i.owner_identifier,i.group_name,i.group_identifier])?;
+        tx.execute("INSERT INTO local_file_items(root_path,relative_path,name,extension,is_directory,size_bytes,modified_unix,checksum_sha256,owner_username,owner_identifier,group_name,group_identifier,is_symlink,symlink_target,is_accessible,last_seen_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,1,CURRENT_TIMESTAMP) ON CONFLICT(root_path,relative_path) DO UPDATE SET name=excluded.name,extension=excluded.extension,is_directory=excluded.is_directory,size_bytes=excluded.size_bytes,modified_unix=excluded.modified_unix,checksum_sha256=excluded.checksum_sha256,owner_username=excluded.owner_username,owner_identifier=excluded.owner_identifier,group_name=excluded.group_name,group_identifier=excluded.group_identifier,is_symlink=excluded.is_symlink,symlink_target=excluded.symlink_target,is_accessible=1,last_seen_at=CURRENT_TIMESTAMP",params![i.root_path,i.relative_path,i.name,i.extension,i.is_directory,i.size_bytes as i64,i.modified_unix,i.checksum_sha256,i.owner_username,i.owner_identifier,i.group_name,i.group_identifier,i.is_symlink,i.symlink_target])?;
     }
+    tx.execute(
+        "UPDATE local_file_items AS folder
+         SET size_bytes = COALESCE((
+             SELECT SUM(file.size_bytes) FROM local_file_items AS file
+             WHERE file.is_accessible = 1 AND file.is_directory = 0
+               AND file.root_path = folder.root_path
+               AND substr(file.relative_path, 1, length(folder.relative_path) + 1)
+                   = folder.relative_path || '/'
+         ), 0)
+         WHERE folder.is_accessible = 1 AND folder.is_directory = 1",
+        [],
+    )?;
     tx.execute("INSERT INTO settings(key,value,updated_at) VALUES('local_files.last_sync_at',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP",[])?;
     tx.commit()?;
     Ok(())
@@ -77,6 +94,7 @@ pub fn list_children(
     descending: bool,
 ) -> Result<Vec<Row>, DatabaseError> {
     let c = db.connect()?;
+    let (modified_comparison, modified_value) = parse_modified_filter(modified)?;
     let order = match sort {
         "path" => "i.relative_path",
         "type" => "i.is_directory DESC,i.extension",
@@ -89,7 +107,7 @@ pub fn list_children(
     };
     let direction = if descending { "DESC" } else { "ASC" };
     let sql = format!(
-        "SELECT i.id,i.root_path,i.relative_path,i.name,i.extension,i.is_directory,i.size_bytes,i.modified_unix,i.checksum_sha256,CASE WHEN i.checksum_sha256='' THEN 0 ELSE (SELECT COUNT(*) FROM local_file_items d WHERE d.is_accessible=1 AND d.checksum_sha256=i.checksum_sha256) END copies,(SELECT group_concat(t.slug||char(30)||t.name||char(30)||t.color||char(30)||t.description,char(31)) FROM local_file_tags lft JOIN tags t ON t.id=lft.tag_id WHERE lft.local_file_id=i.id),i.owner_username,i.owner_identifier,COALESCE(p.id,0),COALESCE(p.display_name,''),i.group_name,i.group_identifier FROM local_file_items i LEFT JOIN principals p ON lower(p.username)=lower(i.owner_username) WHERE i.is_accessible=1 AND i.root_path=?1 AND ((?10='' AND ((?2='' AND instr(i.relative_path,'/')=0) OR (?2<>'' AND i.relative_path LIKE ?2||'/%' AND instr(substr(i.relative_path,length(?2)+2),'/')=0))) OR (?10<>'' AND (instr(lower(i.name),lower(?10))>0 OR instr(lower(i.relative_path),lower(?10))>0))) AND (?3='' OR instr(lower(i.name),lower(?3))>0) AND (?4='' OR instr(lower(i.relative_path),lower(?4))>0) AND (?5='' OR (?5='folder' AND i.is_directory=1) OR (?5='file' AND i.is_directory=0) OR lower(i.extension)=lower(?5)) AND (?6='' OR CAST(i.size_bytes AS TEXT) LIKE '%'||?6||'%') AND (?7='' OR datetime(i.modified_unix,'unixepoch') LIKE '%'||?7||'%') AND (?8='' OR (?8='__untagged__' AND NOT EXISTS(SELECT 1 FROM local_file_tags x WHERE x.local_file_id=i.id)) OR EXISTS(SELECT 1 FROM local_file_tags x JOIN tags xt ON xt.id=x.tag_id WHERE x.local_file_id=i.id AND xt.slug=?8)) AND (?9=0 OR (i.checksum_sha256<>'' AND (SELECT COUNT(*) FROM local_file_items d WHERE d.is_accessible=1 AND d.checksum_sha256=i.checksum_sha256)>1)) ORDER BY i.is_directory DESC,{order} {direction}"
+        "SELECT i.id,i.root_path,i.relative_path,i.name,i.extension,i.is_directory,i.size_bytes,i.modified_unix,i.checksum_sha256,CASE WHEN i.checksum_sha256='' THEN 0 ELSE (SELECT COUNT(*) FROM local_file_items d WHERE d.is_accessible=1 AND d.checksum_sha256=i.checksum_sha256) END copies,(SELECT group_concat(t.slug||char(30)||t.name||char(30)||t.color||char(30)||t.description,char(31)) FROM local_file_tags lft JOIN tags t ON t.id=lft.tag_id WHERE lft.local_file_id=i.id),i.owner_username,i.owner_identifier,COALESCE(p.id,0),COALESCE(p.display_name,''),i.group_name,i.group_identifier,i.is_symlink,i.symlink_target FROM local_file_items i LEFT JOIN principals p ON lower(p.username)=lower(i.owner_username) WHERE i.is_accessible=1 AND i.root_path=?1 AND ((?10='' AND ((?2='' AND instr(i.relative_path,'/')=0) OR (?2<>'' AND i.relative_path LIKE ?2||'/%' AND instr(substr(i.relative_path,length(?2)+2),'/')=0))) OR (?10<>'' AND (instr(lower(i.name),lower(?10))>0 OR instr(lower(i.relative_path),lower(?10))>0))) AND (?3='' OR instr(lower(i.name),lower(?3))>0) AND (?4='' OR instr(lower(i.relative_path),lower(?4))>0) AND (?5='' OR (?5='folder' AND i.is_directory=1) OR (?5='file' AND i.is_directory=0) OR lower(i.extension)=lower(?5)) AND (?6='' OR CAST(i.size_bytes AS TEXT) LIKE '%'||?6||'%') AND (?11=0 OR (?11=1 AND datetime(i.modified_unix,'unixepoch','localtime') > replace(?7,'T',' ')) OR (?11=2 AND datetime(i.modified_unix,'unixepoch','localtime') >= replace(?7,'T',' ')) OR (?11=3 AND datetime(i.modified_unix,'unixepoch','localtime') < replace(?7,'T',' ')) OR (?11=4 AND datetime(i.modified_unix,'unixepoch','localtime') <= replace(?7,'T',' ')) OR (?11=5 AND substr(datetime(i.modified_unix,'unixepoch','localtime'),1,length(?7))=replace(?7,'T',' '))) AND (?8='' OR (?8='__untagged__' AND NOT EXISTS(SELECT 1 FROM local_file_tags x WHERE x.local_file_id=i.id)) OR EXISTS(SELECT 1 FROM local_file_tags x JOIN tags xt ON xt.id=x.tag_id WHERE x.local_file_id=i.id AND xt.slug=?8)) AND (?9=0 OR (i.checksum_sha256<>'' AND (SELECT COUNT(*) FROM local_file_items d WHERE d.is_accessible=1 AND d.checksum_sha256=i.checksum_sha256)>1)) ORDER BY i.is_directory DESC,{order} {direction}"
     );
     let mut s = c.prepare(&sql)?;
     let rows = s.query_map(
@@ -100,20 +118,30 @@ pub fn list_children(
             path,
             item_type,
             size,
-            modified,
+            modified_value,
             tag,
             duplicates_only,
-            search
+            search,
+            modified_comparison
         ],
         |r| {
             let bytes = r.get::<_, i64>(6)? as u64;
+            let root_path: String = r.get(1)?;
+            let relative_path: String = r.get(2)?;
+            let extension: String = r.get(4)?;
+            let is_directory: bool = r.get(5)?;
             Ok(Row {
                 id: r.get(0)?,
-                root_path: r.get(1)?,
-                relative_path: r.get(2)?,
+                full_path: Path::new(&root_path)
+                    .join(&relative_path)
+                    .to_string_lossy()
+                    .into_owned(),
+                root_path,
+                relative_path,
                 name: r.get(3)?,
-                extension: r.get(4)?,
-                is_directory: r.get(5)?,
+                icon_class: file_icon_class(&extension),
+                extension,
+                is_directory,
                 size_bytes: bytes,
                 size_label: format_bytes(bytes),
                 modified_unix: r.get(7)?,
@@ -127,10 +155,56 @@ pub fn list_children(
                 owner_display_name: r.get(14)?,
                 group_name: r.get(15)?,
                 group_identifier: r.get(16)?,
+                is_symlink: r.get(17)?,
+                symlink_target: r.get(18)?,
             })
         },
     )?;
     Ok(rows.collect::<Result<_, _>>()?)
+}
+
+fn parse_modified_filter(filter: &str) -> Result<(i64, String), DatabaseError> {
+    let filter = filter.trim();
+    if filter.is_empty() {
+        return Ok((0, String::new()));
+    }
+    let (comparison, value) = if let Some(value) = filter.strip_prefix(">=") {
+        (2, value)
+    } else if let Some(value) = filter.strip_prefix("<=") {
+        (4, value)
+    } else if let Some(value) = filter.strip_prefix('>') {
+        (1, value)
+    } else if let Some(value) = filter.strip_prefix('<') {
+        (3, value)
+    } else if let Some(value) = filter.strip_prefix('=') {
+        (5, value)
+    } else {
+        (5, filter)
+    };
+    let value = value.trim();
+    let date = value.len() == 10
+        && value.as_bytes()[4] == b'-'
+        && value.as_bytes()[7] == b'-'
+        && value
+            .chars()
+            .enumerate()
+            .all(|(index, character)| index == 4 || index == 7 || character.is_ascii_digit());
+    let timestamp = value.len() == 19
+        && value.as_bytes()[4] == b'-'
+        && value.as_bytes()[7] == b'-'
+        && matches!(value.as_bytes()[10], b'T' | b' ')
+        && value.as_bytes()[13] == b':'
+        && value.as_bytes()[16] == b':'
+        && value.chars().enumerate().all(|(index, character)| {
+            matches!(index, 4 | 7 | 10 | 13 | 16) || character.is_ascii_digit()
+        });
+    if !date && !timestamp {
+        return Err(format!(
+            "Invalid modified-time filter '{filter}'. Try >2026-01-01 or <=2026-01-01T12:00:00."
+        )
+        .into());
+    }
+    Ok((comparison, value.to_string()))
 }
 
 pub fn change_tags(
@@ -186,12 +260,67 @@ fn format_unix(value: i64) -> String {
     if value <= 0 {
         String::new()
     } else {
-        value.to_string()
+        local_iso_datetime(value)
+    }
+}
+
+#[cfg(unix)]
+fn local_iso_datetime(value: i64) -> String {
+    let timestamp = value as libc::time_t;
+    let mut local = unsafe { std::mem::zeroed::<libc::tm>() };
+    if unsafe { libc::localtime_r(&timestamp, &mut local) }.is_null() {
+        return String::new();
+    }
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+        local.tm_year + 1900,
+        local.tm_mon + 1,
+        local.tm_mday,
+        local.tm_hour,
+        local.tm_min,
+        local.tm_sec
+    )
+}
+
+#[cfg(windows)]
+fn local_iso_datetime(value: i64) -> String {
+    let timestamp = value as libc::time_t;
+    let mut local = unsafe { std::mem::zeroed::<libc::tm>() };
+    if unsafe { libc::localtime_s(&mut local, &timestamp) } != 0 {
+        return String::new();
+    }
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+        local.tm_year + 1900,
+        local.tm_mon + 1,
+        local.tm_mday,
+        local.tm_hour,
+        local.tm_min,
+        local.tm_sec
+    )
+}
+
+fn file_icon_class(extension: &str) -> &'static str {
+    match extension.to_ascii_lowercase().as_str() {
+        "pdf" => "bi-file-earmark-pdf text-danger",
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "tif" | "tiff" | "bmp" => {
+            "bi-file-earmark-image text-success"
+        }
+        "mp3" | "wav" | "flac" | "m4a" | "ogg" => "bi-file-earmark-music text-primary",
+        "mp4" | "mov" | "mkv" | "avi" | "webm" => "bi-file-earmark-play text-primary",
+        "zip" | "tar" | "gz" | "bz2" | "xz" | "7z" | "rar" => "bi-file-earmark-zip text-warning",
+        "xls" | "xlsx" | "ods" | "csv" => "bi-file-earmark-excel text-success",
+        "doc" | "docx" | "odt" | "rtf" => "bi-file-earmark-word text-primary",
+        "ppt" | "pptx" | "odp" => "bi-file-earmark-slides text-danger",
+        "rs" | "py" | "js" | "ts" | "html" | "css" | "json" | "toml" | "yaml" | "yml" | "xml"
+        | "sh" => "bi-file-earmark-code text-primary",
+        "txt" | "md" | "log" => "bi-file-earmark-text",
+        _ => "bi-file-earmark",
     }
 }
 pub fn summary(db: &Database) -> Result<Summary, DatabaseError> {
     let c = db.connect()?;
-    let mut summary=c.query_row("SELECT COALESCE(SUM(CASE WHEN is_directory=0 THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN is_directory=1 THEN 1 ELSE 0 END),0),COALESCE(SUM(size_bytes),0),(SELECT COUNT(*) FROM (SELECT checksum_sha256 FROM local_file_items WHERE is_accessible=1 AND checksum_sha256<>'' GROUP BY checksum_sha256 HAVING COUNT(*)>1)),(SELECT COALESCE(SUM((copies-1)*size_bytes),0) FROM (SELECT size_bytes,COUNT(*) copies FROM local_file_items WHERE is_accessible=1 AND checksum_sha256<>'' GROUP BY checksum_sha256,size_bytes HAVING COUNT(*)>1)),COALESCE((SELECT value FROM settings WHERE key='local_files.last_sync_at'),'') FROM local_file_items WHERE is_accessible=1",[],|r|Ok(Summary{files:r.get::<_,i64>(0)? as u64,folders:r.get::<_,i64>(1)? as u64,bytes:r.get::<_,i64>(2)? as u64,size_label:String::new(),duplicate_groups:r.get::<_,i64>(3)? as u64,duplicate_bytes:r.get::<_,i64>(4)? as u64,duplicate_size_label:String::new(),completed_at:r.get(5)?}))?;
+    let mut summary=c.query_row("SELECT COALESCE(SUM(CASE WHEN is_directory=0 THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN is_directory=1 THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN is_directory=0 THEN size_bytes ELSE 0 END),0),(SELECT COUNT(*) FROM (SELECT checksum_sha256 FROM local_file_items WHERE is_accessible=1 AND checksum_sha256<>'' GROUP BY checksum_sha256 HAVING COUNT(*)>1)),(SELECT COALESCE(SUM((copies-1)*size_bytes),0) FROM (SELECT size_bytes,COUNT(*) copies FROM local_file_items WHERE is_accessible=1 AND checksum_sha256<>'' GROUP BY checksum_sha256,size_bytes HAVING COUNT(*)>1)),COALESCE((SELECT value FROM settings WHERE key='local_files.last_sync_at'),'') FROM local_file_items WHERE is_accessible=1",[],|r|Ok(Summary{files:r.get::<_,i64>(0)? as u64,folders:r.get::<_,i64>(1)? as u64,bytes:r.get::<_,i64>(2)? as u64,size_label:String::new(),duplicate_groups:r.get::<_,i64>(3)? as u64,duplicate_bytes:r.get::<_,i64>(4)? as u64,duplicate_size_label:String::new(),completed_at:r.get(5)?}))?;
     summary.size_label = format_bytes(summary.bytes);
     summary.duplicate_size_label = format_bytes(summary.duplicate_bytes);
     Ok(summary)
@@ -214,11 +343,34 @@ fn format_bytes(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::format_bytes;
+    use super::{file_icon_class, format_bytes, format_unix, parse_modified_filter};
     #[test]
     fn formats_local_file_sizes_with_adaptive_units() {
         assert_eq!(format_bytes(2_208_400_000_000), "2.2 TB");
         assert_eq!(format_bytes(1_250_000), "1.2 MB");
         assert_eq!(format_bytes(42), "42 B");
+    }
+
+    #[test]
+    fn formats_local_timestamps_and_file_icons() {
+        let timestamp = format_unix(1_788_243_845);
+        assert_eq!(timestamp.len(), 19);
+        assert_eq!(timestamp.as_bytes()[4], b'-');
+        assert_eq!(timestamp.as_bytes()[10], b'T');
+        assert_eq!(file_icon_class("PDF"), "bi-file-earmark-pdf text-danger");
+        assert_eq!(file_icon_class("jpg"), "bi-file-earmark-image text-success");
+    }
+
+    #[test]
+    fn parses_before_and_after_modified_time_filters() {
+        assert_eq!(
+            parse_modified_filter(">2026-01-01").expect("date filter should parse"),
+            (1, "2026-01-01".to_string())
+        );
+        assert_eq!(
+            parse_modified_filter("<=2026-01-01T12:30:45").expect("timestamp filter should parse"),
+            (4, "2026-01-01T12:30:45".to_string())
+        );
+        assert!(parse_modified_filter("tomorrow").is_err());
     }
 }

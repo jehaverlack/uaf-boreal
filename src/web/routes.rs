@@ -745,6 +745,21 @@ struct MetadataUpdateModalTemplate {
     keeper_available: bool,
     local_files_available: bool,
     s3_available: bool,
+    directory_estimate: MetadataTimingView,
+    my_drive_estimate: MetadataTimingView,
+    shared_with_me_estimate: MetadataTimingView,
+    shared_drives_estimate: MetadataTimingView,
+    specific_shared_drive_estimate: MetadataTimingView,
+    github_estimate: MetadataTimingView,
+    keeper_estimate: MetadataTimingView,
+    local_files_estimate: MetadataTimingView,
+    s3_estimate: MetadataTimingView,
+}
+
+#[derive(Clone, Default)]
+struct MetadataTimingView {
+    seconds: u64,
+    label: String,
 }
 
 #[allow(dead_code)]
@@ -6323,7 +6338,36 @@ async fn ui_metadata_update_modal(
             .ok()
             .and_then(|database| database::settings::load(&database).ok())
             .is_some_and(|settings| settings.s3_enabled && !settings.s3_remote_name.is_empty()),
+        directory_estimate: metadata_timing_view(&state, "directory"),
+        my_drive_estimate: metadata_timing_view(&state, "my-drive"),
+        shared_with_me_estimate: metadata_timing_view(&state, "shared-with-me"),
+        shared_drives_estimate: metadata_timing_view(&state, "shared-drives"),
+        specific_shared_drive_estimate: metadata_timing_view(&state, "specific-shared-drive"),
+        github_estimate: metadata_timing_view(&state, "github"),
+        keeper_estimate: metadata_timing_view(&state, "keeper"),
+        local_files_estimate: metadata_timing_view(&state, "local-files"),
+        s3_estimate: metadata_timing_view(&state, "s3"),
     })
+}
+
+fn metadata_timing_view(state: &AppState, source: &str) -> MetadataTimingView {
+    state
+        .database()
+        .ok()
+        .and_then(|database| database.metadata_timing_estimate(source).ok().flatten())
+        .map(|estimate| MetadataTimingView {
+            seconds: estimate.average_seconds,
+            label: format!(
+                "about {} from {} prior update{}",
+                format_duration(estimate.average_seconds),
+                estimate.sample_count,
+                if estimate.sample_count == 1 { "" } else { "s" }
+            ),
+        })
+        .unwrap_or_else(|| MetadataTimingView {
+            seconds: 0,
+            label: "timing history not available yet".to_string(),
+        })
 }
 
 fn metadata_scope_progress_views(
@@ -6414,7 +6458,7 @@ fn metadata_scope_progress_views(
     };
 
     [
-        ("Persons", selection.directory_info, "", directory),
+        ("Persons", selection.directory_info, "directory", directory),
         ("My Drive", selection.my_drive, "my-drive", my_drive),
         (
             "Shared with me",
@@ -6429,13 +6473,22 @@ fn metadata_scope_progress_views(
                 "All Shared Drives"
             },
             selection.shared_drives || selection.specific_shared_drive,
-            "shared-drives",
+            if selection.specific_shared_drive {
+                "specific-shared-drive"
+            } else {
+                "shared-drives"
+            },
             shared_drives,
         ),
-        ("GitHub", selection.github, "", github),
-        ("Keeper", selection.keeper, "", keeper),
-        ("Local Files", selection.local_files, "", local_files),
-        ("S3-compatible storage", selection.s3, "", s3),
+        ("GitHub", selection.github, "github", github),
+        ("Keeper", selection.keeper, "keeper", keeper),
+        (
+            "Local Files",
+            selection.local_files,
+            "local-files",
+            local_files,
+        ),
+        ("S3-compatible storage", selection.s3, "s3", s3),
     ]
     .into_iter()
     .map(
@@ -6458,6 +6511,10 @@ fn metadata_scope_progress_views(
                         })
                         .flatten()
                 });
+            let historical_timing = selected
+                .then(|| state.database().ok())
+                .flatten()
+                .and_then(|database| database.metadata_timing_estimate(scan_type).ok().flatten());
             if active {
                 if let Some(timing) = timing.as_ref() {
                     let time_percent = (timing.elapsed_seconds.saturating_mul(100)
@@ -6483,7 +6540,7 @@ fn metadata_scope_progress_views(
                             String::new()
                         }
                     }),
-                estimate_label: timing
+                estimate_label: historical_timing
                     .as_ref()
                     .map(|value| {
                         format!(
