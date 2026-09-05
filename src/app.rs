@@ -134,6 +134,7 @@ pub struct MetadataSummary {
 pub struct MetadataUpdateSelection {
     pub my_drive: bool,
     pub shared_drives: bool,
+    pub specific_shared_drive: bool,
     pub shared_with_me: bool,
     pub directory_info: bool,
     pub github: bool,
@@ -792,9 +793,11 @@ impl AppState {
     pub fn start_metadata_update(
         state: Arc<Self>,
         selection: MetadataUpdateSelection,
+        specific_shared_drive_id: String,
     ) -> Result<(), String> {
         if !selection.my_drive
             && !selection.shared_drives
+            && !selection.specific_shared_drive
             && !selection.shared_with_me
             && !selection.directory_info
             && !selection.github
@@ -827,6 +830,7 @@ impl AppState {
 
         let google_selected = selection.my_drive
             || selection.shared_drives
+            || selection.specific_shared_drive
             || selection.shared_with_me
             || selection.directory_info;
         let rclone_path = if google_selected || selection.s3 {
@@ -913,9 +917,10 @@ impl AppState {
         };
 
         println!(
-            "Metadata update started: my_drive={}, shared_drives={}, shared_with_me={}, directory_info={}, github={}, keeper={}, local_files={}, s3={}, remote=my-drive-ro, permissions={permission_scanning}",
+            "Metadata update started: my_drive={}, shared_drives={}, specific_shared_drive={}, shared_with_me={}, directory_info={}, github={}, keeper={}, local_files={}, s3={}, remote=my-drive-ro, permissions={permission_scanning}",
             selection.my_drive,
             selection.shared_drives,
+            selection.specific_shared_drive,
             selection.shared_with_me,
             selection.directory_info,
             selection.github,
@@ -1107,7 +1112,7 @@ impl AppState {
                         database::inventory::latest_summary_for(&database, "shared-with-me")?.unwrap_or_default()
                     };
                     let mut shared_drives_summary = database::inventory::InventorySummary::default();
-                    if selection.shared_drives {
+                    if selection.shared_drives || selection.specific_shared_drive {
                     worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
                         selection,
                         phase: "Discovering Shared Drives".to_string(),
@@ -1117,14 +1122,30 @@ impl AppState {
                         bytes_discovered: bytes,
                         errors: 0,
                     }));
-                    let shared_drives = rclone::inventory::discover_shared_drives(
+                    let mut shared_drives = rclone::inventory::discover_shared_drives(
                         &worker_state.runtime,
                         &rclone_path,
                     )?;
+                    if selection.specific_shared_drive {
+                        shared_drives.retain(|drive| drive.id == specific_shared_drive_id);
+                        if shared_drives.is_empty() {
+                            return Err(format!(
+                                "The URL does not identify a Shared Drive accessible through the configured Google account: {specific_shared_drive_id}"
+                            ).into());
+                        }
+                    }
                     let discovered = shared_drives.iter()
                         .map(|drive| (drive.id.clone(), drive.name.clone()))
                         .collect::<Vec<_>>();
-                    database::inventory::reconcile_shared_drives(&database, &discovered)?;
+                    if selection.shared_drives {
+                        database::inventory::reconcile_shared_drives(&database, &discovered)?;
+                    } else if let Some(drive) = shared_drives.first() {
+                        database::inventory::record_shared_drive(
+                            &database,
+                            &drive.id,
+                            &drive.name,
+                        )?;
+                    }
                     log::info!("Shared Drive discovery completed: drives={}", shared_drives.len());
                     let mut shared_drive_errors = 0_u64;
                     if permission_scanning {
@@ -1226,7 +1247,9 @@ impl AppState {
                         }
                     }
                     shared_drives_summary = database::inventory::shared_drives_aggregate(&database)?;
-                    database.complete_scan_run(shared_drives_scan_id, &shared_drives_summary)?;
+                    if selection.shared_drives {
+                        database.complete_scan_run(shared_drives_scan_id, &shared_drives_summary)?;
+                    }
                     }
                     if selection.github {
                         worker_state.set_metadata_state(MetadataState::Updating(MetadataProgress {
@@ -1290,7 +1313,7 @@ impl AppState {
 
             match result {
                 Ok(Ok((summary, shared_drives_summary, shared_summary))) => {
-                    if selection.shared_drives {
+                    if selection.shared_drives || selection.specific_shared_drive {
                         println!(
                             "Shared Drives update completed: scan_id={shared_drives_scan_id}, files={}, folders={}, permissions={}, bytes={}, deleted_items={}",
                             shared_drives_summary.files_scanned,
@@ -1409,6 +1432,7 @@ impl AppState {
             my_drive: inventory_scope == database::inventory::MY_DRIVE_SCOPE,
             shared_drives: !drive_ids.is_empty()
                 || inventory_scope.starts_with(database::inventory::SHARED_DRIVE_SCOPE_PREFIX),
+            specific_shared_drive: false,
             shared_with_me: inventory_scope == database::inventory::SHARED_WITH_ME_SCOPE,
             directory_info: false,
             github: false,

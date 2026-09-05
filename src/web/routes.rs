@@ -1124,6 +1124,8 @@ struct MetadataUpdateForm {
     #[serde(default)]
     shared_drives: Option<String>,
     #[serde(default)]
+    specific_shared_drive_url: String,
+    #[serde(default)]
     shared_with_me: Option<String>,
     #[serde(default)]
     directory_info: Option<String>,
@@ -6332,8 +6334,12 @@ fn metadata_scope_progress_views(
             shared_with_me,
         ),
         (
-            "Shared Drives",
-            selection.shared_drives,
+            if selection.specific_shared_drive {
+                "One Shared Drive"
+            } else {
+                "All Shared Drives"
+            },
+            selection.shared_drives || selection.specific_shared_drive,
             "shared-drives",
             shared_drives,
         ),
@@ -6569,15 +6575,30 @@ async fn start_metadata_update(
 
     let google_selected = form.my_drive.is_some()
         || form.shared_drives.is_some()
+        || !form.specific_shared_drive_url.trim().is_empty()
         || form.shared_with_me.is_some()
         || form.directory_info.is_some();
     if google_selected && !matches!(remotes.ro, RemoteState::Ready) {
         return Err(StatusCode::PRECONDITION_FAILED);
     }
 
+    let mut specific_shared_drive_id = if form.specific_shared_drive_url.trim().is_empty() {
+        String::new()
+    } else {
+        google_drive_folder_id(&form.specific_shared_drive_url).map_err(|error| {
+            log::warn!("Invalid targeted Shared Drive URL: {error}");
+            StatusCode::BAD_REQUEST
+        })?
+    };
+    if form.shared_drives.is_some() && !specific_shared_drive_id.is_empty() {
+        log::info!("All Shared Drives selected; ignoring the specific Shared Drive URL");
+        specific_shared_drive_id.clear();
+    }
+
     let selection = crate::app::MetadataUpdateSelection {
         my_drive: form.my_drive.is_some(),
         shared_drives: form.shared_drives.is_some(),
+        specific_shared_drive: !specific_shared_drive_id.is_empty(),
         shared_with_me: form.shared_with_me.is_some(),
         directory_info: form.directory_info.is_some(),
         github: form.github.is_some(),
@@ -6589,10 +6610,12 @@ async fn start_metadata_update(
         database::settings::set_metadata_setup_skipped(&database, false)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
-    AppState::start_metadata_update(state, selection).map_err(|error| {
-        eprintln!("Unable to start metadata update: {error}");
-        StatusCode::CONFLICT
-    })?;
+    AppState::start_metadata_update(state, selection, specific_shared_drive_id).map_err(
+        |error| {
+            eprintln!("Unable to start metadata update: {error}");
+            StatusCode::CONFLICT
+        },
+    )?;
 
     Ok(Redirect::to("/"))
 }
@@ -7092,6 +7115,18 @@ mod tests {
     }
 
     #[test]
+    fn extracts_a_shared_drive_root_id_from_its_url() {
+        assert_eq!(
+            google_drive_folder_id(
+                "https://drive.google.com/drive/u/0/folders/0AExampleSharedDrive123"
+            )
+            .expect("Shared Drive URL should parse"),
+            "0AExampleSharedDrive123"
+        );
+        assert!(google_drive_folder_id("https://example.com/not-a-drive").is_err());
+    }
+
+    #[test]
     fn active_scope_progress_does_not_replace_my_drive_summary() {
         let my_drive = database::inventory::InventorySummary {
             completed_at: "2026-08-30 12:00:00".to_string(),
@@ -7105,6 +7140,7 @@ mod tests {
             selection: crate::app::MetadataUpdateSelection {
                 my_drive: false,
                 shared_drives: true,
+                specific_shared_drive: false,
                 shared_with_me: false,
                 directory_info: false,
                 github: false,

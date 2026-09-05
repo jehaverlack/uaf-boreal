@@ -162,6 +162,23 @@ pub fn reconcile_shared_drives(
     Ok(())
 }
 
+pub fn record_shared_drive(
+    database: &Database,
+    drive_id: &str,
+    name: &str,
+) -> Result<(), DatabaseError> {
+    let connection = database.connect()?;
+    connection.execute(
+        "INSERT INTO shared_drives (drive_id, name, inventory_scope)
+         VALUES (?1, ?2, ?3)
+         ON CONFLICT(drive_id) DO UPDATE SET name = excluded.name,
+            inventory_scope = excluded.inventory_scope, is_accessible = 1,
+            last_seen_at = CURRENT_TIMESTAMP",
+        params![drive_id, name, shared_drive_scope(drive_id)],
+    )?;
+    Ok(())
+}
+
 pub fn list_shared_drives(database: &Database) -> Result<Vec<SharedDriveRow>, DatabaseError> {
     list_shared_drives_filtered(database, "", "", "", "", "", "", "", "")
 }
